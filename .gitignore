@@ -11,3 +11,5 @@ node_modules/
 *.egg-info/
 web/node_modules/
 web/.next/
+
+.dev_pipeline/
