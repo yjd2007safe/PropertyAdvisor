@@ -3,7 +3,7 @@ from __future__ import annotations
 """Typed API response models for MVP routes."""
 
 from datetime import datetime
-from typing import Literal
+from typing import List, Literal
 
 from pydantic import BaseModel
 
@@ -33,7 +33,7 @@ class SuburbOverviewItem(BaseModel):
 class SuburbsOverviewResponse(BaseModel):
     generated_at: datetime
     summary: SuburbOverviewSummary
-    items: list[SuburbOverviewItem]
+    items: List[SuburbOverviewItem]
 
 
 class SubjectProperty(BaseModel):
@@ -47,7 +47,7 @@ class PropertyAdvice(BaseModel):
     recommendation: Literal["watch", "consider", "pass"]
     confidence: Literal["low", "medium", "high"]
     headline: str
-    next_steps: list[str]
+    next_steps: List[str]
 
 
 class PropertyAdvisorResponse(BaseModel):
@@ -65,4 +65,4 @@ class ComparableItem(BaseModel):
 class ComparablesResponse(BaseModel):
     subject: str
     set_quality: str
-    items: list[ComparableItem]
+    items: List[ComparableItem]
