@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Comparable selection utilities."""
 
 from typing import Any

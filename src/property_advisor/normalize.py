@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Normalization helpers for PropertyAdvisor's canonical property model."""
 
 from typing import Any

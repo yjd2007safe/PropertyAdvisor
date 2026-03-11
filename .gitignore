@@ -7,3 +7,7 @@ logs/
 reports/
 node_modules/
 .next/
+
+*.egg-info/
+web/node_modules/
+web/.next/

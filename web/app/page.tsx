@@ -1,37 +1,61 @@
-const pillars = [
+const workflowCards = [
   {
-    title: "Ingest",
-    description: "Collect listing, sales, rental, and suburb inputs into a single intake flow."
+    title: "Suburb Dashboard",
+    description: "Track suburb-level pricing, rent, yield cues, and dashboard freshness before deeper analysis.",
+    href: "/suburbs"
   },
   {
-    title: "Normalize",
-    description: "Convert raw source data into a consistent property-centric model."
+    title: "Property Advisor",
+    description: "Review a specific property with placeholder recommendation framing and clean integration points for real logic.",
+    href: "/advisor"
   },
   {
-    title: "Advise",
-    description: "Support underwriting with comparable context, market metrics, and alert-ready outputs."
+    title: "Comparables",
+    description: "Inspect the first comparable-set view and prepare the workflow for scoring, rationale, and evidence traceability.",
+    href: "/comparables"
   }
+];
+
+const checklist = [
+  "FastAPI skeleton ready for real services",
+  "Postgres schema bootstrap flow documented locally",
+  "Next.js information architecture aligned to MVP use cases"
 ];
 
 export default function HomePage() {
   return (
-    <main className="page-shell">
-      <section className="hero">
-        <p className="eyebrow">PropertyAdvisor MVP</p>
-        <h1>Operational scaffolding for a property intelligence web app.</h1>
+    <main>
+      <section className="hero panel">
+        <p className="eyebrow">Property acquisition intelligence</p>
+        <h2>One workspace for suburb signals, property advice, and comparable evidence.</h2>
         <p className="lede">
-          This initial shell is ready for the next implementation pass across data intake,
-          normalization, comparables, market metrics, advisory workflows, and alerting.
+          This MVP foundation is intentionally lightweight: enough structure to run locally,
+          navigate the product, and plug real market data into a coherent API and web app.
         </p>
       </section>
 
-      <section className="pillars" aria-label="Core workflow pillars">
-        {pillars.map((pillar) => (
-          <article className="card" key={pillar.title}>
-            <h2>{pillar.title}</h2>
-            <p>{pillar.description}</p>
+      <section className="stats-grid" aria-label="MVP foundation status">
+        {checklist.map((item) => (
+          <article className="panel stat-card" key={item}>
+            <p>{item}</p>
           </article>
         ))}
+      </section>
+
+      <section className="section-block">
+        <div className="section-heading">
+          <p className="eyebrow">Core flows</p>
+          <h3>Start with the three surfaces that matter most.</h3>
+        </div>
+        <div className="card-grid">
+          {workflowCards.map((card) => (
+            <a className="panel product-card" href={card.href} key={card.title}>
+              <h4>{card.title}</h4>
+              <p>{card.description}</p>
+              <span>Open flow →</span>
+            </a>
+          ))}
+        </div>
       </section>
     </main>
   );

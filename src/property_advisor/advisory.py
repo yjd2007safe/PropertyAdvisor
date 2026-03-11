@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Advisory output assembly for property-level recommendations."""
 
 from typing import Any

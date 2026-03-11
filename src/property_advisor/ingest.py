@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 """Ingestion entry points for external property and market data sources."""
 
 from dataclasses import dataclass
 from typing import Any
 
 
-@dataclass(slots=True)
+@dataclass
 class IngestJob:
     """Represents a unit of inbound source processing."""
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Alert evaluation placeholders for user-facing signals."""
 
 from typing import Any

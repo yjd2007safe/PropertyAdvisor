@@ -1,65 +1,90 @@
 # PropertyAdvisor
 
-PropertyAdvisor is a web application for turning raw property and market data into normalized records, comparable sets, advisory outputs, and user-facing alerts.
+PropertyAdvisor is a pure web application for turning property and market data into suburb dashboards, comparable evidence, and property-level advisory workflows.
 
-This repository now includes an implementation-ready MVP scaffold aligned to the v1 product and architecture docs, with:
+This repository now includes a usable MVP foundation aligned to the v1 product and architecture docs, with:
 
-- `web/` for the Next.js frontend shell
-- `src/property_advisor/` for backend/domain Python modules
-- `db/` for schema and database-oriented notes
-- `scripts/` for local bootstrap helpers and setup notes
-- `tests/` for lightweight backend smoke coverage
+- `web/` for the Next.js frontend MVP shell
+- `src/property_advisor/` for backend/domain modules and a lightweight FastAPI service
+- `db/` for the canonical schema reference and local bootstrap helpers
+- `scripts/` for backend/web startup utilities
+- `tests/` for smoke coverage across domain and API layers
 
 ## Repository Layout
 
 ```text
 .
 |-- db/
+|   |-- schema_v1.sql
+|   `-- scripts/apply_schema.sh
 |-- docs/
 |-- scripts/
 |-- src/property_advisor/
+|   `-- api/
 |-- tests/
 `-- web/
 ```
 
-Key backend modules:
+## Local MVP Setup
 
-- `ingest`: input adapters and raw record intake
-- `normalize`: canonical property and listing normalization
-- `advisory`: recommendation snapshot assembly
-- `comparables`: comparable-set construction helpers
-- `market_metrics`: market rollups and derived indicators
-- `alerts`: alert rule evaluation and notification preparation
-
-## MVP Setup
-
-### 1. Frontend
+### 1. Backend bootstrap
 
 ```bash
-cd web
-npm install
-npm run dev
+python3 -m venv .venv
+source .venv/bin/activate
+./scripts/bootstrap_backend.sh
 ```
 
-The frontend uses the Next.js App Router and currently exposes a product-aligned homepage placeholder for the first implementation pass.
-
-### 2. Backend
+Or just run the helper directly on a clean checkout:
 
 ```bash
-python -m venv .venv
+./scripts/bootstrap_backend.sh
+```
+
+### 2. Database bootstrap
+
+Create a local Postgres database, then apply the checked-in schema:
+
+```bash
+export DATABASE_URL='postgresql://postgres:postgres@localhost:5432/propertyadvisor'
+./db/scripts/apply_schema.sh
+```
+
+This uses `db/schema_v1.sql` locally only. No external deployment flow is configured in this repository.
+
+### 3. Run the API
+
+```bash
 source .venv/bin/activate
-pip install -e .[dev]
+./scripts/start_api.sh
+```
+
+Default API base URL: `http://localhost:8000`
+
+Useful endpoints:
+
+- `GET /api/health`
+- `GET /api/suburbs/overview`
+- `GET /api/advisor/property`
+- `GET /api/comparables`
+
+### 4. Run the web app
+
+```bash
+./scripts/bootstrap_web.sh
+./scripts/start_web.sh
+```
+
+Default web URL: `http://localhost:3000`
+
+### 5. Run smoke tests
+
+```bash
 pytest
 ```
 
-The Python package is intentionally light. It establishes clean module boundaries for ingestion, normalization, comparables, market metrics, advisory logic, and alerts without overcommitting to infrastructure too early.
+## Developer Notes
 
-### 3. Environment
-
-Copy `.env.example` to `.env` and fill only the values needed for the workflow you are implementing.
-
-## Notes
-
-- Existing product and schema documentation remain under `docs/` and `db/schema_v1.sql`.
-- This scaffold is aimed at MVP delivery, not deployment.
-- Dependencies are intentionally minimal so the next engineer can add only what the implementation actually needs.
+- The FastAPI service is intentionally lightweight and placeholder-backed so real data services can plug in later without rewriting the app boundary.
+- The frontend focuses on product information architecture first: Home, Suburb Dashboard, Property Advisor, and Comparables.
+- Existing architecture and scope documentation remain under `docs/` and should continue guiding deeper implementation passes.

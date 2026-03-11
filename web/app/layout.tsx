@@ -1,20 +1,21 @@
-import "./globals.css";
 import type { Metadata } from "next";
-import { ReactNode } from "react";
+import "./globals.css";
+import { Nav } from "../components/nav";
 
 export const metadata: Metadata = {
   title: "PropertyAdvisor",
-  description: "Property and market intelligence for practical acquisition decisions."
+  description: "Property intelligence MVP for suburb, advisory, and comparables workflows."
 };
 
-type RootLayoutProps = {
-  children: ReactNode;
-};
-
-export default function RootLayout({ children }: RootLayoutProps) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <div className="page-shell">
+          <Nav />
+          {children}
+        </div>
+      </body>
     </html>
   );
 }

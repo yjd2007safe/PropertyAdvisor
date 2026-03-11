@@ -3,7 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
+    "bootstrap:backend": "./scripts/bootstrap_backend.sh",
+    "bootstrap:web": "./scripts/bootstrap_web.sh",
     "dev:web": "npm --prefix web run dev",
+    "dev:api": "./scripts/start_api.sh",
     "build:web": "npm --prefix web run build",
     "lint:web": "npm --prefix web run lint",
     "test:backend": "pytest"
