@@ -1,0 +1,11 @@
+{
+  "name": "propertyadvisor",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev:web": "npm --prefix web run dev",
+    "build:web": "npm --prefix web run build",
+    "lint:web": "npm --prefix web run lint",
+    "test:backend": "pytest"
+  }
+}
