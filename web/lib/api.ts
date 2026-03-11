@@ -52,11 +52,23 @@ export type PropertyAdvisorResponse = {
     headline: string;
     next_steps: string[];
   };
+  inputs: {
+    query: string;
+    query_type: "address" | "slug" | "auto";
+    suburb_slug?: string | null;
+  };
 };
 
 export type ComparablesResponse = {
   subject: string;
   set_quality: string;
+  query: string;
+  summary: {
+    count: number;
+    min_price: number;
+    max_price: number;
+    average_price: number;
+  };
   items: {
     address: string;
     price: number;
@@ -66,8 +78,16 @@ export type ComparablesResponse = {
 };
 
 export const getSuburbsOverview = () => getJson<SuburbsOverviewResponse>("/api/suburbs/overview");
-export const getPropertyAdvisor = () => getJson<PropertyAdvisorResponse>("/api/advisor/property");
-export const getComparables = () => getJson<ComparablesResponse>("/api/comparables");
+
+export const getPropertyAdvisor = (query?: string) => {
+  const search = query ? `?query=${encodeURIComponent(query)}` : "";
+  return getJson<PropertyAdvisorResponse>(`/api/advisor/property${search}`);
+};
+
+export const getComparables = (query?: string) => {
+  const search = query ? `?query=${encodeURIComponent(query)}` : "";
+  return getJson<ComparablesResponse>(`/api/comparables${search}`);
+};
 
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-AU", {

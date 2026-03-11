@@ -88,3 +88,10 @@ pytest
 - The FastAPI service is intentionally lightweight and placeholder-backed so real data services can plug in later without rewriting the app boundary.
 - The frontend focuses on product information architecture first: Home, Suburb Dashboard, Property Advisor, and Comparables.
 - Existing architecture and scope documentation remain under `docs/` and should continue guiding deeper implementation passes.
+
+
+### Repository and DB mode toggles
+
+- API services now read through internal repository abstractions (suburbs, advisory inputs, comparables).
+- Keep `PROPERTY_ADVISOR_USE_DB=0` (default) to use safe mock-backed repositories.
+- Set `PROPERTY_ADVISOR_USE_DB=1` with a valid `DATABASE_URL` to activate Postgres repository placeholders for future query wiring.

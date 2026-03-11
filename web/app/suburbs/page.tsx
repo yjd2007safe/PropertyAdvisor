@@ -10,37 +10,35 @@ export default async function SuburbsPage() {
       <section className="panel">
         <p className="eyebrow">Suburb Dashboard</p>
         <h2>Monitor target suburbs before committing to property-level work.</h2>
-        <p className="lede">
-          Showing a practical MVP suburb snapshot from the backend service layer.
-        </p>
+        <p className="lede">Showing a practical MVP suburb snapshot from the backend service layer.</p>
+      </section>
+
+      <section className="stats-grid">
+        <article className="panel stat-card">Tracked suburbs: {suburbs.summary.tracked_suburbs}</article>
+        <article className="panel stat-card">Watchlist suburbs: {suburbs.summary.watchlist_suburbs}</article>
+        <article className="panel stat-card">Data freshness: {suburbs.summary.data_freshness}</article>
       </section>
 
       <section className="table-panel panel">
         <div className="table-header">
-          <h3>Tracked suburbs ({suburbs.summary.tracked_suburbs})</h3>
-          <p>Freshness: {suburbs.summary.data_freshness}</p>
+          <h3>Tracked suburbs</h3>
         </div>
-        <div className="suburb-list">
-          {suburbs.items.map((suburb) => (
-            <article className="suburb-row" key={suburb.slug}>
-              <div>
-                <h4>{suburb.name}</h4>
-                <p>{suburb.trend} market posture</p>
-                <p>{suburb.note}</p>
-              </div>
-              <dl>
-                <div>
-                  <dt>Median price</dt>
-                  <dd>{formatCurrency(suburb.median_price)}</dd>
-                </div>
-                <div>
-                  <dt>Median rent</dt>
-                  <dd>{formatCurrency(suburb.median_rent)}/wk</dd>
-                </div>
-              </dl>
-            </article>
-          ))}
-        </div>
+        <table className="data-table">
+          <thead>
+            <tr><th>Suburb</th><th>Trend</th><th>Median price</th><th>Median rent</th><th>Note</th></tr>
+          </thead>
+          <tbody>
+            {suburbs.items.map((suburb) => (
+              <tr key={suburb.slug}>
+                <td>{suburb.name}, {suburb.state}</td>
+                <td>{suburb.trend}</td>
+                <td>{formatCurrency(suburb.median_price)}</td>
+                <td>{formatCurrency(suburb.median_rent)}/wk</td>
+                <td>{suburb.note}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
     </main>
   );

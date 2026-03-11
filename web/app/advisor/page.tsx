@@ -2,8 +2,14 @@ export const dynamic = "force-dynamic";
 
 import { getPropertyAdvisor } from "../../lib/api";
 
-export default async function AdvisorPage() {
-  const advisor = await getPropertyAdvisor();
+type AdvisorPageProps = {
+  searchParams?: Promise<{ query?: string }>;
+};
+
+export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
+  const params = (await searchParams) ?? {};
+  const query = params.query ?? "";
+  const advisor = await getPropertyAdvisor(query || undefined);
 
   return (
     <main className="section-stack">
@@ -17,19 +23,32 @@ export default async function AdvisorPage() {
           <p className="meta-label">Current recommendation</p>
           <h3>{advisor.advice.recommendation}</h3>
           <p>Confidence: {advisor.advice.confidence}</p>
+          <p>Input mode: {advisor.inputs.query_type}</p>
         </div>
+      </section>
+
+      <section className="panel">
+        <form className="query-form" method="GET">
+          <label htmlFor="query">Address or suburb slug</label>
+          <div>
+            <input id="query" name="query" defaultValue={query} placeholder="12 Example Avenue, Southport QLD 4215" />
+            <button type="submit">Run advice query</button>
+          </div>
+        </form>
       </section>
 
       <section className="card-grid two-up">
         <article className="panel">
           <p className="meta-label">Subject property</p>
           <h3>{advisor.property.address}</h3>
-          <ul className="detail-list">
-            <li>
-              {advisor.property.property_type} · {advisor.property.beds} bed · {advisor.property.baths} bath
-            </li>
-            <li>Service endpoint: <code>/api/advisor/property</code></li>
-          </ul>
+          <table className="data-table">
+            <tbody>
+              <tr><th>Type</th><td>{advisor.property.property_type}</td></tr>
+              <tr><th>Beds</th><td>{advisor.property.beds}</td></tr>
+              <tr><th>Baths</th><td>{advisor.property.baths}</td></tr>
+              <tr><th>Suburb slug</th><td>{advisor.inputs.suburb_slug ?? "n/a"}</td></tr>
+            </tbody>
+          </table>
         </article>
         <article className="panel">
           <p className="meta-label">Recommendation next steps</p>
