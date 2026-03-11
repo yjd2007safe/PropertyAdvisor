@@ -3,7 +3,9 @@ from __future__ import annotations
 """Lightweight mock fixtures used by MVP API services."""
 
 from property_advisor.api.schemas import (
+    AdvisoryInputs,
     ComparableItem,
+    ComparableSummary,
     ComparablesResponse,
     PropertyAdvice,
     PropertyAdvisorResponse,
@@ -68,29 +70,43 @@ PROPERTY_ADVISOR_FIXTURE = PropertyAdvisorResponse(
             "Re-run recommendation when fresh weekly sales are ingested.",
         ],
     ),
+    inputs=AdvisoryInputs(
+        query="12 Example Avenue, Southport QLD 4215",
+        query_type="address",
+        suburb_slug="southport-qld-4215",
+    ),
 )
+
+COMPARABLE_ITEMS_FIXTURE = [
+    ComparableItem(
+        address="8 Nearby Street, Southport QLD 4215",
+        price=910000,
+        distance_km=0.6,
+        match_reason="Similar bed/bath count and recent sale date.",
+    ),
+    ComparableItem(
+        address="16 Lagoon Parade, Southport QLD 4215",
+        price=880000,
+        distance_km=0.9,
+        match_reason="Comparable land size and renovation profile.",
+    ),
+    ComparableItem(
+        address="5 Harbour Lane, Labrador QLD 4215",
+        price=845000,
+        distance_km=1.8,
+        match_reason="Nearby fallback match with aligned rental demand profile.",
+    ),
+]
 
 COMPARABLES_FIXTURE = ComparablesResponse(
     subject="12 Example Avenue, Southport QLD 4215",
     set_quality="mvp-sample",
-    items=[
-        ComparableItem(
-            address="8 Nearby Street, Southport QLD 4215",
-            price=910000,
-            distance_km=0.6,
-            match_reason="Similar bed/bath count and recent sale date.",
-        ),
-        ComparableItem(
-            address="17 Sample Road, Southport QLD 4215",
-            price=875000,
-            distance_km=0.9,
-            match_reason="Comparable land profile with slightly lower finish level.",
-        ),
-        ComparableItem(
-            address="31 Harbour View, Southport QLD 4215",
-            price=940000,
-            distance_km=1.2,
-            match_reason="Renovated presentation provides upper-bound pricing context.",
-        ),
-    ],
+    query="southport",
+    items=COMPARABLE_ITEMS_FIXTURE,
+    summary=ComparableSummary(
+        count=3,
+        min_price=845000,
+        max_price=910000,
+        average_price=878333,
+    ),
 )
