@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getComparables } from "../../lib/api";
-import { MetricCard, PageIntro } from "../../components/sections";
+import { MetricCard, PageIntro, SectionTitle } from "../../components/sections";
 
 type ComparablesPageProps = {
   searchParams?: Promise<{ query?: string; max_items?: string; min_price?: string; max_price?: string; max_distance_km?: string }>;
@@ -22,8 +22,9 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
       <main className="section-stack">
         <PageIntro
           eyebrow="Comparables"
-          title="Pressure-test a recommendation using transparent evidence."
-          lede={`Subject: ${comparables.subject} · Set quality: ${comparables.set_quality}`}
+          title="Stress-test the target using a consistent comparable evidence panel."
+          lede={`${comparables.narrative.spread_commentary} ${comparables.narrative.investor_takeaway}`}
+          aside={<><p className="meta-label">Set quality</p><h3>{comparables.set_quality}</h3><p>Position: {comparables.narrative.price_position}</p></>}
         />
 
         <section className="panel">
@@ -43,7 +44,7 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
         {comparables.items.length === 0 ? (
           <section className="panel">
             <h3>No comparables found</h3>
-            <p className="lede">Try broadening your suburb/address query or relaxing filter limits.</p>
+            <p className="lede">{comparables.narrative.action_prompt}</p>
           </section>
         ) : (
           <>
@@ -54,9 +55,10 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
             </section>
 
             <section className="panel">
+              <SectionTitle eyebrow="Investor prompt" title={comparables.narrative.action_prompt} />
               <table className="data-table">
                 <thead>
-                  <tr><th>Address</th><th>Price</th><th>Sold</th><th>Config</th><th>Distance</th><th>Match reason</th></tr>
+                  <tr><th>Address</th><th>Price</th><th>Sold</th><th>Config</th><th>Distance</th><th>Why it matters</th></tr>
                 </thead>
                 <tbody>
                   {comparables.items.map((item) => (

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Repository abstractions and mock implementations for API services."""
 
+from dataclasses import dataclass
 from typing import List, Optional, Protocol
 
 from property_advisor.api.db import DatabaseSessionFactory
@@ -20,6 +21,20 @@ from property_advisor.api.schemas import (
 )
 
 
+@dataclass(frozen=True)
+class ComparableQuery:
+    query: str
+    max_items: int = 10
+
+
+@dataclass(frozen=True)
+class WatchlistQuery:
+    suburb_slug: Optional[str] = None
+    strategy: Optional[str] = None
+    state: Optional[str] = None
+    watch_status: Optional[str] = None
+
+
 class SuburbRepository(Protocol):
     def list_overview(self) -> List[SuburbOverviewItem]:
         ...
@@ -34,18 +49,12 @@ class PropertyAdviceRepository(Protocol):
 
 
 class ComparableRepository(Protocol):
-    def list_by_subject(self, query: str, max_items: int = 10) -> List[ComparableItem]:
+    def list_by_subject(self, criteria: ComparableQuery) -> List[ComparableItem]:
         ...
 
 
 class WatchlistRepository(Protocol):
-    def list_entries(
-        self,
-        suburb_slug: Optional[str] = None,
-        strategy: Optional[str] = None,
-        state: Optional[str] = None,
-        watch_status: Optional[str] = None,
-    ) -> List[WatchlistEntry]:
+    def list_entries(self, criteria: WatchlistQuery) -> List[WatchlistEntry]:
         ...
 
     def get_entry(self, suburb_slug: str) -> Optional[WatchlistEntry]:
@@ -94,36 +103,30 @@ class MockPropertyAdviceRepository:
 
 
 class MockComparableRepository:
-    def list_by_subject(self, query: str, max_items: int = 10) -> List[ComparableItem]:
-        normalized = query.strip().lower()
+    def list_by_subject(self, criteria: ComparableQuery) -> List[ComparableItem]:
+        normalized = criteria.query.strip().lower()
         if not normalized:
-            return list(COMPARABLES_FIXTURE.items)[:max_items]
+            return list(COMPARABLES_FIXTURE.items)[: criteria.max_items]
 
         if normalized in {"none", "empty", "no-match"}:
             return []
 
         filtered = [item for item in COMPARABLES_FIXTURE.items if normalized in item.address.lower()]
         source = filtered if filtered else list(COMPARABLES_FIXTURE.items)
-        return source[:max_items]
+        return source[: criteria.max_items]
 
 
 class MockWatchlistRepository:
-    def list_entries(
-        self,
-        suburb_slug: Optional[str] = None,
-        strategy: Optional[str] = None,
-        state: Optional[str] = None,
-        watch_status: Optional[str] = None,
-    ) -> List[WatchlistEntry]:
+    def list_entries(self, criteria: WatchlistQuery) -> List[WatchlistEntry]:
         items = list(WATCHLIST_FIXTURE)
-        if suburb_slug:
-            items = [entry for entry in items if entry.suburb_slug == suburb_slug]
-        if strategy:
-            items = [entry for entry in items if entry.strategy == strategy]
-        if state:
-            items = [entry for entry in items if entry.state.lower() == state.lower()]
-        if watch_status:
-            items = [entry for entry in items if entry.watch_status == watch_status]
+        if criteria.suburb_slug:
+            items = [entry for entry in items if entry.suburb_slug == criteria.suburb_slug]
+        if criteria.strategy:
+            items = [entry for entry in items if entry.strategy == criteria.strategy]
+        if criteria.state:
+            items = [entry for entry in items if entry.state.lower() == criteria.state.lower()]
+        if criteria.watch_status:
+            items = [entry for entry in items if entry.watch_status == criteria.watch_status]
         return items
 
     def get_entry(self, suburb_slug: str) -> Optional[WatchlistEntry]:

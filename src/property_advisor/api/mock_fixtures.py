@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-"""Lightweight mock fixtures used by MVP API services."""
+"""Mock fixtures used by the API repositories in MVP mode."""
 
 from property_advisor.api.schemas import (
     AdvisoryInputs,
+    AdvisoryMarketContext,
     ComparableItem,
+    ComparableNarrative,
+    ComparableSnapshot,
     ComparableSummary,
     ComparablesResponse,
     PropertyAdvice,
@@ -86,6 +89,18 @@ PROPERTY_ADVISOR_FIXTURE = PropertyAdvisorResponse(
             "Re-run recommendation when fresh weekly sales are ingested.",
         ],
     ),
+    market_context=AdvisoryMarketContext(
+        suburb="Southport",
+        strategy_focus="balanced",
+        demand_signal="Rental demand remains resilient with low vacancy in sample feed.",
+        supply_signal="Listing momentum is elevated, which can soften short-term negotiation leverage.",
+    ),
+    comparable_snapshot=ComparableSnapshot(
+        sample_size=3,
+        price_position="in_range",
+        summary="Subject pricing sits inside the current comparable range.",
+    ),
+    decision_summary="Watch with low confidence until new weekly comp evidence lands.",
     inputs=AdvisoryInputs(
         query="12 Example Avenue, Southport QLD 4215",
         query_type="address",
@@ -133,6 +148,12 @@ COMPARABLES_FIXTURE = ComparablesResponse(
         min_price=845000,
         max_price=910000,
         average_price=878333,
+    ),
+    narrative=ComparableNarrative(
+        price_position="aligned",
+        spread_commentary="Spread is 65,000 across 3 comparable sales for southport.",
+        investor_takeaway="Treat this as a negotiation anchor, not a valuation substitute.",
+        action_prompt="Prioritise the two closest matches and verify renovation/land deltas.",
     ),
 )
 

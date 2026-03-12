@@ -78,6 +78,18 @@ export type PropertyAdvisorResponse = {
     strengths: string[];
     next_steps: string[];
   };
+  market_context: {
+    suburb: string;
+    strategy_focus: string;
+    demand_signal: string;
+    supply_signal: string;
+  };
+  comparable_snapshot: {
+    sample_size: number;
+    price_position: "below_range" | "in_range" | "above_range" | "insufficient_data";
+    summary: string;
+  };
+  decision_summary: string;
   inputs: {
     query: string;
     query_type: "address" | "slug" | "auto";
@@ -94,6 +106,12 @@ export type ComparablesResponse = {
     min_price: number;
     max_price: number;
     average_price: number;
+  };
+  narrative: {
+    price_position: "discount" | "aligned" | "premium" | "insufficient_data";
+    spread_commentary: string;
+    investor_takeaway: string;
+    action_prompt: string;
   };
   items: {
     address: string;
@@ -128,9 +146,13 @@ export type WatchlistResponse = {
     active_entries: number;
     grouped_view: "none" | "state" | "strategy";
     alert_counts: Record<string, number>;
+    by_status: Record<string, number>;
+    by_strategy: Record<string, number>;
+    action_counts: Record<string, number>;
+    investor_brief: string;
   };
   items: WatchlistEntry[];
-  groups: { key: string; label: string; entries: WatchlistEntry[] }[];
+  groups: { key: string; label: string; entries: WatchlistEntry[]; action_required: number; high_alerts: number }[];
 };
 
 export const getSuburbsOverview = () => getJson<SuburbsOverviewResponse>("/api/suburbs/overview");
