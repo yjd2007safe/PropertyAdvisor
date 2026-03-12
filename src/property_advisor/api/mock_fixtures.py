@@ -13,6 +13,8 @@ from property_advisor.api.schemas import (
     SuburbOverviewItem,
     SuburbOverviewSummary,
     SuburbsOverviewResponse,
+    WatchlistAlert,
+    WatchlistEntry,
 )
 
 SUBURBS_OVERVIEW_FIXTURE = SuburbsOverviewResponse(
@@ -31,6 +33,8 @@ SUBURBS_OVERVIEW_FIXTURE = SuburbsOverviewResponse(
             median_rent=780,
             trend="watching",
             note="Large stock turnover keeps this suburb in watch mode.",
+            avg_days_on_market=36,
+            vacancy_rate_pct=1.5,
         ),
         SuburbOverviewItem(
             slug="burleigh-heads-qld-4220",
@@ -40,6 +44,8 @@ SUBURBS_OVERVIEW_FIXTURE = SuburbsOverviewResponse(
             median_rent=950,
             trend="steady",
             note="Premium demand is stable with low days on market.",
+            avg_days_on_market=24,
+            vacancy_rate_pct=1.0,
         ),
         SuburbOverviewItem(
             slug="labrador-qld-4215",
@@ -49,6 +55,8 @@ SUBURBS_OVERVIEW_FIXTURE = SuburbsOverviewResponse(
             median_rent=740,
             trend="improving",
             note="Rent growth is improving investor yield narrative.",
+            avg_days_on_market=29,
+            vacancy_rate_pct=1.2,
         ),
     ],
 )
@@ -64,6 +72,14 @@ PROPERTY_ADVISOR_FIXTURE = PropertyAdvisorResponse(
         recommendation="watch",
         confidence="low",
         headline="Price looks broadly in range, but comparable confidence is still limited.",
+        risks=[
+            "Recent suburb stock increase can pressure short-term prices.",
+            "Comparable set contains a wider spread than preferred.",
+        ],
+        strengths=[
+            "Rent demand remains stable for family homes in this pocket.",
+            "Property configuration aligns with active buyer demand.",
+        ],
         next_steps=[
             "Confirm latest listing updates and vendor guidance.",
             "Validate land and renovation differences against top comparables.",
@@ -83,18 +99,27 @@ COMPARABLE_ITEMS_FIXTURE = [
         price=910000,
         distance_km=0.6,
         match_reason="Similar bed/bath count and recent sale date.",
+        sold_date="2026-01-04",
+        beds=4,
+        baths=2,
     ),
     ComparableItem(
         address="16 Lagoon Parade, Southport QLD 4215",
         price=880000,
         distance_km=0.9,
         match_reason="Comparable land size and renovation profile.",
+        sold_date="2025-12-20",
+        beds=4,
+        baths=2,
     ),
     ComparableItem(
         address="5 Harbour Lane, Labrador QLD 4215",
         price=845000,
         distance_km=1.8,
         match_reason="Nearby fallback match with aligned rental demand profile.",
+        sold_date="2025-12-14",
+        beds=3,
+        baths=2,
     ),
 ]
 
@@ -110,3 +135,32 @@ COMPARABLES_FIXTURE = ComparablesResponse(
         average_price=878333,
     ),
 )
+
+WATCHLIST_FIXTURE = [
+    WatchlistEntry(
+        suburb_slug="southport-qld-4215",
+        suburb_name="Southport",
+        strategy="balanced",
+        notes="Track stock growth and weekly sale cadence.",
+        alerts=[
+            WatchlistAlert(
+                severity="watch",
+                title="Inventory rising",
+                detail="Listings increased by 11% month-on-month.",
+            )
+        ],
+    ),
+    WatchlistEntry(
+        suburb_slug="labrador-qld-4215",
+        suburb_name="Labrador",
+        strategy="yield",
+        notes="Monitor rent growth and investor demand.",
+        alerts=[
+            WatchlistAlert(
+                severity="info",
+                title="Yield holding",
+                detail="Gross yield remains above 4.5% in the sample feed.",
+            )
+        ],
+    ),
+]

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """Repository abstractions and mock implementations for API services."""
 
-from dataclasses import dataclass
 from typing import List, Optional, Protocol
 
 from property_advisor.api.db import DatabaseSessionFactory
@@ -10,12 +9,13 @@ from property_advisor.api.mock_fixtures import (
     COMPARABLES_FIXTURE,
     PROPERTY_ADVISOR_FIXTURE,
     SUBURBS_OVERVIEW_FIXTURE,
+    WATCHLIST_FIXTURE,
 )
 from property_advisor.api.schemas import (
     ComparableItem,
-    ComparablesResponse,
     PropertyAdvisorResponse,
     SuburbOverviewItem,
+    WatchlistEntry,
 )
 
 
@@ -33,7 +33,12 @@ class PropertyAdviceRepository(Protocol):
 
 
 class ComparableRepository(Protocol):
-    def list_by_subject(self, query: str) -> List[ComparableItem]:
+    def list_by_subject(self, query: str, max_items: int = 10) -> List[ComparableItem]:
+        ...
+
+
+class WatchlistRepository(Protocol):
+    def list_entries(self, suburb_slug: Optional[str] = None) -> List[WatchlistEntry]:
         ...
 
 
@@ -76,13 +81,25 @@ class MockPropertyAdviceRepository:
 
 
 class MockComparableRepository:
-    def list_by_subject(self, query: str) -> List[ComparableItem]:
+    def list_by_subject(self, query: str, max_items: int = 10) -> List[ComparableItem]:
         normalized = query.strip().lower()
         if not normalized:
-            return list(COMPARABLES_FIXTURE.items)
+            return list(COMPARABLES_FIXTURE.items)[:max_items]
+
+        if normalized in {"none", "empty", "no-match"}:
+            return []
 
         filtered = [item for item in COMPARABLES_FIXTURE.items if normalized in item.address.lower()]
-        return filtered if filtered else list(COMPARABLES_FIXTURE.items)
+        source = filtered if filtered else list(COMPARABLES_FIXTURE.items)
+        return source[:max_items]
+
+
+class MockWatchlistRepository:
+    def list_entries(self, suburb_slug: Optional[str] = None) -> List[WatchlistEntry]:
+        if not suburb_slug:
+            return list(WATCHLIST_FIXTURE)
+
+        return [entry for entry in WATCHLIST_FIXTURE if entry.suburb_slug == suburb_slug]
 
 
 class PostgresSuburbRepository(MockSuburbRepository):
@@ -100,23 +117,6 @@ class PostgresComparableRepository(MockComparableRepository):
         self.session_factory = session_factory
 
 
-@dataclass(frozen=True)
-class RepositoryContainer:
-    suburbs: SuburbRepository
-    property_advice: PropertyAdviceRepository
-    comparables: ComparableRepository
-
-
-def create_repository_container(session_factory: DatabaseSessionFactory) -> RepositoryContainer:
-    if session_factory.is_configured():
-        return RepositoryContainer(
-            suburbs=PostgresSuburbRepository(session_factory),
-            property_advice=PostgresPropertyAdviceRepository(session_factory),
-            comparables=PostgresComparableRepository(session_factory),
-        )
-
-    return RepositoryContainer(
-        suburbs=MockSuburbRepository(),
-        property_advice=MockPropertyAdviceRepository(),
-        comparables=MockComparableRepository(),
-    )
+class PostgresWatchlistRepository(MockWatchlistRepository):
+    def __init__(self, session_factory: DatabaseSessionFactory):
+        self.session_factory = session_factory
