@@ -26,6 +26,14 @@ class SummaryCard(BaseModel):
     detail: str
 
 
+class WorkflowSnapshot(BaseModel):
+    stage: str
+    primary_suburb_slug: Optional[str] = None
+    next_step: str
+    next_href: str
+    investor_message: str
+
+
 class SuburbOverviewSummary(BaseModel):
     tracked_suburbs: int
     watchlist_suburbs: int
@@ -50,6 +58,7 @@ class SuburbsOverviewResponse(BaseModel):
     items: List[SuburbOverviewItem]
     investor_signals: List[SummaryCard]
     workflow_links: List[WorkflowLink]
+    workflow_snapshot: WorkflowSnapshot
 
 
 class SubjectProperty(BaseModel):
@@ -109,6 +118,7 @@ class PropertyAdvisorResponse(BaseModel):
     investor_signals: List[AdvisoryInvestorSignal]
     summary_cards: List[SummaryCard]
     workflow_links: List[WorkflowLink]
+    workflow_snapshot: WorkflowSnapshot
     inputs: AdvisoryInputs
 
 
@@ -145,6 +155,7 @@ class ComparablesResponse(BaseModel):
     narrative: ComparableNarrative
     summary_cards: List[SummaryCard]
     workflow_links: List[WorkflowLink]
+    workflow_snapshot: WorkflowSnapshot
 
 
 class WatchlistAlert(BaseModel):
@@ -194,6 +205,7 @@ class WatchlistResponse(BaseModel):
     groups: List[WatchlistGroup]
     summary_cards: List[SummaryCard]
     workflow_links: List[WorkflowLink]
+    workflow_snapshot: WorkflowSnapshot
 
 
 class WatchlistDetailResponse(BaseModel):

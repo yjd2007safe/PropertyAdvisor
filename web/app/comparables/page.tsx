@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getComparables } from "../../lib/api";
-import { EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks } from "../../components/sections";
+import { EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 
 type ComparablesPageProps = {
   searchParams?: Promise<{ query?: string; max_items?: string; min_price?: string; max_price?: string; max_distance_km?: string }>;
@@ -41,6 +41,8 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
           </form>
         </section>
 
+        <WorkflowSnapshotPanel snapshot={comparables.workflow_snapshot} />
+
         <SummaryCardGrid cards={comparables.summary_cards} />
         <WorkflowLinks links={comparables.workflow_links} />
 
@@ -55,7 +57,7 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
             </section>
 
             <section className="panel">
-              <SectionTitle eyebrow="Investor prompt" title={comparables.narrative.action_prompt} />
+              <SectionTitle eyebrow="Investor prompt" title={comparables.narrative.action_prompt} supportingText={`Then continue in advisor: /advisor?query=${comparables.query}&query_type=auto`} />
               <table className="data-table">
                 <thead>
                   <tr><th>Address</th><th>Price</th><th>Sold</th><th>Config</th><th>Distance</th><th>Why it matters</th></tr>

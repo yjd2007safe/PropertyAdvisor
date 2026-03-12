@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getWatchlist, getWatchlistAlerts, getWatchlistDetail } from "../../lib/api";
-import { AlertBadge, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks } from "../../components/sections";
+import { AlertBadge, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 
 type WatchlistPageProps = {
   searchParams?: Promise<{
@@ -39,6 +39,8 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           lede={watchlist.summary.investor_brief}
           aside={<><p className="meta-label">Data mode</p><h3>{watchlist.mode}</h3><p>Grouped by: {watchlist.summary.grouped_view}</p></>}
         />
+
+        <WorkflowSnapshotPanel snapshot={watchlist.workflow_snapshot} />
 
         <SummaryCardGrid cards={watchlist.summary_cards} />
         <WorkflowLinks links={watchlist.workflow_links} />
@@ -126,7 +128,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
               <tbody>
                 {watchlist.items.map((entry) => (
                   <tr key={entry.suburb_slug}>
-                    <td>{entry.suburb_name}</td>
+                    <td>{entry.suburb_name}<div className="inline-links"><a href={`/advisor?query=${entry.suburb_slug}&query_type=slug`}>Advisor</a> · <a href={`/comparables?query=${entry.suburb_slug}`}>Comps</a></div></td>
                     <td>{entry.watch_status}</td>
                     <td>{entry.strategy}</td>
                     <td>{formatCurrency(entry.target_buy_range_min)} - {formatCurrency(entry.target_buy_range_max)}</td>
@@ -144,6 +146,10 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
             <p className="meta-label">Detail view</p>
             <h3>{detail.item.suburb_name}</h3>
             <p className="lede">{detail.item.notes}</p>
+            <p className="lede compact">
+              Next workflow step: <a href={`/advisor?query=${detail.item.suburb_slug}&query_type=slug`}>run advisor</a> then validate in {" "}
+              <a href={`/comparables?query=${detail.item.suburb_slug}`}>comparables</a>.
+            </p>
             <ul className="detail-list">
               {detail.item.alerts.map((alert) => (
                 <li key={`${alert.metric}-${alert.observed_at}`}><AlertBadge tone={alert.severity}>{alert.severity}</AlertBadge> {alert.title} ({alert.observed_at}) — {alert.detail}</li>

@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, getPropertyAdvisor } from "../../lib/api";
-import { EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks } from "../../components/sections";
+import { EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 
 type AdvisorPageProps = {
   searchParams?: Promise<{ query?: string; query_type?: "address" | "slug" | "auto"; focus_strategy?: "yield" | "owner-occupier" | "balanced" }>;
@@ -45,6 +45,8 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
             </div>
           </form>
         </section>
+
+        <WorkflowSnapshotPanel snapshot={advisor.workflow_snapshot} />
 
         <SummaryCardGrid cards={advisor.summary_cards} />
         <WorkflowLinks links={advisor.workflow_links} />
@@ -109,6 +111,10 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
               <li key={step}>{step}</li>
             ))}
           </ul>
+          <p className="lede compact">
+            Continue with <a href={`/comparables?query=${advisor.inputs.suburb_slug ?? advisor.inputs.query}`}>comparables</a> then confirm status in {" "}
+            <a href={`/watchlist?detail_slug=${advisor.inputs.suburb_slug ?? "southport-qld-4215"}`}>watchlist</a>.
+          </p>
         </section>
       </main>
     );

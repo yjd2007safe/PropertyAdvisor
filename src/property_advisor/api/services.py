@@ -31,6 +31,7 @@ from property_advisor.api.schemas import (
     WatchlistResponse,
     WatchlistSummary,
     WorkflowLink,
+    WorkflowSnapshot,
 )
 
 _DAL = DataAccessLayer.create(create_session_factory())
@@ -52,6 +53,22 @@ def _product_workflow_links(suburb_slug: Optional[str] = None) -> List[WorkflowL
         WorkflowLink(label="Comparables", href="/comparables", context="Validate pricing fit and comp confidence."),
         WorkflowLink(label="Watchlist", href=f"/watchlist{suffix}", context="Track strategy alerts and action queue."),
     ]
+
+
+def _workflow_snapshot(
+    stage: str,
+    next_step: str,
+    next_href: str,
+    investor_message: str,
+    primary_suburb_slug: Optional[str] = None,
+) -> WorkflowSnapshot:
+    return WorkflowSnapshot(
+        stage=stage,
+        primary_suburb_slug=primary_suburb_slug,
+        next_step=next_step,
+        next_href=next_href,
+        investor_message=investor_message,
+    )
 
 
 def get_suburbs_overview(dal: DataAccessLayer = _DAL) -> SuburbsOverviewResponse:
@@ -83,6 +100,13 @@ def get_suburbs_overview(dal: DataAccessLayer = _DAL) -> SuburbsOverviewResponse
             ),
         ],
         workflow_links=_product_workflow_links(),
+        workflow_snapshot=_workflow_snapshot(
+            stage="suburb_dashboard",
+            primary_suburb_slug=(items[0].slug if items else None),
+            next_step="Open advisor for the highest-priority suburb and run a strategy-aligned recommendation.",
+            next_href=(f"/advisor?query={items[0].slug}&query_type=slug" if items else "/advisor"),
+            investor_message="Convert suburb-level momentum into a property-level go/no-go recommendation.",
+        ),
         items=items,
     )
 
@@ -212,6 +236,13 @@ def get_property_advice(
                 ),
             ],
             "workflow_links": _product_workflow_links(suburb_slug=suburb.slug if suburb else advice.inputs.suburb_slug),
+            "workflow_snapshot": _workflow_snapshot(
+                stage="property_advisor",
+                primary_suburb_slug=(suburb.slug if suburb else advice.inputs.suburb_slug),
+                next_step="Validate price confidence in comparables before progressing offer assumptions.",
+                next_href=f"/comparables?query={(suburb.slug if suburb else query)}",
+                investor_message="Use this recommendation with comp evidence and watchlist alerts as one decision chain.",
+            ),
             "inputs": AdvisoryInputs(
                 query=query,
                 query_type=effective_type,
@@ -286,6 +317,12 @@ def get_comparables(
             narrative=narrative,
             summary_cards=_build_comparable_summary_cards(empty_summary, narrative),
             workflow_links=_product_workflow_links(),
+            workflow_snapshot=_workflow_snapshot(
+                stage="comparables",
+                next_step="Return to advisor and apply this pricing evidence to recommendation confidence.",
+                next_href=f"/advisor?query={query}&query_type=auto",
+                investor_message="Comparables are a negotiation anchor that should feed recommendation confidence.",
+            ),
         )
 
     prices = [item.price for item in items]
@@ -305,6 +342,12 @@ def get_comparables(
         narrative=narrative,
         summary_cards=_build_comparable_summary_cards(summary, narrative),
         workflow_links=_product_workflow_links(),
+        workflow_snapshot=_workflow_snapshot(
+            stage="comparables",
+            next_step="Push this comp evidence into advisor and then confirm watchlist action status.",
+            next_href=f"/advisor?query={query}&query_type=auto",
+            investor_message="Treat comp pricing as evidence, then decide via advisor and action through watchlist.",
+        ),
     )
 
 
@@ -391,6 +434,13 @@ def get_watchlist(
             SummaryCard(title="Ready to progress", value=str(action_counts["ready_to_progress"]), detail="Candidates for deeper due diligence."),
         ],
         workflow_links=_product_workflow_links(suburb_slug=suburb_slug),
+        workflow_snapshot=_workflow_snapshot(
+            stage="watchlist",
+            primary_suburb_slug=(suburb_slug if suburb_slug else (items[0].suburb_slug if items else None)),
+            next_step="Open advisor for a review-status suburb and confirm whether it can progress this week.",
+            next_href=(f"/advisor?query={suburb_slug or items[0].suburb_slug}&query_type=slug" if (suburb_slug or items) else "/advisor"),
+            investor_message="Watchlist converts insights into weekly action: review, progress, or hold.",
+        ),
     )
 
 

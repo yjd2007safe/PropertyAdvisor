@@ -22,6 +22,7 @@ from property_advisor.api.schemas import (
     WatchlistAlert,
     WatchlistEntry,
     WorkflowLink,
+    WorkflowSnapshot,
 )
 
 SUBURBS_OVERVIEW_FIXTURE = SuburbsOverviewResponse(
@@ -39,6 +40,13 @@ SUBURBS_OVERVIEW_FIXTURE = SuburbsOverviewResponse(
         WorkflowLink(label="Open Property Advisor", href="/advisor", context="Move from suburb signal to property decision."),
         WorkflowLink(label="Review Watchlist triage", href="/watchlist?group_by=strategy", context="Confirm strategy-level priorities."),
     ],
+    workflow_snapshot=WorkflowSnapshot(
+        stage="suburb_dashboard",
+        primary_suburb_slug="southport-qld-4215",
+        next_step="Open advisor for highest-priority suburb.",
+        next_href="/advisor?query=southport-qld-4215&query_type=slug",
+        investor_message="Move from suburb scan to property-level recommendation.",
+    ),
     items=[
         SuburbOverviewItem(
             slug="southport-qld-4215",
@@ -129,6 +137,13 @@ PROPERTY_ADVISOR_FIXTURE = PropertyAdvisorResponse(
         WorkflowLink(label="Open comparables", href="/comparables?query=southport", context="Validate price position."),
         WorkflowLink(label="Open watchlist", href="/watchlist?detail_slug=southport-qld-4215", context="Check active suburb alerts."),
     ],
+    workflow_snapshot=WorkflowSnapshot(
+        stage="property_advisor",
+        primary_suburb_slug="southport-qld-4215",
+        next_step="Validate comparables before progressing.",
+        next_href="/comparables?query=southport-qld-4215",
+        investor_message="Recommendation confidence improves when comp and watchlist evidence align.",
+    ),
     inputs=AdvisoryInputs(
         query="12 Example Avenue, Southport QLD 4215",
         query_type="address",
@@ -191,6 +206,13 @@ COMPARABLES_FIXTURE = ComparablesResponse(
         WorkflowLink(label="Back to advisor", href="/advisor?query=southport-qld-4215&query_type=slug", context="Apply comp evidence to recommendation."),
         WorkflowLink(label="Open watchlist", href="/watchlist?suburb_slug=southport-qld-4215", context="Cross-check alert pressure."),
     ],
+    workflow_snapshot=WorkflowSnapshot(
+        stage="comparables",
+        primary_suburb_slug="southport-qld-4215",
+        next_step="Return to advisor with updated pricing context.",
+        next_href="/advisor?query=southport-qld-4215&query_type=slug",
+        investor_message="Comp evidence should directly drive recommendation confidence and watchlist action.",
+    ),
 )
 
 WATCHLIST_FIXTURE = [
