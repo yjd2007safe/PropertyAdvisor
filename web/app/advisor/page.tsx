@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, getPropertyAdvisor } from "../../lib/api";
-import { MetricCard, PageIntro, SectionTitle } from "../../components/sections";
+import { EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks } from "../../components/sections";
 
 type AdvisorPageProps = {
   searchParams?: Promise<{ query?: string; query_type?: "address" | "slug" | "auto"; focus_strategy?: "yield" | "owner-occupier" | "balanced" }>;
@@ -46,6 +46,9 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
           </form>
         </section>
 
+        <SummaryCardGrid cards={advisor.summary_cards} />
+        <WorkflowLinks links={advisor.workflow_links} />
+
         <section className="stats-grid">
           <MetricCard label="Comparable sample" value={advisor.comparable_snapshot.sample_size} />
           <MetricCard label="Price position" value={advisor.comparable_snapshot.price_position} tone="highlight" />
@@ -75,12 +78,27 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
 
         <section className="card-grid two-up">
           <article className="panel">
+            <p className="meta-label">Structured rationale</p>
+            <ul className="detail-list">
+              {advisor.rationale.map((item) => <li key={item.signal}><strong>{item.signal}</strong> ({item.stance}): {item.evidence}</li>)}
+            </ul>
+          </article>
+          <article className="panel">
+            <p className="meta-label">Investor signals</p>
+            <ul className="detail-list">
+              {advisor.investor_signals.map((item) => <li key={item.title}><strong>{item.title}</strong> ({item.status}): {item.detail}</li>)}
+            </ul>
+          </article>
+        </section>
+
+        <section className="card-grid two-up">
+          <article className="panel">
             <p className="meta-label">Strengths</p>
-            <ul className="detail-list">{advisor.advice.strengths.map((item) => <li key={item}>{item}</li>)}</ul>
+            {advisor.advice.strengths.length === 0 ? <EmptyState title="No strengths yet" body="Add stronger inputs or comps to produce support signals." /> : <ul className="detail-list">{advisor.advice.strengths.map((item) => <li key={item}>{item}</li>)}</ul>}
           </article>
           <article className="panel">
             <p className="meta-label">Risks to clear first</p>
-            <ul className="detail-list">{advisor.advice.risks.map((item) => <li key={item}>{item}</li>)}</ul>
+            {advisor.advice.risks.length === 0 ? <EmptyState title="No risks surfaced" body="Current profile has no explicit caution signals in mock mode." /> : <ul className="detail-list">{advisor.advice.risks.map((item) => <li key={item}>{item}</li>)}</ul>}
           </article>
         </section>
 

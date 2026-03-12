@@ -1,45 +1,50 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-
-type FetchInit = RequestInit & { next?: { revalidate?: number } };
-
-type QueryPrimitive = string | number | boolean | undefined;
-
-function buildSearch(params: Record<string, QueryPrimitive>): string {
-  const search = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== "") {
-      search.append(key, String(value));
-    }
-  });
-  const asString = search.toString();
-  return asString ? `?${asString}` : "";
-}
+const API_BASE_URL = process.env.PROPERTY_ADVISOR_API_BASE_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
   status: number;
 
-  constructor(path: string, status: number) {
-    super(`Failed to load ${path}: ${status}`);
+  constructor(message: string, status: number) {
+    super(message);
     this.status = status;
   }
 }
 
-async function getJson<T>(path: string, init?: FetchInit): Promise<T> {
+async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    },
-    next: init?.next ?? { revalidate: 30 }
+    cache: "no-store",
+    headers: { Accept: "application/json" }
   });
 
   if (!response.ok) {
-    throw new ApiError(path, response.status);
+    const fallback = `Request failed with status ${response.status}`;
+    let message = fallback;
+    try {
+      const payload = await response.json();
+      if (payload?.detail) {
+        message = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+      }
+    } catch {
+      message = fallback;
+    }
+    throw new ApiError(message, response.status);
   }
 
   return response.json() as Promise<T>;
 }
+
+function buildSearch(params: Record<string, string | number | undefined | null>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && `${value}`.length > 0) {
+      query.set(key, String(value));
+    }
+  }
+  const encoded = query.toString();
+  return encoded ? `?${encoded}` : "";
+}
+
+export type WorkflowLink = { label: string; href: string; context: string };
+export type SummaryCard = { title: string; value: string; detail: string };
 
 export type SuburbOverviewItem = {
   slug: string;
@@ -61,6 +66,8 @@ export type SuburbsOverviewResponse = {
     data_freshness: string;
   };
   items: SuburbOverviewItem[];
+  investor_signals: SummaryCard[];
+  workflow_links: WorkflowLink[];
 };
 
 export type PropertyAdvisorResponse = {
@@ -90,6 +97,10 @@ export type PropertyAdvisorResponse = {
     summary: string;
   };
   decision_summary: string;
+  rationale: { signal: string; stance: "supporting" | "caution" | "neutral"; evidence: string }[];
+  investor_signals: { title: string; status: "positive" | "neutral" | "risk"; detail: string }[];
+  summary_cards: SummaryCard[];
+  workflow_links: WorkflowLink[];
   inputs: {
     query: string;
     query_type: "address" | "slug" | "auto";
@@ -113,6 +124,8 @@ export type ComparablesResponse = {
     investor_takeaway: string;
     action_prompt: string;
   };
+  summary_cards: SummaryCard[];
+  workflow_links: WorkflowLink[];
   items: {
     address: string;
     price: number;
@@ -151,6 +164,8 @@ export type WatchlistResponse = {
     action_counts: Record<string, number>;
     investor_brief: string;
   };
+  summary_cards: SummaryCard[];
+  workflow_links: WorkflowLink[];
   items: WatchlistEntry[];
   groups: { key: string; label: string; entries: WatchlistEntry[]; action_required: number; high_alerts: number }[];
 };

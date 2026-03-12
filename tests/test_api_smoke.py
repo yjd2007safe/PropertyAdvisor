@@ -14,6 +14,8 @@ def test_suburbs_overview_shape() -> None:
     payload = suburbs_overview().model_dump(mode="json")
     assert payload["summary"]["tracked_suburbs"] == 3
     assert len(payload["items"]) == 3
+    assert payload["investor_signals"]
+    assert payload["workflow_links"]
     assert {item["trend"] for item in payload["items"]} == {
         "watching",
         "steady",
@@ -26,6 +28,8 @@ def test_property_advisor_shape() -> None:
     assert payload["advice"]["recommendation"] == "watch"
     assert payload["advice"]["confidence"] == "low"
     assert payload["inputs"]["query_type"] == "slug"
+    assert payload["rationale"]
+    assert payload["summary_cards"]
 
 
 def test_comparables_shape() -> None:
@@ -33,6 +37,7 @@ def test_comparables_shape() -> None:
     assert payload["set_quality"] == "mvp-sample"
     assert len(payload["items"]) == 2
     assert payload["summary"]["count"] == len(payload["items"])
+    assert payload["summary_cards"]
 
 
 def test_watchlist_shape() -> None:
@@ -40,6 +45,7 @@ def test_watchlist_shape() -> None:
     assert payload["mode"] in {"mock", "postgres"}
     assert payload["summary"]["total_entries"] >= 1
     assert payload["items"][0]["alerts"]
+    assert payload["workflow_links"]
 
 
 def test_watchlist_group_and_detail_routes() -> None:

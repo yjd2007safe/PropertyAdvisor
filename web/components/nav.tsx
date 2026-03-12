@@ -13,7 +13,7 @@ export function Nav() {
     <header className="topbar">
       <div>
         <p className="brand-kicker">PropertyAdvisor</p>
-        <h1 className="brand-title">MVP workspace</h1>
+        <h1 className="brand-title">Unified decision-support MVP</h1>
       </div>
       <nav aria-label="Primary">
         <ul className="nav-list">
