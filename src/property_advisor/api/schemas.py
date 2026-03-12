@@ -28,6 +28,8 @@ class SuburbOverviewItem(BaseModel):
     median_rent: int
     trend: Literal["watching", "steady", "improving"]
     note: str
+    avg_days_on_market: int
+    vacancy_rate_pct: float
 
 
 class SuburbsOverviewResponse(BaseModel):
@@ -47,6 +49,8 @@ class PropertyAdvice(BaseModel):
     recommendation: Literal["watch", "consider", "pass"]
     confidence: Literal["low", "medium", "high"]
     headline: str
+    risks: List[str]
+    strengths: List[str]
     next_steps: List[str]
 
 
@@ -67,6 +71,9 @@ class ComparableItem(BaseModel):
     price: int
     distance_km: float
     match_reason: str
+    sold_date: str
+    beds: int
+    baths: int
 
 
 class ComparableSummary(BaseModel):
@@ -82,3 +89,23 @@ class ComparablesResponse(BaseModel):
     query: str
     items: List[ComparableItem]
     summary: ComparableSummary
+
+
+class WatchlistAlert(BaseModel):
+    severity: Literal["info", "watch", "high"]
+    title: str
+    detail: str
+
+
+class WatchlistEntry(BaseModel):
+    suburb_slug: str
+    suburb_name: str
+    strategy: Literal["yield", "owner-occupier", "balanced"]
+    notes: str
+    alerts: List[WatchlistAlert]
+
+
+class WatchlistResponse(BaseModel):
+    generated_at: datetime
+    mode: Literal["mock", "postgres"]
+    items: List[WatchlistEntry]
