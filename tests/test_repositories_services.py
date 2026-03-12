@@ -7,7 +7,14 @@ from property_advisor.api.repositories import (
     MockWatchlistRepository,
     PostgresComparableRepository,
 )
-from property_advisor.api.services import get_comparables, get_property_advice, get_suburbs_overview, get_watchlist
+from property_advisor.api.services import (
+    get_comparables,
+    get_property_advice,
+    get_suburbs_overview,
+    get_watchlist,
+    get_watchlist_alerts,
+    get_watchlist_detail,
+)
 
 
 def test_data_access_layer_defaults_to_mock_when_db_disabled() -> None:
@@ -58,3 +65,30 @@ def test_service_comparables_empty_state() -> None:
     response = get_comparables(query="empty", dal=dal)
     assert response.items == []
     assert response.summary.count == 0
+
+
+def test_watchlist_grouping_and_alert_count_summary() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    response = get_watchlist(group_by="strategy", dal=dal)
+    assert response.summary.total_entries == len(response.items)
+    assert response.summary.alert_counts["high"] >= 1
+    assert any(group.key == "balanced" for group in response.groups)
+
+
+def test_watchlist_detail_and_alert_filter_flow() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    detail = get_watchlist_detail(suburb_slug="southport-qld-4215", dal=dal)
+    high_alerts = get_watchlist_alerts(severity="high", dal=dal)
+    assert detail is not None
+    assert detail.item.suburb_slug == "southport-qld-4215"
+    assert all(alert.severity == "high" for alert in high_alerts.items)
+
+
+def test_comparables_filter_supports_price_and_distance() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    response = get_comparables(
+        query="southport", max_items=5, min_price=890000, max_price=920000, max_distance_km=0.8, dal=dal
+    )
+    assert response.items
+    assert all(item.price >= 890000 and item.price <= 920000 for item in response.items)
+    assert all(item.distance_km <= 0.8 for item in response.items)

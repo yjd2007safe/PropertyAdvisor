@@ -1,45 +1,34 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getSuburbsOverview, getWatchlist } from "../../lib/api";
+import { MetricCard, PageIntro } from "../../components/sections";
 
 export default async function SuburbsPage() {
   try {
-    const [suburbs, watchlist] = await Promise.all([getSuburbsOverview(), getWatchlist()]);
+    const [suburbs, watchlist] = await Promise.all([getSuburbsOverview(), getWatchlist({ group_by: "strategy" })]);
 
     return (
       <main className="section-stack">
-        <section className="panel">
-          <p className="eyebrow">Suburb Dashboard</p>
-          <h2>Monitor target suburbs before committing to property-level work.</h2>
-          <p className="lede">Structured suburb snapshots plus watchlist context from the API layer.</p>
-        </section>
+        <PageIntro
+          eyebrow="Suburb Dashboard"
+          title="Prioritise where to deploy research before property-level due diligence."
+          lede="Track suburb momentum, liquidity, and watchlist context in one place, then jump into advisor and comparables workflows."
+        />
 
         <section className="stats-grid">
-          <article className="panel stat-card">Tracked suburbs: {suburbs.summary.tracked_suburbs}</article>
-          <article className="panel stat-card">Watchlist suburbs: {suburbs.summary.watchlist_suburbs}</article>
-          <article className="panel stat-card">Data freshness: {suburbs.summary.data_freshness}</article>
+          <MetricCard label="Tracked suburbs" value={suburbs.summary.tracked_suburbs} />
+          <MetricCard label="Watchlist suburbs" value={suburbs.summary.watchlist_suburbs} />
+          <MetricCard label="Data freshness" value={suburbs.summary.data_freshness} tone="highlight" />
         </section>
 
         <section className="panel">
-          <p className="meta-label">Watchlist pulse</p>
-          {watchlist.items.length === 0 ? (
-            <p className="lede">No active watchlist entries yet.</p>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr><th>Suburb</th><th>Strategy</th><th>Latest alert</th></tr>
-              </thead>
-              <tbody>
-                {watchlist.items.map((entry) => (
-                  <tr key={entry.suburb_slug}>
-                    <td>{entry.suburb_name}</td>
-                    <td>{entry.strategy}</td>
-                    <td>{entry.alerts[0]?.title ?? "No alerts"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <p className="meta-label">Watchlist grouped by strategy</p>
+          {watchlist.groups.map((group) => (
+            <div key={group.key} className="group-block">
+              <h4>{group.label}</h4>
+              <p className="lede compact">{group.entries.map((entry) => entry.suburb_name).join(", ")}</p>
+            </div>
+          ))}
         </section>
 
         <section className="table-panel panel">

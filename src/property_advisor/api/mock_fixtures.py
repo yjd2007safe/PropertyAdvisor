@@ -140,26 +140,64 @@ WATCHLIST_FIXTURE = [
     WatchlistEntry(
         suburb_slug="southport-qld-4215",
         suburb_name="Southport",
+        state="QLD",
         strategy="balanced",
+        watch_status="review",
         notes="Track stock growth and weekly sale cadence.",
+        target_buy_range_min=840000,
+        target_buy_range_max=920000,
         alerts=[
             WatchlistAlert(
                 severity="watch",
                 title="Inventory rising",
                 detail="Listings increased by 11% month-on-month.",
-            )
+                metric="inventory_change_pct",
+                observed_at="2026-01-07",
+            ),
+            WatchlistAlert(
+                severity="info",
+                title="Days on market easing",
+                detail="Median DOM improved from 39 to 36 days.",
+                metric="days_on_market",
+                observed_at="2026-01-07",
+            ),
         ],
     ),
     WatchlistEntry(
         suburb_slug="labrador-qld-4215",
         suburb_name="Labrador",
+        state="QLD",
         strategy="yield",
+        watch_status="active",
         notes="Monitor rent growth and investor demand.",
+        target_buy_range_min=780000,
+        target_buy_range_max=860000,
         alerts=[
             WatchlistAlert(
                 severity="info",
                 title="Yield holding",
                 detail="Gross yield remains above 4.5% in the sample feed.",
+                metric="gross_yield_pct",
+                observed_at="2026-01-07",
+            )
+        ],
+    ),
+    WatchlistEntry(
+        suburb_slug="burleigh-heads-qld-4220",
+        suburb_name="Burleigh Heads",
+        state="QLD",
+        strategy="owner-occupier",
+        watch_status="paused",
+        notes="Paused while pricing remains above target strategy band.",
+        target_buy_range_min=1180000,
+        target_buy_range_max=1280000,
+        alerts=[
+            WatchlistAlert(
+                severity="high",
+                title="Pricing above target band",
+                detail="Median sold price sits 6.2% above target ceiling.",
+                metric="median_price_vs_target",
+                observed_at="2026-01-07",
             )
         ],
     ),

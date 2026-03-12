@@ -1,4 +1,6 @@
-from property_advisor.api.routes import comparables, health, property_advisor, suburbs_overview, watchlist
+import pytest
+
+from property_advisor.api.routes import comparables, health, property_advisor, suburbs_overview, watchlist, watchlist_alerts, watchlist_detail
 
 
 def test_health_endpoint() -> None:
@@ -27,14 +29,33 @@ def test_property_advisor_shape() -> None:
 
 
 def test_comparables_shape() -> None:
-    payload = comparables(query="southport", max_items=2).model_dump(mode="json")
+    payload = comparables(query="southport", max_items=2, min_price=None, max_price=None, max_distance_km=None).model_dump(mode="json")
     assert payload["set_quality"] == "mvp-sample"
     assert len(payload["items"]) == 2
     assert payload["summary"]["count"] == len(payload["items"])
 
 
 def test_watchlist_shape() -> None:
-    payload = watchlist(suburb_slug=None).model_dump(mode="json")
+    payload = watchlist(suburb_slug=None, strategy=None, state=None, watch_status=None, group_by="none").model_dump(mode="json")
     assert payload["mode"] in {"mock", "postgres"}
-    assert len(payload["items"]) >= 1
+    assert payload["summary"]["total_entries"] >= 1
     assert payload["items"][0]["alerts"]
+
+
+def test_watchlist_group_and_detail_routes() -> None:
+    grouped_payload = watchlist(suburb_slug=None, strategy=None, state="QLD", watch_status=None, group_by="strategy").model_dump(mode="json")
+    detail_payload = watchlist_detail(suburb_slug="southport-qld-4215").model_dump(mode="json")
+    assert grouped_payload["groups"]
+    assert detail_payload["item"]["suburb_slug"] == "southport-qld-4215"
+
+
+def test_watchlist_alerts_route() -> None:
+    payload = watchlist_alerts(severity="high").model_dump(mode="json")
+    assert payload["total"] >= 1
+    assert all(item["severity"] == "high" for item in payload["items"])
+
+
+def test_watchlist_detail_not_found() -> None:
+    with pytest.raises(Exception) as exc_info:
+        watchlist_detail(suburb_slug="unknown")
+    assert "404" in str(exc_info.value)
