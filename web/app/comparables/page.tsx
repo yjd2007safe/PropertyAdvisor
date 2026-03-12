@@ -1,26 +1,30 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getComparables } from "../../lib/api";
+import { MetricCard, PageIntro } from "../../components/sections";
 
 type ComparablesPageProps = {
-  searchParams?: Promise<{ query?: string; max_items?: string }>;
+  searchParams?: Promise<{ query?: string; max_items?: string; min_price?: string; max_price?: string; max_distance_km?: string }>;
 };
 
 export default async function ComparablesPage({ searchParams }: ComparablesPageProps) {
   const params = (await searchParams) ?? {};
   const query = params.query ?? "";
   const maxItems = Number(params.max_items ?? "5") || 5;
+  const minPrice = params.min_price ? Number(params.min_price) : undefined;
+  const maxPrice = params.max_price ? Number(params.max_price) : undefined;
+  const maxDistance = params.max_distance_km ? Number(params.max_distance_km) : undefined;
 
   try {
-    const comparables = await getComparables({ query: query || undefined, max_items: maxItems });
+    const comparables = await getComparables({ query: query || undefined, max_items: maxItems, min_price: minPrice, max_price: maxPrice, max_distance_km: maxDistance });
 
     return (
       <main className="section-stack">
-        <section className="panel">
-          <p className="eyebrow">Comparables</p>
-          <h2>Review the evidence set behind a property recommendation.</h2>
-          <p className="lede">Subject: {comparables.subject} · Set quality: {comparables.set_quality}</p>
-        </section>
+        <PageIntro
+          eyebrow="Comparables"
+          title="Pressure-test a recommendation using transparent evidence."
+          lede={`Subject: ${comparables.subject} · Set quality: ${comparables.set_quality}`}
+        />
 
         <section className="panel">
           <form className="query-form" method="GET">
@@ -28,6 +32,9 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
             <div>
               <input id="query" name="query" defaultValue={query} placeholder="southport or 12 Example Avenue" />
               <input id="max_items" name="max_items" type="number" min={1} max={20} defaultValue={maxItems} />
+              <input id="min_price" name="min_price" type="number" min={0} defaultValue={minPrice ?? ""} placeholder="Min price" />
+              <input id="max_price" name="max_price" type="number" min={0} defaultValue={maxPrice ?? ""} placeholder="Max price" />
+              <input id="max_distance_km" name="max_distance_km" type="number" min={0} step="0.1" defaultValue={maxDistance ?? ""} placeholder="Max km" />
               <button type="submit">Find comparables</button>
             </div>
           </form>
@@ -36,22 +43,14 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
         {comparables.items.length === 0 ? (
           <section className="panel">
             <h3>No comparables found</h3>
-            <p className="lede">Try broadening your suburb/address query or increase max items.</p>
+            <p className="lede">Try broadening your suburb/address query or relaxing filter limits.</p>
           </section>
         ) : (
           <>
-            <section className="card-grid">
-              <article className="panel">
-                <p className="meta-label">Set summary</p>
-                <table className="data-table">
-                  <tbody>
-                    <tr><th>Comparables</th><td>{comparables.summary.count}</td></tr>
-                    <tr><th>Min price</th><td>{formatCurrency(comparables.summary.min_price)}</td></tr>
-                    <tr><th>Avg price</th><td>{formatCurrency(comparables.summary.average_price)}</td></tr>
-                    <tr><th>Max price</th><td>{formatCurrency(comparables.summary.max_price)}</td></tr>
-                  </tbody>
-                </table>
-              </article>
+            <section className="stats-grid">
+              <MetricCard label="Comparables" value={comparables.summary.count} />
+              <MetricCard label="Average price" value={formatCurrency(comparables.summary.average_price)} tone="highlight" />
+              <MetricCard label="Price range" value={`${formatCurrency(comparables.summary.min_price)} - ${formatCurrency(comparables.summary.max_price)}`} />
             </section>
 
             <section className="panel">

@@ -37,6 +37,13 @@ main { display: grid; gap: 1.5rem; }
 .lede { max-width: 50rem; color: var(--muted); line-height: 1.7; }
 .stats-grid, .card-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .stat-card { display: flex; align-items: center; min-height: 120px; font-weight: 600; }
+
+.stat-card strong { font-size: 1.25rem; }
+.stat-card-highlight { border-color: rgba(65, 100, 74, 0.4); background: var(--accent-soft); }
+.group-block { padding: 0.8rem 0; border-bottom: 1px solid var(--line); }
+.group-block:last-child { border-bottom: 0; }
+.lede.compact { margin: 0; }
+.query-form select { border: 1px solid var(--line); border-radius: 0.6rem; padding: 0.6rem 0.75rem; background: white; }
 .section-block, .section-stack { display: grid; gap: 1rem; }
 .product-card span { color: var(--accent); font-weight: 700; }
 .product-card p, .comparable-card p { color: var(--muted); }

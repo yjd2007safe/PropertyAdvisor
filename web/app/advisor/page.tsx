@@ -1,34 +1,29 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, getPropertyAdvisor } from "../../lib/api";
+import { PageIntro } from "../../components/sections";
 
 type AdvisorPageProps = {
-  searchParams?: Promise<{ query?: string; query_type?: "address" | "slug" | "auto" }>;
+  searchParams?: Promise<{ query?: string; query_type?: "address" | "slug" | "auto"; focus_strategy?: "yield" | "owner-occupier" | "balanced" }>;
 };
 
 export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
   const params = (await searchParams) ?? {};
   const query = params.query ?? "";
   const queryType = params.query_type ?? "auto";
+  const focusStrategy = params.focus_strategy ?? "";
 
   try {
-    const advisor = await getPropertyAdvisor({ query: query || undefined, query_type: queryType });
+    const advisor = await getPropertyAdvisor({ query: query || undefined, query_type: queryType, focus_strategy: params.focus_strategy });
 
     return (
       <main className="section-stack">
-        <section className="panel split-hero">
-          <div>
-            <p className="eyebrow">Property Advisor</p>
-            <h2>Frame a single-property recommendation with evidence and caution notes.</h2>
-            <p className="lede">{advisor.advice.headline}</p>
-          </div>
-          <div className="panel emphasis-card">
-            <p className="meta-label">Current recommendation</p>
-            <h3>{advisor.advice.recommendation}</h3>
-            <p>Confidence: {advisor.advice.confidence}</p>
-            <p>Input mode: {advisor.inputs.query_type}</p>
-          </div>
-        </section>
+        <PageIntro
+          eyebrow="Property Advisor"
+          title="Turn a target property into a decision-ready recommendation."
+          lede="This MVP combines property details, recommendation framing, and action steps so a buyer can decide whether to hold, proceed, or pass."
+          aside={<><p className="meta-label">Current recommendation</p><h3>{advisor.advice.recommendation}</h3><p>Confidence: {advisor.advice.confidence}</p><p>Input mode: {advisor.inputs.query_type}</p></>}
+        />
 
         <section className="panel">
           <form className="query-form" method="GET">
@@ -39,6 +34,12 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
                 <option value="auto">Auto detect</option>
                 <option value="address">Address</option>
                 <option value="slug">Suburb slug</option>
+              </select>
+              <select name="focus_strategy" defaultValue={focusStrategy}>
+                <option value="">No strategy focus</option>
+                <option value="balanced">Balanced</option>
+                <option value="yield">Yield</option>
+                <option value="owner-occupier">Owner-occupier</option>
               </select>
               <button type="submit">Run advice query</button>
             </div>
@@ -68,7 +69,7 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
         </section>
 
         <section className="panel">
-          <p className="meta-label">Recommendation next steps</p>
+          <p className="meta-label">Execution plan</p>
           <ul className="detail-list">
             {advisor.advice.next_steps.map((step) => (
               <li key={step}>{step}</li>

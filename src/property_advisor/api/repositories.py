@@ -15,6 +15,7 @@ from property_advisor.api.schemas import (
     ComparableItem,
     PropertyAdvisorResponse,
     SuburbOverviewItem,
+    WatchlistAlert,
     WatchlistEntry,
 )
 
@@ -38,7 +39,19 @@ class ComparableRepository(Protocol):
 
 
 class WatchlistRepository(Protocol):
-    def list_entries(self, suburb_slug: Optional[str] = None) -> List[WatchlistEntry]:
+    def list_entries(
+        self,
+        suburb_slug: Optional[str] = None,
+        strategy: Optional[str] = None,
+        state: Optional[str] = None,
+        watch_status: Optional[str] = None,
+    ) -> List[WatchlistEntry]:
+        ...
+
+    def get_entry(self, suburb_slug: str) -> Optional[WatchlistEntry]:
+        ...
+
+    def list_alerts(self, severity: Optional[str] = None) -> List[WatchlistAlert]:
         ...
 
 
@@ -95,11 +108,32 @@ class MockComparableRepository:
 
 
 class MockWatchlistRepository:
-    def list_entries(self, suburb_slug: Optional[str] = None) -> List[WatchlistEntry]:
-        if not suburb_slug:
-            return list(WATCHLIST_FIXTURE)
+    def list_entries(
+        self,
+        suburb_slug: Optional[str] = None,
+        strategy: Optional[str] = None,
+        state: Optional[str] = None,
+        watch_status: Optional[str] = None,
+    ) -> List[WatchlistEntry]:
+        items = list(WATCHLIST_FIXTURE)
+        if suburb_slug:
+            items = [entry for entry in items if entry.suburb_slug == suburb_slug]
+        if strategy:
+            items = [entry for entry in items if entry.strategy == strategy]
+        if state:
+            items = [entry for entry in items if entry.state.lower() == state.lower()]
+        if watch_status:
+            items = [entry for entry in items if entry.watch_status == watch_status]
+        return items
 
-        return [entry for entry in WATCHLIST_FIXTURE if entry.suburb_slug == suburb_slug]
+    def get_entry(self, suburb_slug: str) -> Optional[WatchlistEntry]:
+        return next((entry for entry in WATCHLIST_FIXTURE if entry.suburb_slug == suburb_slug), None)
+
+    def list_alerts(self, severity: Optional[str] = None) -> List[WatchlistAlert]:
+        alerts = [alert for entry in WATCHLIST_FIXTURE for alert in entry.alerts]
+        if severity:
+            return [alert for alert in alerts if alert.severity == severity]
+        return alerts
 
 
 class PostgresSuburbRepository(MockSuburbRepository):
@@ -118,5 +152,14 @@ class PostgresComparableRepository(MockComparableRepository):
 
 
 class PostgresWatchlistRepository(MockWatchlistRepository):
+    """Postgres-backed watchlist repository scaffold with mock fallbacks.
+
+    The mapping helper keeps model shape close to expected DB rows so migration can
+    progressively move from fixtures to SQL queries.
+    """
+
     def __init__(self, session_factory: DatabaseSessionFactory):
         self.session_factory = session_factory
+
+    def _map_row_to_entry(self, row: dict) -> WatchlistEntry:
+        return WatchlistEntry.model_validate(row)

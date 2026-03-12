@@ -106,28 +106,54 @@ export type ComparablesResponse = {
   }[];
 };
 
+export type WatchlistAlert = { severity: "info" | "watch" | "high"; title: string; detail: string; metric: string; observed_at: string };
+
+export type WatchlistEntry = {
+  suburb_slug: string;
+  suburb_name: string;
+  state: string;
+  strategy: "yield" | "owner-occupier" | "balanced";
+  watch_status: "active" | "review" | "paused";
+  notes: string;
+  target_buy_range_min: number;
+  target_buy_range_max: number;
+  alerts: WatchlistAlert[];
+};
+
 export type WatchlistResponse = {
   generated_at: string;
   mode: "mock" | "postgres";
-  items: {
-    suburb_slug: string;
-    suburb_name: string;
-    strategy: "yield" | "owner-occupier" | "balanced";
-    notes: string;
-    alerts: { severity: "info" | "watch" | "high"; title: string; detail: string }[];
-  }[];
+  summary: {
+    total_entries: number;
+    active_entries: number;
+    grouped_view: "none" | "state" | "strategy";
+    alert_counts: Record<string, number>;
+  };
+  items: WatchlistEntry[];
+  groups: { key: string; label: string; entries: WatchlistEntry[] }[];
 };
 
 export const getSuburbsOverview = () => getJson<SuburbsOverviewResponse>("/api/suburbs/overview");
 
-export const getPropertyAdvisor = (params?: { query?: string; query_type?: "address" | "slug" | "auto" }) =>
+export const getPropertyAdvisor = (params?: { query?: string; query_type?: "address" | "slug" | "auto"; focus_strategy?: "yield" | "owner-occupier" | "balanced" }) =>
   getJson<PropertyAdvisorResponse>(`/api/advisor/property${buildSearch(params ?? {})}`);
 
-export const getComparables = (params?: { query?: string; max_items?: number }) =>
+export const getComparables = (params?: { query?: string; max_items?: number; min_price?: number; max_price?: number; max_distance_km?: number }) =>
   getJson<ComparablesResponse>(`/api/comparables${buildSearch(params ?? {})}`);
 
-export const getWatchlist = (suburb_slug?: string) =>
-  getJson<WatchlistResponse>(`/api/watchlist${buildSearch({ suburb_slug })}`);
+export const getWatchlist = (params?: {
+  suburb_slug?: string;
+  strategy?: "yield" | "owner-occupier" | "balanced";
+  state?: string;
+  watch_status?: "active" | "review" | "paused";
+  group_by?: "none" | "state" | "strategy";
+}) => getJson<WatchlistResponse>(`/api/watchlist${buildSearch(params ?? {})}`);
+
+export const getWatchlistDetail = (suburb_slug: string) =>
+  getJson<{ generated_at: string; mode: "mock" | "postgres"; item: WatchlistEntry }>(`/api/watchlist/${suburb_slug}`);
+
+export const getWatchlistAlerts = (severity?: "info" | "watch" | "high") =>
+  getJson<{ generated_at: string; mode: "mock" | "postgres"; total: number; items: WatchlistAlert[] }>(`/api/watchlist/alerts${buildSearch({ severity })}`);
 
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-AU", {
