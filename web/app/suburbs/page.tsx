@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getSuburbsOverview, getWatchlist } from "../../lib/api";
-import { MetricCard, PageIntro } from "../../components/sections";
+import { EmptyState, MetricCard, PageIntro, SummaryCardGrid, WorkflowLinks } from "../../components/sections";
 
 export default async function SuburbsPage() {
   try {
@@ -21,6 +21,9 @@ export default async function SuburbsPage() {
           <MetricCard label="Data freshness" value={suburbs.summary.data_freshness} tone="highlight" />
         </section>
 
+        <SummaryCardGrid cards={suburbs.investor_signals} />
+        <WorkflowLinks links={suburbs.workflow_links} />
+
         <section className="panel">
           <p className="meta-label">Watchlist grouped by strategy</p>
           {watchlist.groups.map((group) => (
@@ -31,29 +34,33 @@ export default async function SuburbsPage() {
           ))}
         </section>
 
-        <section className="table-panel panel">
-          <div className="table-header">
-            <h3>Tracked suburbs</h3>
-          </div>
-          <table className="data-table">
-            <thead>
-              <tr><th>Suburb</th><th>Trend</th><th>Median price</th><th>Median rent</th><th>DOM</th><th>Vacancy</th><th>Note</th></tr>
-            </thead>
-            <tbody>
-              {suburbs.items.map((suburb) => (
-                <tr key={suburb.slug}>
-                  <td>{suburb.name}, {suburb.state}</td>
-                  <td>{suburb.trend}</td>
-                  <td>{formatCurrency(suburb.median_price)}</td>
-                  <td>{formatCurrency(suburb.median_rent)}/wk</td>
-                  <td>{suburb.avg_days_on_market} days</td>
-                  <td>{suburb.vacancy_rate_pct}%</td>
-                  <td>{suburb.note}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+        {suburbs.items.length === 0 ? (
+          <EmptyState title="No suburb data loaded" body="Connect a data source or keep mock mode on to continue end-to-end product testing." />
+        ) : (
+          <section className="table-panel panel">
+            <div className="table-header">
+              <h3>Tracked suburbs</h3>
+            </div>
+            <table className="data-table">
+              <thead>
+                <tr><th>Suburb</th><th>Trend</th><th>Median price</th><th>Median rent</th><th>DOM</th><th>Vacancy</th><th>Note</th></tr>
+              </thead>
+              <tbody>
+                {suburbs.items.map((suburb) => (
+                  <tr key={suburb.slug}>
+                    <td>{suburb.name}, {suburb.state}</td>
+                    <td>{suburb.trend}</td>
+                    <td>{formatCurrency(suburb.median_price)}</td>
+                    <td>{formatCurrency(suburb.median_rent)}/wk</td>
+                    <td>{suburb.avg_days_on_market} days</td>
+                    <td>{suburb.vacancy_rate_pct}%</td>
+                    <td>{suburb.note}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
       </main>
     );
   } catch (error) {

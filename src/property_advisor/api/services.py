@@ -12,7 +12,9 @@ from property_advisor.api.mock_fixtures import PROPERTY_ADVISOR_FIXTURE
 from property_advisor.api.repositories import ComparableQuery, WatchlistQuery
 from property_advisor.api.schemas import (
     AdvisoryInputs,
+    AdvisoryInvestorSignal,
     AdvisoryMarketContext,
+    AdvisoryRationaleItem,
     ComparableNarrative,
     ComparableSnapshot,
     ComparableSummary,
@@ -21,12 +23,14 @@ from property_advisor.api.schemas import (
     PropertyAdvisorResponse,
     SuburbOverviewSummary,
     SuburbsOverviewResponse,
+    SummaryCard,
     WatchlistAlertsResponse,
     WatchlistDetailResponse,
     WatchlistEntry,
     WatchlistGroup,
     WatchlistResponse,
     WatchlistSummary,
+    WorkflowLink,
 )
 
 _DAL = DataAccessLayer.create(create_session_factory())
@@ -40,6 +44,16 @@ def get_health_status() -> HealthResponse:
     )
 
 
+def _product_workflow_links(suburb_slug: Optional[str] = None) -> List[WorkflowLink]:
+    suffix = f"?detail_slug={suburb_slug}" if suburb_slug else ""
+    return [
+        WorkflowLink(label="Suburb dashboard", href="/suburbs", context="Re-check suburb-level momentum and liquidity."),
+        WorkflowLink(label="Property advisor", href="/advisor", context="Convert evidence into a decision recommendation."),
+        WorkflowLink(label="Comparables", href="/comparables", context="Validate pricing fit and comp confidence."),
+        WorkflowLink(label="Watchlist", href=f"/watchlist{suffix}", context="Track strategy alerts and action queue."),
+    ]
+
+
 def get_suburbs_overview(dal: DataAccessLayer = _DAL) -> SuburbsOverviewResponse:
     items = dal.suburbs.list_overview()
     watchlist_slugs = {item.suburb_slug for item in dal.watchlist.list_entries(WatchlistQuery())}
@@ -48,9 +62,27 @@ def get_suburbs_overview(dal: DataAccessLayer = _DAL) -> SuburbsOverviewResponse
         watchlist_suburbs=sum(1 for item in items if item.slug in watchlist_slugs),
         data_freshness=f"{dal.mode}-weekly" if items else "empty",
     )
+
+    improving_count = sum(1 for item in items if item.trend == "improving")
+    watching_count = sum(1 for item in items if item.trend == "watching")
+    median_dom = round(mean([item.avg_days_on_market for item in items])) if items else 0
+
     return SuburbsOverviewResponse(
         generated_at=datetime.now(timezone.utc),
         summary=summary,
+        investor_signals=[
+            SummaryCard(
+                title="Trend balance",
+                value=f"{improving_count} improving / {watching_count} watching",
+                detail="Use this to calibrate how aggressive to be with pipeline expansion.",
+            ),
+            SummaryCard(
+                title="Average liquidity",
+                value=f"{median_dom} DOM",
+                detail="Lower days-on-market can reduce negotiation windows.",
+            ),
+        ],
+        workflow_links=_product_workflow_links(),
         items=items,
     )
 
@@ -120,6 +152,37 @@ def get_property_advice(
         ),
     )
 
+    rationale = [
+        AdvisoryRationaleItem(
+            signal="Comparable pricing fit",
+            stance="supporting" if position == "in_range" else "caution",
+            evidence=comparable_snapshot.summary,
+        ),
+        AdvisoryRationaleItem(
+            signal="Demand vs supply",
+            stance="neutral",
+            evidence=f"Demand: {market_context.demand_signal} Supply: {market_context.supply_signal}",
+        ),
+        AdvisoryRationaleItem(
+            signal="Strategy alignment",
+            stance="supporting" if strategy_focus != "owner-occupier" else "neutral",
+            evidence=f"Recommendation evaluated with {strategy_focus} strategy framing.",
+        ),
+    ]
+
+    investor_signals = [
+        AdvisoryInvestorSignal(
+            title="Comp confidence",
+            status="positive" if comparable_snapshot.sample_size >= 3 else "risk",
+            detail=f"{comparable_snapshot.sample_size} nearby comparables currently available.",
+        ),
+        AdvisoryInvestorSignal(
+            title="Supply pressure",
+            status="risk",
+            detail="Inventory momentum is elevated; model discount assumptions should stay conservative.",
+        ),
+    ]
+
     return advice.model_copy(
         update={
             "advice": advice.advice.model_copy(update={"next_steps": next_steps}),
@@ -129,6 +192,26 @@ def get_property_advice(
                 f"{advice.advice.recommendation.title()} with {advice.advice.confidence} confidence. "
                 "Use comparables and watchlist alerts together before placing an offer."
             ),
+            "rationale": rationale,
+            "investor_signals": investor_signals,
+            "summary_cards": [
+                SummaryCard(
+                    title="Recommendation",
+                    value=advice.advice.recommendation.title(),
+                    detail=f"Confidence: {advice.advice.confidence}",
+                ),
+                SummaryCard(
+                    title="Comparable position",
+                    value=comparable_snapshot.price_position.replace("_", " "),
+                    detail=comparable_snapshot.summary,
+                ),
+                SummaryCard(
+                    title="Strategy lens",
+                    value=strategy_focus,
+                    detail="Decision framing aligned to selected strategy.",
+                ),
+            ],
+            "workflow_links": _product_workflow_links(suburb_slug=suburb.slug if suburb else advice.inputs.suburb_slug),
             "inputs": AdvisoryInputs(
                 query=query,
                 query_type=effective_type,
@@ -163,6 +246,16 @@ def _build_comparable_narrative(summary: ComparableSummary, query: str) -> Compa
     )
 
 
+def _build_comparable_summary_cards(summary: ComparableSummary, narrative: ComparableNarrative) -> List[SummaryCard]:
+    if summary.count == 0:
+        return [SummaryCard(title="Comp set", value="No matches", detail="Widen filters to restore signal quality.")]
+    return [
+        SummaryCard(title="Average price", value=f"${summary.average_price:,}", detail="Directional anchor for negotiation planning."),
+        SummaryCard(title="Price spread", value=f"${summary.max_price - summary.min_price:,}", detail="Tighter spreads usually improve confidence."),
+        SummaryCard(title="Position signal", value=narrative.price_position, detail=narrative.investor_takeaway),
+    ]
+
+
 def get_comparables(
     query: str = PROPERTY_ADVISOR_FIXTURE.property.address,
     max_items: int = 5,
@@ -171,23 +264,28 @@ def get_comparables(
     max_distance_km: Optional[float] = None,
     dal: DataAccessLayer = _DAL,
 ) -> ComparablesResponse:
-    items = dal.comparables.list_by_subject(ComparableQuery(query=query, max_items=max_items))
-    if min_price is not None:
-        items = [item for item in items if item.price >= min_price]
-    if max_price is not None:
-        items = [item for item in items if item.price <= max_price]
-    if max_distance_km is not None:
-        items = [item for item in items if item.distance_km <= max_distance_km]
+    items = dal.comparables.list_by_subject(
+        ComparableQuery(
+            query=query,
+            max_items=max_items,
+            min_price=min_price,
+            max_price=max_price,
+            max_distance_km=max_distance_km,
+        )
+    )
 
     if not items:
         empty_summary = ComparableSummary(count=0, min_price=0, max_price=0, average_price=0)
+        narrative = _build_comparable_narrative(empty_summary, query)
         return ComparablesResponse(
             subject=query,
             set_quality="empty",
             query=query,
             items=[],
             summary=empty_summary,
-            narrative=_build_comparable_narrative(empty_summary, query),
+            narrative=narrative,
+            summary_cards=_build_comparable_summary_cards(empty_summary, narrative),
+            workflow_links=_product_workflow_links(),
         )
 
     prices = [item.price for item in items]
@@ -197,13 +295,16 @@ def get_comparables(
         max_price=max(prices),
         average_price=round(mean(prices)),
     )
+    narrative = _build_comparable_narrative(summary, query)
     return ComparablesResponse(
         subject=query,
         set_quality="mvp-sample-filtered" if any(v is not None for v in [min_price, max_price, max_distance_km]) else "mvp-sample",
         query=query,
         items=items,
         summary=summary,
-        narrative=_build_comparable_narrative(summary, query),
+        narrative=narrative,
+        summary_cards=_build_comparable_summary_cards(summary, narrative),
+        workflow_links=_product_workflow_links(),
     )
 
 
@@ -224,12 +325,7 @@ def _build_watchlist_groups(group_by: Literal["none", "state", "strategy"], item
                 label=key,
                 entries=entries,
                 action_required=sum(1 for entry in entries if entry.watch_status in {"review", "paused"}),
-                high_alerts=sum(
-                    1
-                    for entry in entries
-                    for alert in entry.alerts
-                    if alert.severity == "high"
-                ),
+                high_alerts=sum(1 for entry in entries for alert in entry.alerts if alert.severity == "high"),
             )
         )
     return groups
@@ -289,6 +385,12 @@ def get_watchlist(
         summary=summary,
         items=items,
         groups=_build_watchlist_groups(group_by, items),
+        summary_cards=[
+            SummaryCard(title="Action queue", value=str(action_counts["needs_review"]), detail="Suburbs needing manual review now."),
+            SummaryCard(title="High-severity alerts", value=str(alert_counts["high"]), detail="Potential stop/go blockers."),
+            SummaryCard(title="Ready to progress", value=str(action_counts["ready_to_progress"]), detail="Candidates for deeper due diligence."),
+        ],
+        workflow_links=_product_workflow_links(suburb_slug=suburb_slug),
     )
 
 

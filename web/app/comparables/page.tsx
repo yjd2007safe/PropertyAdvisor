@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getComparables } from "../../lib/api";
-import { MetricCard, PageIntro, SectionTitle } from "../../components/sections";
+import { EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks } from "../../components/sections";
 
 type ComparablesPageProps = {
   searchParams?: Promise<{ query?: string; max_items?: string; min_price?: string; max_price?: string; max_distance_km?: string }>;
@@ -41,11 +41,11 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
           </form>
         </section>
 
+        <SummaryCardGrid cards={comparables.summary_cards} />
+        <WorkflowLinks links={comparables.workflow_links} />
+
         {comparables.items.length === 0 ? (
-          <section className="panel">
-            <h3>No comparables found</h3>
-            <p className="lede">{comparables.narrative.action_prompt}</p>
-          </section>
+          <EmptyState title="No comparables found" body={comparables.narrative.action_prompt} />
         ) : (
           <>
             <section className="stats-grid">

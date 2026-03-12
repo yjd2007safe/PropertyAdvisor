@@ -14,6 +14,18 @@ class HealthResponse(BaseModel):
     timestamp: datetime
 
 
+class WorkflowLink(BaseModel):
+    label: str
+    href: str
+    context: str
+
+
+class SummaryCard(BaseModel):
+    title: str
+    value: str
+    detail: str
+
+
 class SuburbOverviewSummary(BaseModel):
     tracked_suburbs: int
     watchlist_suburbs: int
@@ -36,6 +48,8 @@ class SuburbsOverviewResponse(BaseModel):
     generated_at: datetime
     summary: SuburbOverviewSummary
     items: List[SuburbOverviewItem]
+    investor_signals: List[SummaryCard]
+    workflow_links: List[WorkflowLink]
 
 
 class SubjectProperty(BaseModel):
@@ -67,6 +81,18 @@ class ComparableSnapshot(BaseModel):
     summary: str
 
 
+class AdvisoryRationaleItem(BaseModel):
+    signal: str
+    stance: Literal["supporting", "caution", "neutral"]
+    evidence: str
+
+
+class AdvisoryInvestorSignal(BaseModel):
+    title: str
+    status: Literal["positive", "neutral", "risk"]
+    detail: str
+
+
 class AdvisoryInputs(BaseModel):
     query: str
     query_type: Literal["address", "slug", "auto"]
@@ -79,6 +105,10 @@ class PropertyAdvisorResponse(BaseModel):
     market_context: AdvisoryMarketContext
     comparable_snapshot: ComparableSnapshot
     decision_summary: str
+    rationale: List[AdvisoryRationaleItem]
+    investor_signals: List[AdvisoryInvestorSignal]
+    summary_cards: List[SummaryCard]
+    workflow_links: List[WorkflowLink]
     inputs: AdvisoryInputs
 
 
@@ -113,6 +143,8 @@ class ComparablesResponse(BaseModel):
     items: List[ComparableItem]
     summary: ComparableSummary
     narrative: ComparableNarrative
+    summary_cards: List[SummaryCard]
+    workflow_links: List[WorkflowLink]
 
 
 class WatchlistAlert(BaseModel):
@@ -160,6 +192,8 @@ class WatchlistResponse(BaseModel):
     summary: WatchlistSummary
     items: List[WatchlistEntry]
     groups: List[WatchlistGroup]
+    summary_cards: List[SummaryCard]
+    workflow_links: List[WorkflowLink]
 
 
 class WatchlistDetailResponse(BaseModel):

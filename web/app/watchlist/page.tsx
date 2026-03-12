@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getWatchlist, getWatchlistAlerts, getWatchlistDetail } from "../../lib/api";
-import { AlertBadge, MetricCard, PageIntro, SectionTitle } from "../../components/sections";
+import { AlertBadge, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks } from "../../components/sections";
 
 type WatchlistPageProps = {
   searchParams?: Promise<{
@@ -39,6 +39,9 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           lede={watchlist.summary.investor_brief}
           aside={<><p className="meta-label">Data mode</p><h3>{watchlist.mode}</h3><p>Grouped by: {watchlist.summary.grouped_view}</p></>}
         />
+
+        <SummaryCardGrid cards={watchlist.summary_cards} />
+        <WorkflowLinks links={watchlist.workflow_links} />
 
         <section className="stats-grid">
           <MetricCard label="Entries" value={watchlist.summary.total_entries} />
@@ -112,25 +115,29 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           </section>
         ) : null}
 
-        <section className="panel">
-          <table className="data-table">
-            <thead>
-              <tr><th>Suburb</th><th>Status</th><th>Strategy</th><th>Target band</th><th>Latest alert</th><th>Detail</th></tr>
-            </thead>
-            <tbody>
-              {watchlist.items.map((entry) => (
-                <tr key={entry.suburb_slug}>
-                  <td>{entry.suburb_name}</td>
-                  <td>{entry.watch_status}</td>
-                  <td>{entry.strategy}</td>
-                  <td>{formatCurrency(entry.target_buy_range_min)} - {formatCurrency(entry.target_buy_range_max)}</td>
-                  <td>{entry.alerts[0] ? <AlertBadge tone={entry.alerts[0].severity}>{entry.alerts[0].title}</AlertBadge> : "No alerts"}</td>
-                  <td><a href={`/watchlist?detail_slug=${entry.suburb_slug}`}>Open detail</a></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+        {watchlist.items.length === 0 ? (
+          <EmptyState title="No watchlist entries for current filters" body="Relax one filter to bring back candidate suburbs and alert context." />
+        ) : (
+          <section className="panel">
+            <table className="data-table">
+              <thead>
+                <tr><th>Suburb</th><th>Status</th><th>Strategy</th><th>Target band</th><th>Latest alert</th><th>Detail</th></tr>
+              </thead>
+              <tbody>
+                {watchlist.items.map((entry) => (
+                  <tr key={entry.suburb_slug}>
+                    <td>{entry.suburb_name}</td>
+                    <td>{entry.watch_status}</td>
+                    <td>{entry.strategy}</td>
+                    <td>{formatCurrency(entry.target_buy_range_min)} - {formatCurrency(entry.target_buy_range_max)}</td>
+                    <td>{entry.alerts[0] ? <AlertBadge tone={entry.alerts[0].severity}>{entry.alerts[0].title}</AlertBadge> : "No alerts"}</td>
+                    <td><a href={`/watchlist?detail_slug=${entry.suburb_slug}`}>Open detail</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
 
         {detail ? (
           <section className="panel">
@@ -145,14 +152,18 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           </section>
         ) : null}
 
-        <section className="panel">
-          <p className="meta-label">Alert feed ({alertFeed.total})</p>
-          <ul className="detail-list">
-            {alertFeed.items.map((alert) => (
-              <li key={`${alert.metric}-${alert.observed_at}-${alert.title}`}><AlertBadge tone={alert.severity}>{alert.severity}</AlertBadge> {alert.title}: {alert.detail}</li>
-            ))}
-          </ul>
-        </section>
+        {alertFeed.items.length === 0 ? (
+          <EmptyState title="No alerts for selected severity" body="Try a broader severity filter to restore portfolio-level context." />
+        ) : (
+          <section className="panel">
+            <p className="meta-label">Alert feed ({alertFeed.total})</p>
+            <ul className="detail-list">
+              {alertFeed.items.map((alert) => (
+                <li key={`${alert.metric}-${alert.observed_at}-${alert.title}`}><AlertBadge tone={alert.severity}>{alert.severity}</AlertBadge> {alert.title}: {alert.detail}</li>
+              ))}
+            </ul>
+          </section>
+        )}
       </main>
     );
   } catch (error) {

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-"""Mock fixtures used by the API repositories in MVP mode."""
+"""Mock response fixtures for MVP API mode."""
 
 from property_advisor.api.schemas import (
     AdvisoryInputs,
+    AdvisoryInvestorSignal,
     AdvisoryMarketContext,
+    AdvisoryRationaleItem,
     ComparableItem,
     ComparableNarrative,
     ComparableSnapshot,
@@ -12,39 +14,49 @@ from property_advisor.api.schemas import (
     ComparablesResponse,
     PropertyAdvice,
     PropertyAdvisorResponse,
-    SubjectProperty,
     SuburbOverviewItem,
     SuburbOverviewSummary,
     SuburbsOverviewResponse,
+    SubjectProperty,
+    SummaryCard,
     WatchlistAlert,
     WatchlistEntry,
+    WorkflowLink,
 )
 
 SUBURBS_OVERVIEW_FIXTURE = SuburbsOverviewResponse(
-    generated_at="2026-01-10T00:00:00Z",
+    generated_at="2026-01-07T00:00:00Z",
     summary=SuburbOverviewSummary(
         tracked_suburbs=3,
         watchlist_suburbs=2,
         data_freshness="mock-weekly",
     ),
+    investor_signals=[
+        SummaryCard(title="Momentum mix", value="1 improving / 1 steady / 1 watching", detail="Use to balance conviction and risk."),
+        SummaryCard(title="Median price band", value="$840k-$1.28m", detail="Current tracked suburbs envelope."),
+    ],
+    workflow_links=[
+        WorkflowLink(label="Open Property Advisor", href="/advisor", context="Move from suburb signal to property decision."),
+        WorkflowLink(label="Review Watchlist triage", href="/watchlist?group_by=strategy", context="Confirm strategy-level priorities."),
+    ],
     items=[
         SuburbOverviewItem(
             slug="southport-qld-4215",
             name="Southport",
             state="QLD",
-            median_price=895000,
-            median_rent=780,
+            median_price=890000,
+            median_rent=760,
             trend="watching",
-            note="Large stock turnover keeps this suburb in watch mode.",
+            note="Inventory is rising; monitor negotiation leverage weekly.",
             avg_days_on_market=36,
-            vacancy_rate_pct=1.5,
+            vacancy_rate_pct=1.3,
         ),
         SuburbOverviewItem(
             slug="burleigh-heads-qld-4220",
             name="Burleigh Heads",
             state="QLD",
-            median_price=1350000,
-            median_rent=950,
+            median_price=1280000,
+            median_rent=910,
             trend="steady",
             note="Premium demand is stable with low days on market.",
             avg_days_on_market=24,
@@ -101,6 +113,22 @@ PROPERTY_ADVISOR_FIXTURE = PropertyAdvisorResponse(
         summary="Subject pricing sits inside the current comparable range.",
     ),
     decision_summary="Watch with low confidence until new weekly comp evidence lands.",
+    rationale=[
+        AdvisoryRationaleItem(signal="Pricing fit", stance="neutral", evidence="Current ask is inside observed comp range."),
+        AdvisoryRationaleItem(signal="Supply pressure", stance="caution", evidence="Inventory trend is up month-on-month in tracked suburb."),
+    ],
+    investor_signals=[
+        AdvisoryInvestorSignal(title="Yield resilience", status="positive", detail="Rental demand remains stable in nearby stock."),
+        AdvisoryInvestorSignal(title="Negotiation leverage", status="neutral", detail="DOM is improving but stock is also rising."),
+    ],
+    summary_cards=[
+        SummaryCard(title="Recommendation", value="watch", detail="Low confidence pending fresher comparable evidence."),
+        SummaryCard(title="Comparable sample", value="3", detail="More evidence needed for stronger conviction."),
+    ],
+    workflow_links=[
+        WorkflowLink(label="Open comparables", href="/comparables?query=southport", context="Validate price position."),
+        WorkflowLink(label="Open watchlist", href="/watchlist?detail_slug=southport-qld-4215", context="Check active suburb alerts."),
+    ],
     inputs=AdvisoryInputs(
         query="12 Example Avenue, Southport QLD 4215",
         query_type="address",
@@ -155,6 +183,14 @@ COMPARABLES_FIXTURE = ComparablesResponse(
         investor_takeaway="Treat this as a negotiation anchor, not a valuation substitute.",
         action_prompt="Prioritise the two closest matches and verify renovation/land deltas.",
     ),
+    summary_cards=[
+        SummaryCard(title="Average comp", value="$878,333", detail="Use as a directional anchor only."),
+        SummaryCard(title="Spread", value="$65,000", detail="Lower spread generally improves confidence."),
+    ],
+    workflow_links=[
+        WorkflowLink(label="Back to advisor", href="/advisor?query=southport-qld-4215&query_type=slug", context="Apply comp evidence to recommendation."),
+        WorkflowLink(label="Open watchlist", href="/watchlist?suburb_slug=southport-qld-4215", context="Cross-check alert pressure."),
+    ],
 )
 
 WATCHLIST_FIXTURE = [

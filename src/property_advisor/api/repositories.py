@@ -25,6 +25,9 @@ from property_advisor.api.schemas import (
 class ComparableQuery:
     query: str
     max_items: int = 10
+    min_price: Optional[int] = None
+    max_price: Optional[int] = None
+    max_distance_km: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -106,13 +109,20 @@ class MockComparableRepository:
     def list_by_subject(self, criteria: ComparableQuery) -> List[ComparableItem]:
         normalized = criteria.query.strip().lower()
         if not normalized:
-            return list(COMPARABLES_FIXTURE.items)[: criteria.max_items]
-
-        if normalized in {"none", "empty", "no-match"}:
+            source = list(COMPARABLES_FIXTURE.items)
+        elif normalized in {"none", "empty", "no-match"}:
             return []
+        else:
+            filtered = [item for item in COMPARABLES_FIXTURE.items if normalized in item.address.lower()]
+            source = filtered if filtered else list(COMPARABLES_FIXTURE.items)
 
-        filtered = [item for item in COMPARABLES_FIXTURE.items if normalized in item.address.lower()]
-        source = filtered if filtered else list(COMPARABLES_FIXTURE.items)
+        if criteria.min_price is not None:
+            source = [item for item in source if item.price >= criteria.min_price]
+        if criteria.max_price is not None:
+            source = [item for item in source if item.price <= criteria.max_price]
+        if criteria.max_distance_km is not None:
+            source = [item for item in source if item.distance_km <= criteria.max_distance_km]
+
         return source[: criteria.max_items]
 
 

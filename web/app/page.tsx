@@ -6,20 +6,25 @@ const workflowCards = [
   },
   {
     title: "Property Advisor",
-    description: "Review a specific property with placeholder recommendation framing and clean integration points for real logic.",
+    description: "Review a specific property with structured rationale, investor signals, and recommendation framing.",
     href: "/advisor"
   },
   {
     title: "Comparables",
-    description: "Inspect the first comparable-set view and prepare the workflow for scoring, rationale, and evidence traceability.",
+    description: "Inspect comparable evidence with summary cards and investor-facing pricing prompts.",
     href: "/comparables"
+  },
+  {
+    title: "Watchlist",
+    description: "Prioritise suburb actions by strategy, status, and alert severity in one triage queue.",
+    href: "/watchlist"
   }
 ];
 
 const checklist = [
-  "FastAPI skeleton ready for real services",
-  "Postgres schema bootstrap flow documented locally",
-  "Next.js information architecture aligned to MVP use cases"
+  "Unified workflow links across all product surfaces",
+  "Structured advisory rationale and investor signals in mock mode",
+  "Service/repository seams hardened for future real-data integration"
 ];
 
 export default function HomePage() {
@@ -27,10 +32,10 @@ export default function HomePage() {
     <main>
       <section className="hero panel">
         <p className="eyebrow">Property acquisition intelligence</p>
-        <h2>One workspace for suburb signals, property advice, and comparable evidence.</h2>
+        <h2>One decision-support workspace from suburb scan to execution-ready shortlist.</h2>
         <p className="lede">
-          This MVP foundation is intentionally lightweight: enough structure to run locally,
-          navigate the product, and plug real market data into a coherent API and web app.
+          This MVP stays lightweight while improving product coherence across dashboard, advisor,
+          comparables, and watchlist so each step supports the next decision.
         </p>
       </section>
 
@@ -45,7 +50,7 @@ export default function HomePage() {
       <section className="section-block">
         <div className="section-heading">
           <p className="eyebrow">Core flows</p>
-          <h3>Start with the three surfaces that matter most.</h3>
+          <h3>Run the end-to-end investor workflow in one coherent product.</h3>
         </div>
         <div className="card-grid">
           {workflowCards.map((card) => (
