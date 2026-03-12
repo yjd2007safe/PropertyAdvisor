@@ -3,7 +3,7 @@ from __future__ import annotations
 """Typed API response models for MVP routes."""
 
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -115,7 +115,7 @@ class WatchlistSummary(BaseModel):
     total_entries: int
     active_entries: int
     grouped_view: Literal["none", "state", "strategy"]
-    alert_counts: dict[str, int]
+    alert_counts: Dict[str, int]
 
 
 class WatchlistGroup(BaseModel):
