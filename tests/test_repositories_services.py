@@ -39,6 +39,7 @@ def test_service_comparables_summary_is_derived_from_repository_data() -> None:
     response = get_comparables(query="southport", max_items=2, dal=dal)
     assert response.summary.count == len(response.items)
     assert response.summary.min_price <= response.summary.average_price <= response.summary.max_price
+    assert response.narrative.price_position in {"discount", "aligned", "premium"}
 
 
 def test_service_property_advice_query_flow_supports_slug() -> None:
@@ -46,6 +47,7 @@ def test_service_property_advice_query_flow_supports_slug() -> None:
     response = get_property_advice(query="burleigh-heads-qld-4220", query_type="slug", dal=dal)
     assert response.inputs.query_type == "slug"
     assert response.advice.recommendation == "consider"
+    assert response.market_context.strategy_focus == "balanced"
 
 
 def test_suburbs_overview_summary_matches_items() -> None:
@@ -65,6 +67,7 @@ def test_service_comparables_empty_state() -> None:
     response = get_comparables(query="empty", dal=dal)
     assert response.items == []
     assert response.summary.count == 0
+    assert response.narrative.price_position == "insufficient_data"
 
 
 def test_watchlist_grouping_and_alert_count_summary() -> None:
@@ -72,6 +75,7 @@ def test_watchlist_grouping_and_alert_count_summary() -> None:
     response = get_watchlist(group_by="strategy", dal=dal)
     assert response.summary.total_entries == len(response.items)
     assert response.summary.alert_counts["high"] >= 1
+    assert response.summary.by_status["review"] >= 1
     assert any(group.key == "balanced" for group in response.groups)
 
 

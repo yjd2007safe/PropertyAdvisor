@@ -65,6 +65,11 @@ main { display: grid; gap: 1.5rem; }
 .data-table th, .data-table td { border-bottom: 1px solid var(--line); text-align: left; padding: 0.6rem 0.35rem; vertical-align: top; }
 .data-table th { color: var(--muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
 
+.alert-badge { display: inline-flex; padding: 0.2rem 0.55rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.alert-info { background: #e5efe8; color: #31523c; }
+.alert-watch { background: #f3e6d3; color: #7a5226; }
+.alert-high { background: #f4d7d7; color: #7b2d2d; }
+
 @media (max-width: 760px) {
   .page-shell { padding-top: 1rem; }
   .topbar, .table-header, .suburb-row, .split-hero { grid-template-columns: 1fr; display: grid; }

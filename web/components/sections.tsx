@@ -21,3 +21,17 @@ export function MetricCard({ label, value, tone = "default" }: { label: string; 
     </article>
   );
 }
+
+export function AlertBadge({ tone, children }: { tone: "info" | "watch" | "high"; children: ReactNode }) {
+  return <span className={`alert-badge alert-${tone}`}>{children}</span>;
+}
+
+export function SectionTitle({ eyebrow, title, supportingText }: { eyebrow: string; title: string; supportingText?: string }) {
+  return (
+    <header>
+      <p className="meta-label">{eyebrow}</p>
+      <h3>{title}</h3>
+      {supportingText ? <p className="lede compact">{supportingText}</p> : null}
+    </header>
+  );
+}

@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, getPropertyAdvisor } from "../../lib/api";
-import { PageIntro } from "../../components/sections";
+import { MetricCard, PageIntro, SectionTitle } from "../../components/sections";
 
 type AdvisorPageProps = {
   searchParams?: Promise<{ query?: string; query_type?: "address" | "slug" | "auto"; focus_strategy?: "yield" | "owner-occupier" | "balanced" }>;
@@ -20,8 +20,8 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
       <main className="section-stack">
         <PageIntro
           eyebrow="Property Advisor"
-          title="Turn a target property into a decision-ready recommendation."
-          lede="This MVP combines property details, recommendation framing, and action steps so a buyer can decide whether to hold, proceed, or pass."
+          title="Turn a target property into a practical buy / wait decision."
+          lede={advisor.decision_summary}
           aside={<><p className="meta-label">Current recommendation</p><h3>{advisor.advice.recommendation}</h3><p>Confidence: {advisor.advice.confidence}</p><p>Input mode: {advisor.inputs.query_type}</p></>}
         />
 
@@ -46,10 +46,15 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
           </form>
         </section>
 
+        <section className="stats-grid">
+          <MetricCard label="Comparable sample" value={advisor.comparable_snapshot.sample_size} />
+          <MetricCard label="Price position" value={advisor.comparable_snapshot.price_position} tone="highlight" />
+          <MetricCard label="Strategy focus" value={advisor.market_context.strategy_focus} />
+        </section>
+
         <section className="card-grid two-up">
           <article className="panel">
-            <p className="meta-label">Subject property</p>
-            <h3>{advisor.property.address}</h3>
+            <SectionTitle eyebrow="Subject property" title={advisor.property.address} />
             <table className="data-table">
               <tbody>
                 <tr><th>Type</th><td>{advisor.property.property_type}</td></tr>
@@ -60,10 +65,21 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
             </table>
           </article>
           <article className="panel">
-            <p className="meta-label">Recommendation rationale</p>
-            <h4>Strengths</h4>
+            <SectionTitle eyebrow="Market context" title={advisor.market_context.suburb} supportingText={advisor.comparable_snapshot.summary} />
+            <ul className="detail-list">
+              <li><strong>Demand:</strong> {advisor.market_context.demand_signal}</li>
+              <li><strong>Supply:</strong> {advisor.market_context.supply_signal}</li>
+            </ul>
+          </article>
+        </section>
+
+        <section className="card-grid two-up">
+          <article className="panel">
+            <p className="meta-label">Strengths</p>
             <ul className="detail-list">{advisor.advice.strengths.map((item) => <li key={item}>{item}</li>)}</ul>
-            <h4>Risks</h4>
+          </article>
+          <article className="panel">
+            <p className="meta-label">Risks to clear first</p>
             <ul className="detail-list">{advisor.advice.risks.map((item) => <li key={item}>{item}</li>)}</ul>
           </article>
         </section>

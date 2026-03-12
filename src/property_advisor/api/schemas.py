@@ -54,6 +54,19 @@ class PropertyAdvice(BaseModel):
     next_steps: List[str]
 
 
+class AdvisoryMarketContext(BaseModel):
+    suburb: str
+    strategy_focus: str
+    demand_signal: str
+    supply_signal: str
+
+
+class ComparableSnapshot(BaseModel):
+    sample_size: int
+    price_position: Literal["below_range", "in_range", "above_range", "insufficient_data"]
+    summary: str
+
+
 class AdvisoryInputs(BaseModel):
     query: str
     query_type: Literal["address", "slug", "auto"]
@@ -63,6 +76,9 @@ class AdvisoryInputs(BaseModel):
 class PropertyAdvisorResponse(BaseModel):
     property: SubjectProperty
     advice: PropertyAdvice
+    market_context: AdvisoryMarketContext
+    comparable_snapshot: ComparableSnapshot
+    decision_summary: str
     inputs: AdvisoryInputs
 
 
@@ -83,12 +99,20 @@ class ComparableSummary(BaseModel):
     average_price: int
 
 
+class ComparableNarrative(BaseModel):
+    price_position: Literal["discount", "aligned", "premium", "insufficient_data"]
+    spread_commentary: str
+    investor_takeaway: str
+    action_prompt: str
+
+
 class ComparablesResponse(BaseModel):
     subject: str
     set_quality: str
     query: str
     items: List[ComparableItem]
     summary: ComparableSummary
+    narrative: ComparableNarrative
 
 
 class WatchlistAlert(BaseModel):
@@ -116,12 +140,18 @@ class WatchlistSummary(BaseModel):
     active_entries: int
     grouped_view: Literal["none", "state", "strategy"]
     alert_counts: Dict[str, int]
+    by_status: Dict[str, int]
+    by_strategy: Dict[str, int]
+    action_counts: Dict[str, int]
+    investor_brief: str
 
 
 class WatchlistGroup(BaseModel):
     key: str
     label: str
     entries: List[WatchlistEntry]
+    action_required: int
+    high_alerts: int
 
 
 class WatchlistResponse(BaseModel):

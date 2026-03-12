@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getWatchlist, getWatchlistAlerts, getWatchlistDetail } from "../../lib/api";
-import { MetricCard, PageIntro } from "../../components/sections";
+import { AlertBadge, MetricCard, PageIntro, SectionTitle } from "../../components/sections";
 
 type WatchlistPageProps = {
   searchParams?: Promise<{
@@ -35,14 +35,16 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
       <main className="section-stack">
         <PageIntro
           eyebrow="Watchlist & Alerts"
-          title="Run an actionable watchlist workflow across list, grouped, and detail views."
-          lede={`Data mode: ${watchlist.mode}. Use grouped views and alert filters to triage what needs action this week.`}
+          title="Triage suburbs by action, not just by raw alerts."
+          lede={watchlist.summary.investor_brief}
+          aside={<><p className="meta-label">Data mode</p><h3>{watchlist.mode}</h3><p>Grouped by: {watchlist.summary.grouped_view}</p></>}
         />
 
         <section className="stats-grid">
           <MetricCard label="Entries" value={watchlist.summary.total_entries} />
-          <MetricCard label="Active" value={watchlist.summary.active_entries} />
+          <MetricCard label="Needs review" value={watchlist.summary.action_counts.needs_review ?? 0} tone="highlight" />
           <MetricCard label="High alerts" value={watchlist.summary.alert_counts.high ?? 0} tone="highlight" />
+          <MetricCard label="Ready to progress" value={watchlist.summary.action_counts.ready_to_progress ?? 0} />
         </section>
 
         <section className="panel">
@@ -78,6 +80,25 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           </form>
         </section>
 
+        <section className="card-grid two-up">
+          <article className="panel">
+            <SectionTitle eyebrow="Status split" title="Operational workload" />
+            <ul className="detail-list">
+              <li>Active: {watchlist.summary.by_status.active ?? 0}</li>
+              <li>Review: {watchlist.summary.by_status.review ?? 0}</li>
+              <li>Paused: {watchlist.summary.by_status.paused ?? 0}</li>
+            </ul>
+          </article>
+          <article className="panel">
+            <SectionTitle eyebrow="Strategy split" title="Pipeline mix" />
+            <ul className="detail-list">
+              <li>Balanced: {watchlist.summary.by_strategy.balanced ?? 0}</li>
+              <li>Yield: {watchlist.summary.by_strategy.yield ?? 0}</li>
+              <li>Owner-occupier: {watchlist.summary.by_strategy["owner-occupier"] ?? 0}</li>
+            </ul>
+          </article>
+        </section>
+
         {watchlist.groups.length > 0 ? (
           <section className="panel">
             <p className="meta-label">Grouped view: {watchlist.summary.grouped_view}</p>
@@ -85,6 +106,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
               <div className="group-block" key={group.key}>
                 <h4>{group.label}</h4>
                 <p className="lede compact">{group.entries.map((entry) => entry.suburb_name).join(", ")}</p>
+                <p className="lede compact">Action required: {group.action_required} · High alerts: {group.high_alerts}</p>
               </div>
             ))}
           </section>
@@ -93,7 +115,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
         <section className="panel">
           <table className="data-table">
             <thead>
-              <tr><th>Suburb</th><th>Status</th><th>Strategy</th><th>Target band</th><th>Detail</th></tr>
+              <tr><th>Suburb</th><th>Status</th><th>Strategy</th><th>Target band</th><th>Latest alert</th><th>Detail</th></tr>
             </thead>
             <tbody>
               {watchlist.items.map((entry) => (
@@ -102,6 +124,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                   <td>{entry.watch_status}</td>
                   <td>{entry.strategy}</td>
                   <td>{formatCurrency(entry.target_buy_range_min)} - {formatCurrency(entry.target_buy_range_max)}</td>
+                  <td>{entry.alerts[0] ? <AlertBadge tone={entry.alerts[0].severity}>{entry.alerts[0].title}</AlertBadge> : "No alerts"}</td>
                   <td><a href={`/watchlist?detail_slug=${entry.suburb_slug}`}>Open detail</a></td>
                 </tr>
               ))}
@@ -116,7 +139,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
             <p className="lede">{detail.item.notes}</p>
             <ul className="detail-list">
               {detail.item.alerts.map((alert) => (
-                <li key={`${alert.metric}-${alert.observed_at}`}><strong>{alert.severity}</strong> · {alert.title} ({alert.observed_at}) — {alert.detail}</li>
+                <li key={`${alert.metric}-${alert.observed_at}`}><AlertBadge tone={alert.severity}>{alert.severity}</AlertBadge> {alert.title} ({alert.observed_at}) — {alert.detail}</li>
               ))}
             </ul>
           </section>
@@ -126,7 +149,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           <p className="meta-label">Alert feed ({alertFeed.total})</p>
           <ul className="detail-list">
             {alertFeed.items.map((alert) => (
-              <li key={`${alert.metric}-${alert.observed_at}-${alert.title}`}><strong>{alert.severity}</strong> · {alert.title}: {alert.detail}</li>
+              <li key={`${alert.metric}-${alert.observed_at}-${alert.title}`}><AlertBadge tone={alert.severity}>{alert.severity}</AlertBadge> {alert.title}: {alert.detail}</li>
             ))}
           </ul>
         </section>
