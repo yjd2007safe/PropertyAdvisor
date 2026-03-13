@@ -19,6 +19,7 @@ from property_advisor.api.schemas import (
     ComparableSnapshot,
     ComparableSummary,
     ComparablesResponse,
+    DataSourceStatus,
     HealthResponse,
     PropertyAdvisorResponse,
     SuburbOverviewSummary,
@@ -35,6 +36,21 @@ from property_advisor.api.schemas import (
 )
 
 _DAL = DataAccessLayer.create(create_session_factory())
+
+
+def _resolve_data_source(dal: DataAccessLayer, repository: object, domain: str) -> DataSourceStatus:
+    source = getattr(repository, "last_source", "mock")
+    if source not in {"mock", "postgres", "fallback_mock"}:
+        source = "mock"
+
+    if source == "postgres":
+        message = f"{domain} is served from PostgreSQL."
+    elif dal.mode == "postgres":
+        message = f"{domain} fell back to mock data because PostgreSQL data was unavailable."
+    else:
+        message = f"{domain} is running in mock mode."
+
+    return DataSourceStatus(mode=dal.mode, source=source, is_fallback=(source == "fallback_mock"), message=message)
 
 
 def get_health_status() -> HealthResponse:
@@ -86,6 +102,7 @@ def get_suburbs_overview(dal: DataAccessLayer = _DAL) -> SuburbsOverviewResponse
 
     return SuburbsOverviewResponse(
         generated_at=datetime.now(timezone.utc),
+        data_source=_resolve_data_source(dal, dal.suburbs, "Suburb overview"),
         summary=summary,
         investor_signals=[
             SummaryCard(
@@ -209,6 +226,7 @@ def get_property_advice(
 
     return advice.model_copy(
         update={
+            "data_source": _resolve_data_source(dal, dal.property_advice, "Property advice"),
             "advice": advice.advice.model_copy(update={"next_steps": next_steps}),
             "market_context": market_context,
             "comparable_snapshot": comparable_snapshot,
@@ -309,6 +327,7 @@ def get_comparables(
         empty_summary = ComparableSummary(count=0, min_price=0, max_price=0, average_price=0)
         narrative = _build_comparable_narrative(empty_summary, query)
         return ComparablesResponse(
+            data_source=_resolve_data_source(dal, dal.comparables, "Comparables"),
             subject=query,
             set_quality="empty",
             query=query,
@@ -334,6 +353,7 @@ def get_comparables(
     )
     narrative = _build_comparable_narrative(summary, query)
     return ComparablesResponse(
+        data_source=_resolve_data_source(dal, dal.comparables, "Comparables"),
         subject=query,
         set_quality="mvp-sample-filtered" if any(v is not None for v in [min_price, max_price, max_distance_km]) else "mvp-sample",
         query=query,
@@ -425,6 +445,7 @@ def get_watchlist(
     return WatchlistResponse(
         generated_at=datetime.now(timezone.utc),
         mode=dal.mode,
+        data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist"),
         summary=summary,
         items=items,
         groups=_build_watchlist_groups(group_by, items),
@@ -451,6 +472,7 @@ def get_watchlist_detail(suburb_slug: str, dal: DataAccessLayer = _DAL) -> Optio
     return WatchlistDetailResponse(
         generated_at=datetime.now(timezone.utc),
         mode=dal.mode,
+        data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist detail"),
         item=item,
     )
 
@@ -460,6 +482,7 @@ def get_watchlist_alerts(severity: Optional[str] = None, dal: DataAccessLayer = 
     return WatchlistAlertsResponse(
         generated_at=datetime.now(timezone.utc),
         mode=dal.mode,
+        data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist alerts"),
         total=len(items),
         items=items,
     )

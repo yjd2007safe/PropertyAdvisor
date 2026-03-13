@@ -17,6 +17,11 @@ export default async function SuburbsPage() {
 
         <WorkflowSnapshotPanel snapshot={suburbs.workflow_snapshot} />
 
+        <section className="panel">
+          <p className="meta-label">Data source</p>
+          <p className="lede compact">{suburbs.data_source.message}</p>
+        </section>
+
         <section className="stats-grid">
           <MetricCard label="Tracked suburbs" value={suburbs.summary.tracked_suburbs} />
           <MetricCard label="Watchlist suburbs" value={suburbs.summary.watchlist_suburbs} />

@@ -43,6 +43,11 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
 
         <WorkflowSnapshotPanel snapshot={comparables.workflow_snapshot} />
 
+        <section className="panel">
+          <p className="meta-label">Data source</p>
+          <p className="lede compact">{comparables.data_source.message}</p>
+        </section>
+
         <SummaryCardGrid cards={comparables.summary_cards} />
         <WorkflowLinks links={comparables.workflow_links} />
 

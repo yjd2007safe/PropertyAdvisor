@@ -53,6 +53,14 @@ export type WorkflowSnapshot = {
   investor_message: string;
 };
 
+
+export type DataSourceStatus = {
+  mode: "mock" | "postgres";
+  source: "mock" | "postgres" | "fallback_mock";
+  is_fallback: boolean;
+  message: string;
+};
+
 export type SuburbOverviewItem = {
   slug: string;
   name: string;
@@ -67,6 +75,7 @@ export type SuburbOverviewItem = {
 
 export type SuburbsOverviewResponse = {
   generated_at: string;
+  data_source: DataSourceStatus;
   summary: {
     tracked_suburbs: number;
     watchlist_suburbs: number;
@@ -79,6 +88,7 @@ export type SuburbsOverviewResponse = {
 };
 
 export type PropertyAdvisorResponse = {
+  data_source: DataSourceStatus;
   property: {
     address: string;
     property_type: string;
@@ -118,6 +128,7 @@ export type PropertyAdvisorResponse = {
 };
 
 export type ComparablesResponse = {
+  data_source: DataSourceStatus;
   subject: string;
   set_quality: string;
   query: string;
@@ -164,6 +175,7 @@ export type WatchlistEntry = {
 export type WatchlistResponse = {
   generated_at: string;
   mode: "mock" | "postgres";
+  data_source: DataSourceStatus;
   summary: {
     total_entries: number;
     active_entries: number;
@@ -198,10 +210,10 @@ export const getWatchlist = (params?: {
 }) => getJson<WatchlistResponse>(`/api/watchlist${buildSearch(params ?? {})}`);
 
 export const getWatchlistDetail = (suburb_slug: string) =>
-  getJson<{ generated_at: string; mode: "mock" | "postgres"; item: WatchlistEntry }>(`/api/watchlist/${suburb_slug}`);
+  getJson<{ generated_at: string; mode: "mock" | "postgres"; data_source: DataSourceStatus; item: WatchlistEntry }>(`/api/watchlist/${suburb_slug}`);
 
 export const getWatchlistAlerts = (severity?: "info" | "watch" | "high") =>
-  getJson<{ generated_at: string; mode: "mock" | "postgres"; total: number; items: WatchlistAlert[] }>(`/api/watchlist/alerts${buildSearch({ severity })}`);
+  getJson<{ generated_at: string; mode: "mock" | "postgres"; data_source: DataSourceStatus; total: number; items: WatchlistAlert[] }>(`/api/watchlist/alerts${buildSearch({ severity })}`);
 
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-AU", {
