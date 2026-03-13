@@ -12,6 +12,7 @@ from property_advisor.api.schemas import (
     ComparableSnapshot,
     ComparableSummary,
     ComparablesResponse,
+    DataSourceStatus,
     PropertyAdvice,
     PropertyAdvisorResponse,
     SuburbOverviewItem,
@@ -27,6 +28,7 @@ from property_advisor.api.schemas import (
 
 SUBURBS_OVERVIEW_FIXTURE = SuburbsOverviewResponse(
     generated_at="2026-01-07T00:00:00Z",
+    data_source=DataSourceStatus(mode="mock", source="mock", is_fallback=False, message="Suburb overview is running in mock mode."),
     summary=SuburbOverviewSummary(
         tracked_suburbs=3,
         watchlist_suburbs=2,
@@ -85,6 +87,7 @@ SUBURBS_OVERVIEW_FIXTURE = SuburbsOverviewResponse(
 )
 
 PROPERTY_ADVISOR_FIXTURE = PropertyAdvisorResponse(
+    data_source=DataSourceStatus(mode="mock", source="mock", is_fallback=False, message="Property advice is running in mock mode."),
     property=SubjectProperty(
         address="12 Example Avenue, Southport QLD 4215",
         property_type="house",
@@ -182,6 +185,7 @@ COMPARABLE_ITEMS_FIXTURE = [
 ]
 
 COMPARABLES_FIXTURE = ComparablesResponse(
+    data_source=DataSourceStatus(mode="mock", source="mock", is_fallback=False, message="Comparables are running in mock mode."),
     subject="12 Example Avenue, Southport QLD 4215",
     set_quality="mvp-sample",
     query="southport",

@@ -42,6 +42,12 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
 
         <WorkflowSnapshotPanel snapshot={watchlist.workflow_snapshot} />
 
+        <section className="panel">
+          <p className="meta-label">Data source</p>
+          <p className="lede compact">{watchlist.data_source.message}</p>
+          <p className="lede compact">Alert feed: {alertFeed.data_source.source}</p>
+        </section>
+
         <SummaryCardGrid cards={watchlist.summary_cards} />
         <WorkflowLinks links={watchlist.workflow_links} />
 

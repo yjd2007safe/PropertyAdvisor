@@ -3,7 +3,7 @@ from __future__ import annotations
 """Repository abstractions and mock implementations for API services."""
 
 from dataclasses import dataclass
-from typing import List, Optional, Protocol
+from typing import List, Literal, Optional, Protocol
 
 import psycopg
 
@@ -70,7 +70,10 @@ class WatchlistRepository(Protocol):
 
 
 class MockSuburbRepository:
+    last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
+
     def list_overview(self) -> List[SuburbOverviewItem]:
+        self.last_source = "mock"
         return list(SUBURBS_OVERVIEW_FIXTURE.items)
 
     def get_by_slug(self, slug: str) -> Optional[SuburbOverviewItem]:
@@ -78,7 +81,10 @@ class MockSuburbRepository:
 
 
 class MockPropertyAdviceRepository:
+    last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
+
     def get_by_address_or_slug(self, query: str) -> Optional[PropertyAdvisorResponse]:
+        self.last_source = "mock"
         normalized = query.strip().lower()
         default = PROPERTY_ADVISOR_FIXTURE
         if not normalized:
@@ -108,7 +114,10 @@ class MockPropertyAdviceRepository:
 
 
 class MockComparableRepository:
+    last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
+
     def list_by_subject(self, criteria: ComparableQuery) -> List[ComparableItem]:
+        self.last_source = "mock"
         normalized = criteria.query.strip().lower()
         if not normalized:
             source = list(COMPARABLES_FIXTURE.items)
@@ -129,7 +138,10 @@ class MockComparableRepository:
 
 
 class MockWatchlistRepository:
+    last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
+
     def list_entries(self, criteria: WatchlistQuery) -> List[WatchlistEntry]:
+        self.last_source = "mock"
         items = list(WATCHLIST_FIXTURE)
         if criteria.suburb_slug:
             items = [entry for entry in items if entry.suburb_slug == criteria.suburb_slug]
@@ -142,9 +154,11 @@ class MockWatchlistRepository:
         return items
 
     def get_entry(self, suburb_slug: str) -> Optional[WatchlistEntry]:
+        self.last_source = "mock"
         return next((entry for entry in WATCHLIST_FIXTURE if entry.suburb_slug == suburb_slug), None)
 
     def list_alerts(self, severity: Optional[str] = None) -> List[WatchlistAlert]:
+        self.last_source = "mock"
         alerts = [alert for entry in WATCHLIST_FIXTURE for alert in entry.alerts]
         if severity:
             return [alert for alert in alerts if alert.severity == severity]
@@ -157,20 +171,30 @@ class PostgresSuburbRepository(MockSuburbRepository):
 
     def list_overview(self) -> List[SuburbOverviewItem]:
         if not self.session_factory.config.url:
-            return super().list_overview()
-        with psycopg.connect(self.session_factory.config.url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    select suburb_name, state_code, postcode
-                    from suburbs
-                    order by suburb_name asc
-                    limit 20
-                    """
-                )
-                rows = cur.fetchall()
+            items = super().list_overview()
+            self.last_source = "fallback_mock"
+            return items
+        try:
+            with psycopg.connect(self.session_factory.config.url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        select suburb_name, state_code, postcode
+                        from suburbs
+                        order by suburb_name asc
+                        limit 20
+                        """
+                    )
+                    rows = cur.fetchall()
+        except psycopg.Error:
+            items = super().list_overview()
+            self.last_source = "fallback_mock"
+            return items
         if not rows:
-            return super().list_overview()
+            items = super().list_overview()
+            self.last_source = "fallback_mock"
+            return items
+        self.last_source = "postgres"
         items: List[SuburbOverviewItem] = []
         mock_index = {item.slug: item for item in SUBURBS_OVERVIEW_FIXTURE.items}
         for suburb_name, state_code, postcode in rows:
@@ -201,34 +225,41 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
 
     def get_by_address_or_slug(self, query: str) -> Optional[PropertyAdvisorResponse]:
         if not self.session_factory.config.url:
-            return super().get_by_address_or_slug(query)
+            item = super().get_by_address_or_slug(query)
+            self.last_source = "fallback_mock"
+            return item
         normalized = query.strip().lower()
-        with psycopg.connect(self.session_factory.config.url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    select
-                      p.address_line_1,
-                      p.suburb_name,
-                      p.state_code,
-                      p.postcode,
-                      p.property_type,
-                      p.bedrooms,
-                      p.bathrooms,
-                      pas.recommendation,
-                      pas.confidence,
-                      pas.target_value_low,
-                      pas.target_value_high,
-                      pas.estimated_rent_weekly,
-                      pas.headline_summary,
-                      pas.metrics
-                    from property_advice_snapshots pas
-                    join properties p on p.id = pas.property_id
-                    order by pas.generated_at desc, pas.created_at desc
-                    limit 20
-                    """
-                )
-                rows = cur.fetchall()
+        try:
+            with psycopg.connect(self.session_factory.config.url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        select
+                          p.address_line_1,
+                          p.suburb_name,
+                          p.state_code,
+                          p.postcode,
+                          p.property_type,
+                          p.bedrooms,
+                          p.bathrooms,
+                          pas.recommendation,
+                          pas.confidence,
+                          pas.target_value_low,
+                          pas.target_value_high,
+                          pas.estimated_rent_weekly,
+                          pas.headline_summary,
+                          pas.metrics
+                        from property_advice_snapshots pas
+                        join properties p on p.id = pas.property_id
+                        order by pas.generated_at desc, pas.created_at desc
+                        limit 20
+                        """
+                    )
+                    rows = cur.fetchall()
+        except psycopg.Error:
+            item = super().get_by_address_or_slug(query)
+            self.last_source = "fallback_mock"
+            return item
         for row in rows:
             address = f"{row[0]}, {row[1]} {row[2]} {row[3]}".strip()
             slug = f"{row[1].lower().replace(' ', '-')}-{(row[2] or '').lower()}-{row[3]}" if row[3] else row[1].lower().replace(' ', '-')
@@ -236,6 +267,7 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
                 continue
             fixture = PROPERTY_ADVISOR_FIXTURE
             metrics = row[13] or {}
+            self.last_source = "postgres"
             return fixture.model_copy(
                 update={
                     'property': fixture.property.model_copy(
@@ -256,7 +288,9 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
                     'decision_summary': metrics.get('decision_summary', fixture.decision_summary),
                 }
             )
-        return super().get_by_address_or_slug(query)
+        item = super().get_by_address_or_slug(query)
+        self.last_source = "fallback_mock"
+        return item
 
 
 class PostgresComparableRepository(MockComparableRepository):
@@ -265,27 +299,34 @@ class PostgresComparableRepository(MockComparableRepository):
 
     def list_by_subject(self, criteria: ComparableQuery) -> List[ComparableItem]:
         if not self.session_factory.config.url:
-            return super().list_by_subject(criteria)
-        with psycopg.connect(self.session_factory.config.url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    select
-                      p.address_line_1,
-                      p.suburb_name,
-                      se.sale_price,
-                      se.sale_date,
-                      p.bedrooms,
-                      p.bathrooms,
-                      se.metadata
-                    from sales_events se
-                    join properties p on p.id = se.property_id
-                    order by se.sale_date desc nulls last, se.created_at desc
-                    limit %s
-                    """,
-                    (criteria.max_items,)
-                )
-                rows = cur.fetchall()
+            items = super().list_by_subject(criteria)
+            self.last_source = "fallback_mock"
+            return items
+        try:
+            with psycopg.connect(self.session_factory.config.url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        select
+                          p.address_line_1,
+                          p.suburb_name,
+                          se.sale_price,
+                          se.sale_date,
+                          p.bedrooms,
+                          p.bathrooms,
+                          se.metadata
+                        from sales_events se
+                        join properties p on p.id = se.property_id
+                        order by se.sale_date desc nulls last, se.created_at desc
+                        limit %s
+                        """,
+                        (criteria.max_items,)
+                    )
+                    rows = cur.fetchall()
+        except psycopg.Error:
+            items = super().list_by_subject(criteria)
+            self.last_source = "fallback_mock"
+            return items
         items: List[ComparableItem] = []
         query_text = (criteria.query or '').strip().lower()
         for address_line_1, suburb_name, sale_price, sale_date, bedrooms, bathrooms, metadata in rows:
@@ -312,7 +353,12 @@ class PostgresComparableRepository(MockComparableRepository):
                     baths=int(bathrooms or 0),
                 )
             )
-        return items if items else super().list_by_subject(criteria)
+        if items:
+            self.last_source = "postgres"
+            return items
+        items = super().list_by_subject(criteria)
+        self.last_source = "fallback_mock"
+        return items
 
 
 class PostgresWatchlistRepository(MockWatchlistRepository):
@@ -326,27 +372,37 @@ class PostgresWatchlistRepository(MockWatchlistRepository):
 
     def _load_entries(self) -> List[WatchlistEntry]:
         if not self.session_factory.config.url:
-            return list(WATCHLIST_FIXTURE)
-        with psycopg.connect(self.session_factory.config.url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    select
-                      s.suburb_name,
-                      s.state_code,
-                      s.postcode,
-                      ar.threshold_text,
-                      ar.config
-                    from alert_rules ar
-                    join watchlists w on w.id = ar.watchlist_id
-                    join suburbs s on s.id = ar.suburb_id
-                    where w.user_ref = 'default'
-                    order by s.suburb_name asc
-                    """
-                )
-                rows = cur.fetchall()
+            items = list(WATCHLIST_FIXTURE)
+            self.last_source = "fallback_mock"
+            return items
+        try:
+            with psycopg.connect(self.session_factory.config.url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        select
+                          s.suburb_name,
+                          s.state_code,
+                          s.postcode,
+                          ar.threshold_text,
+                          ar.config
+                        from alert_rules ar
+                        join watchlists w on w.id = ar.watchlist_id
+                        join suburbs s on s.id = ar.suburb_id
+                        where w.user_ref = 'default'
+                        order by s.suburb_name asc
+                        """
+                    )
+                    rows = cur.fetchall()
+        except psycopg.Error:
+            items = list(WATCHLIST_FIXTURE)
+            self.last_source = "fallback_mock"
+            return items
         if not rows:
-            return list(WATCHLIST_FIXTURE)
+            items = list(WATCHLIST_FIXTURE)
+            self.last_source = "fallback_mock"
+            return items
+        self.last_source = "postgres"
         entries: List[WatchlistEntry] = []
         for suburb_name, state_code, postcode, threshold_text, config in rows:
             cfg = config or {}

@@ -17,6 +17,7 @@ def test_suburbs_overview_shape() -> None:
     assert payload["investor_signals"]
     assert payload["workflow_links"]
     assert payload["workflow_snapshot"]["stage"] == "suburb_dashboard"
+    assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
     assert {item["trend"] for item in payload["items"]} == {
         "watching",
         "steady",
@@ -32,6 +33,7 @@ def test_property_advisor_shape() -> None:
     assert payload["rationale"]
     assert payload["summary_cards"]
     assert payload["workflow_snapshot"]["next_href"].startswith("/comparables")
+    assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
 
 
 def test_comparables_shape() -> None:
@@ -41,6 +43,7 @@ def test_comparables_shape() -> None:
     assert payload["summary"]["count"] == len(payload["items"])
     assert payload["summary_cards"]
     assert payload["workflow_snapshot"]["stage"] == "comparables"
+    assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
 
 
 def test_watchlist_shape() -> None:
@@ -50,6 +53,7 @@ def test_watchlist_shape() -> None:
     assert payload["items"][0]["alerts"]
     assert payload["workflow_links"]
     assert payload["workflow_snapshot"]["stage"] == "watchlist"
+    assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
 
 
 def test_watchlist_group_and_detail_routes() -> None:
@@ -57,12 +61,14 @@ def test_watchlist_group_and_detail_routes() -> None:
     detail_payload = watchlist_detail(suburb_slug="southport-qld-4215").model_dump(mode="json")
     assert grouped_payload["groups"]
     assert detail_payload["item"]["suburb_slug"] == "southport-qld-4215"
+    assert detail_payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
 
 
 def test_watchlist_alerts_route() -> None:
     payload = watchlist_alerts(severity="high").model_dump(mode="json")
     assert payload["total"] >= 1
     assert all(item["severity"] == "high" for item in payload["items"])
+    assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
 
 
 def test_watchlist_detail_not_found() -> None:

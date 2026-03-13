@@ -34,6 +34,14 @@ class WorkflowSnapshot(BaseModel):
     investor_message: str
 
 
+
+
+class DataSourceStatus(BaseModel):
+    mode: Literal["mock", "postgres"]
+    source: Literal["mock", "postgres", "fallback_mock"]
+    is_fallback: bool
+    message: str
+
 class SuburbOverviewSummary(BaseModel):
     tracked_suburbs: int
     watchlist_suburbs: int
@@ -54,6 +62,7 @@ class SuburbOverviewItem(BaseModel):
 
 class SuburbsOverviewResponse(BaseModel):
     generated_at: datetime
+    data_source: DataSourceStatus
     summary: SuburbOverviewSummary
     items: List[SuburbOverviewItem]
     investor_signals: List[SummaryCard]
@@ -109,6 +118,7 @@ class AdvisoryInputs(BaseModel):
 
 
 class PropertyAdvisorResponse(BaseModel):
+    data_source: DataSourceStatus
     property: SubjectProperty
     advice: PropertyAdvice
     market_context: AdvisoryMarketContext
@@ -147,6 +157,7 @@ class ComparableNarrative(BaseModel):
 
 
 class ComparablesResponse(BaseModel):
+    data_source: DataSourceStatus
     subject: str
     set_quality: str
     query: str
@@ -200,6 +211,7 @@ class WatchlistGroup(BaseModel):
 class WatchlistResponse(BaseModel):
     generated_at: datetime
     mode: Literal["mock", "postgres"]
+    data_source: DataSourceStatus
     summary: WatchlistSummary
     items: List[WatchlistEntry]
     groups: List[WatchlistGroup]
@@ -211,11 +223,13 @@ class WatchlistResponse(BaseModel):
 class WatchlistDetailResponse(BaseModel):
     generated_at: datetime
     mode: Literal["mock", "postgres"]
+    data_source: DataSourceStatus
     item: WatchlistEntry
 
 
 class WatchlistAlertsResponse(BaseModel):
     generated_at: datetime
     mode: Literal["mock", "postgres"]
+    data_source: DataSourceStatus
     total: int
     items: List[WatchlistAlert]

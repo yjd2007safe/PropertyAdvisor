@@ -1,6 +1,8 @@
+import psycopg
+
 from property_advisor.api.data_access import DataAccessLayer
 from property_advisor.api.db import DatabaseConfig, DatabaseSessionFactory
-from property_advisor.api.repositories import PostgresComparableRepository, PostgresSuburbRepository
+from property_advisor.api.repositories import ComparableQuery, PostgresComparableRepository, PostgresSuburbRepository
 from property_advisor.api.services import (
     get_comparables,
     get_property_advice,
@@ -45,6 +47,7 @@ def test_service_property_advice_query_flow_supports_slug() -> None:
     assert response.market_context.strategy_focus == "balanced"
     assert response.rationale
     assert response.investor_signals
+    assert response.data_source.source in {"mock", "postgres", "fallback_mock"}
 
 
 def test_suburbs_overview_summary_matches_items() -> None:
@@ -107,3 +110,66 @@ def test_workflow_snapshots_link_surfaces_across_services() -> None:
     assert advisor.workflow_snapshot.next_href.startswith("/comparables")
     assert comps.workflow_snapshot.next_href.startswith("/advisor")
     assert watchlist.workflow_snapshot.primary_suburb_slug == "southport-qld-4215"
+
+
+def test_postgres_comparables_repository_falls_back_on_connection_error(monkeypatch) -> None:
+    repo = PostgresComparableRepository(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    def _boom(*args, **kwargs):
+        raise psycopg.OperationalError("db unavailable")
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", _boom)
+    items = repo.list_by_subject(criteria=ComparableQuery(query="southport", max_items=2))
+    assert items
+    assert repo.last_source == "fallback_mock"
+
+
+def test_service_data_source_reports_fallback_when_postgres_unavailable(monkeypatch) -> None:
+    dal = DataAccessLayer.create(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    def _boom(*args, **kwargs):
+        raise psycopg.OperationalError("db unavailable")
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", _boom)
+    response = get_comparables(query="southport", max_items=2, dal=dal)
+    assert response.data_source.mode == "postgres"
+    assert response.data_source.source == "fallback_mock"
+    assert response.data_source.is_fallback is True
+
+
+def test_service_data_source_reports_postgres_when_rows_exist(monkeypatch) -> None:
+    dal = DataAccessLayer.create(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchall(self):
+            return [("1 Test St", "Southport", 900000, "2025-01-01", 3, 2, {"distance_km": 0.5})]
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", lambda *args, **kwargs: _Conn())
+    response = get_comparables(query="southport", max_items=2, dal=dal)
+    assert response.data_source.source == "postgres"
+    assert response.data_source.is_fallback is False
