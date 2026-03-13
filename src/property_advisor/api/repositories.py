@@ -199,6 +199,65 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
     def __init__(self, session_factory: DatabaseSessionFactory):
         self.session_factory = session_factory
 
+    def get_by_address_or_slug(self, query: str) -> Optional[PropertyAdvisorResponse]:
+        if not self.session_factory.config.url:
+            return super().get_by_address_or_slug(query)
+        normalized = query.strip().lower()
+        with psycopg.connect(self.session_factory.config.url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select
+                      p.address_line_1,
+                      p.suburb_name,
+                      p.state_code,
+                      p.postcode,
+                      p.property_type,
+                      p.bedrooms,
+                      p.bathrooms,
+                      pas.recommendation,
+                      pas.confidence,
+                      pas.target_value_low,
+                      pas.target_value_high,
+                      pas.estimated_rent_weekly,
+                      pas.headline_summary,
+                      pas.metrics
+                    from property_advice_snapshots pas
+                    join properties p on p.id = pas.property_id
+                    order by pas.generated_at desc, pas.created_at desc
+                    limit 20
+                    """
+                )
+                rows = cur.fetchall()
+        for row in rows:
+            address = f"{row[0]}, {row[1]} {row[2]} {row[3]}".strip()
+            slug = f"{row[1].lower().replace(' ', '-')}-{(row[2] or '').lower()}-{row[3]}" if row[3] else row[1].lower().replace(' ', '-')
+            if normalized and normalized not in address.lower() and normalized != slug:
+                continue
+            fixture = PROPERTY_ADVISOR_FIXTURE
+            metrics = row[13] or {}
+            return fixture.model_copy(
+                update={
+                    'property': fixture.property.model_copy(
+                        update={
+                            'address': address,
+                            'property_type': row[4] or fixture.property.property_type,
+                            'beds': int(row[5] or fixture.property.beds),
+                            'baths': int(row[6] or fixture.property.baths),
+                        }
+                    ),
+                    'advice': fixture.advice.model_copy(
+                        update={
+                            'recommendation': row[7] or fixture.advice.recommendation,
+                            'confidence': row[8] or fixture.advice.confidence,
+                            'headline': row[11] or fixture.advice.headline,
+                        }
+                    ),
+                    'decision_summary': metrics.get('decision_summary', fixture.decision_summary),
+                }
+            )
+        return super().get_by_address_or_slug(query)
+
 
 class PostgresComparableRepository(MockComparableRepository):
     def __init__(self, session_factory: DatabaseSessionFactory):
