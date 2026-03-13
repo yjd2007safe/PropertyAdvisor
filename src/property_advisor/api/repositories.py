@@ -206,14 +206,74 @@ class PostgresComparableRepository(MockComparableRepository):
 
 
 class PostgresWatchlistRepository(MockWatchlistRepository):
-    """Postgres-backed watchlist repository scaffold with mock fallbacks.
-
-    The mapping helper keeps model shape close to expected DB rows so migration can
-    progressively move from fixtures to SQL queries.
-    """
+    """Postgres-backed watchlist repository with mock fallback behavior."""
 
     def __init__(self, session_factory: DatabaseSessionFactory):
         self.session_factory = session_factory
 
     def _map_row_to_entry(self, row: dict) -> WatchlistEntry:
         return WatchlistEntry.model_validate(row)
+
+    def _load_entries(self) -> List[WatchlistEntry]:
+        if not self.session_factory.config.url:
+            return list(WATCHLIST_FIXTURE)
+        with psycopg.connect(self.session_factory.config.url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select
+                      s.suburb_name,
+                      s.state_code,
+                      s.postcode,
+                      ar.threshold_text,
+                      ar.config
+                    from alert_rules ar
+                    join watchlists w on w.id = ar.watchlist_id
+                    join suburbs s on s.id = ar.suburb_id
+                    where w.user_ref = 'default'
+                    order by s.suburb_name asc
+                    """
+                )
+                rows = cur.fetchall()
+        if not rows:
+            return list(WATCHLIST_FIXTURE)
+        entries: List[WatchlistEntry] = []
+        for suburb_name, state_code, postcode, threshold_text, config in rows:
+            cfg = config or {}
+            slug = cfg.get('suburb_slug') or f"{suburb_name.lower().replace(' ', '-')}-{(state_code or '').lower()}-{postcode}"
+            alerts = [WatchlistAlert.model_validate(item) for item in cfg.get('alerts', [])]
+            entries.append(
+                WatchlistEntry(
+                    suburb_slug=slug,
+                    suburb_name=suburb_name,
+                    state=state_code or 'QLD',
+                    strategy=cfg.get('strategy', 'balanced'),
+                    watch_status=cfg.get('watch_status', threshold_text or 'active'),
+                    notes=cfg.get('notes', 'DB-backed watchlist entry loaded from alert_rules config.'),
+                    target_buy_range_min=int(cfg.get('target_buy_range_min', 0)),
+                    target_buy_range_max=int(cfg.get('target_buy_range_max', 0)),
+                    alerts=alerts,
+                )
+            )
+        return entries
+
+    def list_entries(self, criteria: WatchlistQuery) -> List[WatchlistEntry]:
+        items = self._load_entries()
+        if criteria.suburb_slug:
+            items = [entry for entry in items if entry.suburb_slug == criteria.suburb_slug]
+        if criteria.strategy:
+            items = [entry for entry in items if entry.strategy == criteria.strategy]
+        if criteria.state:
+            items = [entry for entry in items if entry.state.lower() == criteria.state.lower()]
+        if criteria.watch_status:
+            items = [entry for entry in items if entry.watch_status == criteria.watch_status]
+        return items
+
+    def get_entry(self, suburb_slug: str) -> Optional[WatchlistEntry]:
+        return next((entry for entry in self._load_entries() if entry.suburb_slug == suburb_slug), None)
+
+    def list_alerts(self, severity: Optional[str] = None) -> List[WatchlistAlert]:
+        alerts = [alert for entry in self._load_entries() for alert in entry.alerts]
+        if severity:
+            return [alert for alert in alerts if alert.severity == severity]
+        return alerts
