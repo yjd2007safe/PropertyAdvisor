@@ -61,7 +61,11 @@ def _parse_data_mode(value: Optional[str]) -> DataMode:
 
 
 def load_database_config() -> DatabaseConfig:
-    database_url = os.getenv("DATABASE_URL")
+    database_url = (
+        os.getenv("SUPABASE_DB_POOLER_URL")
+        or os.getenv("DATABASE_URL")
+        or os.getenv("SUPABASE_DB_URL")
+    )
     requested_mode = _parse_data_mode(os.getenv("PROPERTY_ADVISOR_DATA_MODE"))
     return DatabaseConfig(url=database_url, requested_mode=requested_mode)
 

@@ -1,6 +1,6 @@
 from property_advisor.api.data_access import DataAccessLayer
 from property_advisor.api.db import DatabaseConfig, DatabaseSessionFactory
-from property_advisor.api.repositories import PostgresComparableRepository
+from property_advisor.api.repositories import PostgresComparableRepository, PostgresSuburbRepository
 from property_advisor.api.services import (
     get_comparables,
     get_property_advice,
@@ -17,6 +17,14 @@ def test_data_access_layer_uses_postgres_placeholders_when_enabled() -> None:
     )
     assert dal.mode == "postgres"
     assert isinstance(dal.comparables, PostgresComparableRepository)
+
+
+def test_postgres_suburb_repository_reads_real_rows_when_available() -> None:
+    repo = PostgresSuburbRepository(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+    repo.session_factory = DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock"))
+    assert repo.list_overview()
 
 
 def test_service_comparables_summary_is_derived_from_repository_data() -> None:

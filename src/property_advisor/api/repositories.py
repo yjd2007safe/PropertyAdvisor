@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Protocol
 
+import psycopg
+
 from property_advisor.api.db import DatabaseSessionFactory
 from property_advisor.api.mock_fixtures import (
     COMPARABLES_FIXTURE,
@@ -152,6 +154,45 @@ class MockWatchlistRepository:
 class PostgresSuburbRepository(MockSuburbRepository):
     def __init__(self, session_factory: DatabaseSessionFactory):
         self.session_factory = session_factory
+
+    def list_overview(self) -> List[SuburbOverviewItem]:
+        if not self.session_factory.config.url:
+            return super().list_overview()
+        with psycopg.connect(self.session_factory.config.url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select suburb_name, state_code, postcode
+                    from suburbs
+                    order by suburb_name asc
+                    limit 20
+                    """
+                )
+                rows = cur.fetchall()
+        if not rows:
+            return super().list_overview()
+        items: List[SuburbOverviewItem] = []
+        mock_index = {item.slug: item for item in SUBURBS_OVERVIEW_FIXTURE.items}
+        for suburb_name, state_code, postcode in rows:
+            slug = f"{suburb_name.lower().replace(' ', '-')}-{(state_code or '').lower()}-{postcode}" if postcode else suburb_name.lower().replace(' ', '-')
+            fixture = mock_index.get(slug)
+            items.append(
+                SuburbOverviewItem(
+                    slug=slug,
+                    name=suburb_name,
+                    state=state_code or (fixture.state if fixture else 'QLD'),
+                    median_price=fixture.median_price if fixture else 0,
+                    median_rent=fixture.median_rent if fixture else 0,
+                    trend=fixture.trend if fixture else 'watching',
+                    note=fixture.note if fixture else 'DB-backed suburb loaded; richer metrics pending market_metrics wiring.',
+                    avg_days_on_market=fixture.avg_days_on_market if fixture else 0,
+                    vacancy_rate_pct=fixture.vacancy_rate_pct if fixture else 0.0,
+                )
+            )
+        return items
+
+    def get_by_slug(self, slug: str) -> Optional[SuburbOverviewItem]:
+        return next((item for item in self.list_overview() if item.slug == slug), None)
 
 
 class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
