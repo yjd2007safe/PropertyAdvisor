@@ -45,6 +45,13 @@ function buildSearch(params: Record<string, string | number | undefined | null>)
 
 export type WorkflowLink = { label: string; href: string; context: string };
 export type SummaryCard = { title: string; value: string; detail: string };
+export type WorkflowSnapshot = {
+  stage: string;
+  primary_suburb_slug?: string | null;
+  next_step: string;
+  next_href: string;
+  investor_message: string;
+};
 
 export type SuburbOverviewItem = {
   slug: string;
@@ -68,6 +75,7 @@ export type SuburbsOverviewResponse = {
   items: SuburbOverviewItem[];
   investor_signals: SummaryCard[];
   workflow_links: WorkflowLink[];
+  workflow_snapshot: WorkflowSnapshot;
 };
 
 export type PropertyAdvisorResponse = {
@@ -101,6 +109,7 @@ export type PropertyAdvisorResponse = {
   investor_signals: { title: string; status: "positive" | "neutral" | "risk"; detail: string }[];
   summary_cards: SummaryCard[];
   workflow_links: WorkflowLink[];
+  workflow_snapshot: WorkflowSnapshot;
   inputs: {
     query: string;
     query_type: "address" | "slug" | "auto";
@@ -126,6 +135,7 @@ export type ComparablesResponse = {
   };
   summary_cards: SummaryCard[];
   workflow_links: WorkflowLink[];
+  workflow_snapshot: WorkflowSnapshot;
   items: {
     address: string;
     price: number;
@@ -166,6 +176,7 @@ export type WatchlistResponse = {
   };
   summary_cards: SummaryCard[];
   workflow_links: WorkflowLink[];
+  workflow_snapshot: WorkflowSnapshot;
   items: WatchlistEntry[];
   groups: { key: string; label: string; entries: WatchlistEntry[]; action_required: number; high_alerts: number }[];
 };

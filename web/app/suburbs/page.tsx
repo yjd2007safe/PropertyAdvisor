@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getSuburbsOverview, getWatchlist } from "../../lib/api";
-import { EmptyState, MetricCard, PageIntro, SummaryCardGrid, WorkflowLinks } from "../../components/sections";
+import { EmptyState, MetricCard, PageIntro, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 
 export default async function SuburbsPage() {
   try {
@@ -14,6 +14,8 @@ export default async function SuburbsPage() {
           title="Prioritise where to deploy research before property-level due diligence."
           lede="Track suburb momentum, liquidity, and watchlist context in one place, then jump into advisor and comparables workflows."
         />
+
+        <WorkflowSnapshotPanel snapshot={suburbs.workflow_snapshot} />
 
         <section className="stats-grid">
           <MetricCard label="Tracked suburbs" value={suburbs.summary.tracked_suburbs} />
@@ -43,7 +45,7 @@ export default async function SuburbsPage() {
             </div>
             <table className="data-table">
               <thead>
-                <tr><th>Suburb</th><th>Trend</th><th>Median price</th><th>Median rent</th><th>DOM</th><th>Vacancy</th><th>Note</th></tr>
+                <tr><th>Suburb</th><th>Trend</th><th>Median price</th><th>Median rent</th><th>DOM</th><th>Vacancy</th><th>Next actions</th></tr>
               </thead>
               <tbody>
                 {suburbs.items.map((suburb) => (
@@ -54,7 +56,9 @@ export default async function SuburbsPage() {
                     <td>{formatCurrency(suburb.median_rent)}/wk</td>
                     <td>{suburb.avg_days_on_market} days</td>
                     <td>{suburb.vacancy_rate_pct}%</td>
-                    <td>{suburb.note}</td>
+                    <td>
+                      <a href={`/advisor?query=${suburb.slug}&query_type=slug`}>Advisor</a> · <a href={`/comparables?query=${suburb.slug}`}>Comps</a> · <a href={`/watchlist?detail_slug=${suburb.slug}`}>Watchlist</a>
+                    </td>
                   </tr>
                 ))}
               </tbody>

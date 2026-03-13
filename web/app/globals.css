@@ -80,3 +80,9 @@ main { display: grid; gap: 1.5rem; }
 .three-up { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
 .workflow-link { display: grid; gap: 0.3rem; border: 1px solid var(--line); border-radius: 0.9rem; padding: 0.8rem; background: var(--panel-strong); }
 .workflow-link p { margin: 0; color: var(--muted); }
+
+
+.workflow-snapshot { background: linear-gradient(160deg, rgba(65, 100, 74, 0.1), rgba(169, 127, 85, 0.08)); }
+.workflow-row { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.7rem 0; color: var(--muted); font-size: 0.9rem; }
+.workflow-cta { display: inline-flex; padding: 0.55rem 0.8rem; border-radius: 0.6rem; border: 1px solid var(--accent); font-weight: 700; color: var(--accent); }
+.inline-links { margin-top: 0.25rem; font-size: 0.85rem; color: var(--muted); }

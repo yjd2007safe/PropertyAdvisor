@@ -87,3 +87,15 @@ def test_comparables_filter_supports_price_and_distance() -> None:
     assert response.items
     assert all(item.price >= 890000 and item.price <= 920000 for item in response.items)
     assert all(item.distance_km <= 0.8 for item in response.items)
+
+
+def test_workflow_snapshots_link_surfaces_across_services() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    suburb = get_suburbs_overview(dal=dal)
+    advisor = get_property_advice(query="southport-qld-4215", query_type="slug", dal=dal)
+    comps = get_comparables(query="southport-qld-4215", dal=dal)
+    watchlist = get_watchlist(suburb_slug="southport-qld-4215", dal=dal)
+    assert suburb.workflow_snapshot.next_href.startswith("/advisor")
+    assert advisor.workflow_snapshot.next_href.startswith("/comparables")
+    assert comps.workflow_snapshot.next_href.startswith("/advisor")
+    assert watchlist.workflow_snapshot.primary_suburb_slug == "southport-qld-4215"

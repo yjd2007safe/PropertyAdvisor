@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ReactNode } from "react";
-import { SummaryCard, WorkflowLink } from "../lib/api";
+import { SummaryCard, WorkflowLink, WorkflowSnapshot } from "../lib/api";
 
 export function PageIntro({ eyebrow, title, lede, aside }: { eyebrow: string; title: string; lede: string; aside?: ReactNode }) {
   return (
@@ -64,6 +64,21 @@ export function WorkflowLinks({ links }: { links: WorkflowLink[] }) {
           </Link>
         ))}
       </div>
+    </section>
+  );
+}
+
+export function WorkflowSnapshotPanel({ snapshot }: { snapshot: WorkflowSnapshot }) {
+  return (
+    <section className="panel workflow-snapshot">
+      <p className="meta-label">Product workflow snapshot</p>
+      <h3>{snapshot.next_step}</h3>
+      <p className="lede compact">{snapshot.investor_message}</p>
+      <div className="workflow-row">
+        <span>Stage: {snapshot.stage}</span>
+        {snapshot.primary_suburb_slug ? <span>Suburb: {snapshot.primary_suburb_slug}</span> : null}
+      </div>
+      <Link className="workflow-cta" href={snapshot.next_href}>Continue workflow →</Link>
     </section>
   );
 }
