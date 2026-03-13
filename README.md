@@ -46,11 +46,14 @@ Or just run the helper directly on a clean checkout:
 Create a local Postgres database, then apply the checked-in schema:
 
 ```bash
+export PROPERTY_ADVISOR_DATA_MODE=mock
 export DATABASE_URL='postgresql://postgres:postgres@localhost:5432/propertyadvisor'
+./db/scripts/check_database_env.sh
 ./db/scripts/apply_schema.sh
 ```
 
 This uses `db/schema_v1.sql` locally only. No external deployment flow is configured in this repository.
+Keep the app in `mock` mode until the first real read-only repository queries are wired.
 
 ### 3. Run the API
 
@@ -93,5 +96,8 @@ pytest
 ### Repository and DB mode toggles
 
 - API services now read through internal repository abstractions (suburbs, advisory inputs, comparables).
-- Keep `PROPERTY_ADVISOR_USE_DB=0` (default) to use safe mock-backed repositories.
-- Set `PROPERTY_ADVISOR_USE_DB=1` with a valid `DATABASE_URL` to activate Postgres repository placeholders for future query wiring.
+- Preferred toggle: `PROPERTY_ADVISOR_DATA_MODE=mock|auto|postgres`.
+- Safe default: `PROPERTY_ADVISOR_DATA_MODE=mock` keeps the app on fixture-backed repositories while local schema/bootstrap work advances.
+- `PROPERTY_ADVISOR_DATA_MODE=auto` resolves to `postgres` only when `DATABASE_URL` is present; otherwise it falls back to `mock`.
+- `PROPERTY_ADVISOR_DATA_MODE=postgres` is the explicit cutover switch once repository SQL reads are implemented.
+- Legacy `PROPERTY_ADVISOR_USE_DB=0|1` is still accepted for compatibility, but new setup should use `PROPERTY_ADVISOR_DATA_MODE`.
