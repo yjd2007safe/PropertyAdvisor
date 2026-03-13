@@ -34,7 +34,7 @@ class DataAccessLayer:
 
     @classmethod
     def create(cls, session_factory: DatabaseSessionFactory) -> "DataAccessLayer":
-        if session_factory.is_configured():
+        if session_factory.target_mode() == "postgres":
             return cls(
                 mode="postgres",
                 suburbs=PostgresSuburbRepository(session_factory),

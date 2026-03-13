@@ -13,14 +13,14 @@ from property_advisor.api.services import (
 
 def test_data_access_layer_uses_postgres_placeholders_when_enabled() -> None:
     dal = DataAccessLayer.create(
-        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", enabled=True))
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
     )
     assert dal.mode == "postgres"
     assert isinstance(dal.comparables, PostgresComparableRepository)
 
 
 def test_service_comparables_summary_is_derived_from_repository_data() -> None:
-    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     response = get_comparables(query="southport", max_items=2, dal=dal)
     assert response.summary.count == len(response.items)
     assert response.summary.min_price <= response.summary.average_price <= response.summary.max_price
@@ -30,7 +30,7 @@ def test_service_comparables_summary_is_derived_from_repository_data() -> None:
 
 
 def test_service_property_advice_query_flow_supports_slug() -> None:
-    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     response = get_property_advice(query="burleigh-heads-qld-4220", query_type="slug", dal=dal)
     assert response.inputs.query_type == "slug"
     assert response.advice.recommendation == "consider"
@@ -40,20 +40,20 @@ def test_service_property_advice_query_flow_supports_slug() -> None:
 
 
 def test_suburbs_overview_summary_matches_items() -> None:
-    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     response = get_suburbs_overview(dal=dal)
     assert response.summary.tracked_suburbs == len(response.items)
     assert response.investor_signals
 
 
 def test_watchlist_filter_returns_empty_for_unknown_slug() -> None:
-    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     response = get_watchlist(suburb_slug="unknown-suburb", dal=dal)
     assert response.items == []
 
 
 def test_service_comparables_empty_state() -> None:
-    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     response = get_comparables(query="empty", dal=dal)
     assert response.items == []
     assert response.summary.count == 0
@@ -61,7 +61,7 @@ def test_service_comparables_empty_state() -> None:
 
 
 def test_watchlist_grouping_and_alert_count_summary() -> None:
-    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     response = get_watchlist(group_by="strategy", dal=dal)
     assert response.summary.total_entries == len(response.items)
     assert response.summary.alert_counts["high"] >= 1
@@ -71,7 +71,7 @@ def test_watchlist_grouping_and_alert_count_summary() -> None:
 
 
 def test_watchlist_detail_and_alert_filter_flow() -> None:
-    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     detail = get_watchlist_detail(suburb_slug="southport-qld-4215", dal=dal)
     high_alerts = get_watchlist_alerts(severity="high", dal=dal)
     assert detail is not None
@@ -80,7 +80,7 @@ def test_watchlist_detail_and_alert_filter_flow() -> None:
 
 
 def test_comparables_filter_supports_price_and_distance() -> None:
-    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     response = get_comparables(
         query="southport", max_items=5, min_price=890000, max_price=920000, max_distance_km=0.8, dal=dal
     )
@@ -90,7 +90,7 @@ def test_comparables_filter_supports_price_and_distance() -> None:
 
 
 def test_workflow_snapshots_link_surfaces_across_services() -> None:
-    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, enabled=False)))
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     suburb = get_suburbs_overview(dal=dal)
     advisor = get_property_advice(query="southport-qld-4215", query_type="slug", dal=dal)
     comps = get_comparables(query="southport-qld-4215", dal=dal)

@@ -4,13 +4,33 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
+
+DataMode = Literal["mock", "postgres", "auto"]
 
 
 @dataclass(frozen=True)
 class DatabaseConfig:
     url: Optional[str]
-    enabled: bool
+    requested_mode: DataMode
+
+    @property
+    def has_url(self) -> bool:
+        return bool(self.url)
+
+    @property
+    def enabled(self) -> bool:
+        return self.requested_mode == "postgres"
+
+    def resolved_mode(self) -> Literal["mock", "postgres"]:
+        if self.requested_mode == "mock":
+            return "mock"
+        if self.requested_mode == "postgres":
+            return "postgres"
+        return "postgres" if self.has_url else "mock"
+
+    def is_ready_for_postgres(self) -> bool:
+        return self.resolved_mode() == "postgres" and self.has_url
 
 
 class DatabaseSessionFactory:
@@ -20,15 +40,30 @@ class DatabaseSessionFactory:
         self.config = config
 
     def is_configured(self) -> bool:
-        return self.config.enabled and bool(self.config.url)
+        return self.config.is_ready_for_postgres()
+
+    def target_mode(self) -> Literal["mock", "postgres"]:
+        return self.config.resolved_mode()
+
+
+def _parse_data_mode(value: Optional[str]) -> DataMode:
+    normalized = (value or "auto").strip().lower()
+    legacy_flag = os.getenv("PROPERTY_ADVISOR_USE_DB")
+
+    if normalized in {"mock", "postgres", "auto"}:
+        return normalized  # type: ignore[return-value]
+
+    if legacy_flag == "1":
+        return "postgres"
+    if legacy_flag == "0":
+        return "mock"
+    return "auto"
 
 
 def load_database_config() -> DatabaseConfig:
     database_url = os.getenv("DATABASE_URL")
-    return DatabaseConfig(
-        url=database_url,
-        enabled=os.getenv("PROPERTY_ADVISOR_USE_DB", "0") == "1",
-    )
+    requested_mode = _parse_data_mode(os.getenv("PROPERTY_ADVISOR_DATA_MODE"))
+    return DatabaseConfig(url=database_url, requested_mode=requested_mode)
 
 
 def create_session_factory() -> DatabaseSessionFactory:
