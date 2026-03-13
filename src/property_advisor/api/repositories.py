@@ -204,6 +204,57 @@ class PostgresComparableRepository(MockComparableRepository):
     def __init__(self, session_factory: DatabaseSessionFactory):
         self.session_factory = session_factory
 
+    def list_by_subject(self, criteria: ComparableQuery) -> List[ComparableItem]:
+        if not self.session_factory.config.url:
+            return super().list_by_subject(criteria)
+        with psycopg.connect(self.session_factory.config.url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select
+                      p.address_line_1,
+                      p.suburb_name,
+                      se.sale_price,
+                      se.sale_date,
+                      p.bedrooms,
+                      p.bathrooms,
+                      se.metadata
+                    from sales_events se
+                    join properties p on p.id = se.property_id
+                    order by se.sale_date desc nulls last, se.created_at desc
+                    limit %s
+                    """,
+                    (criteria.max_items,)
+                )
+                rows = cur.fetchall()
+        items: List[ComparableItem] = []
+        query_text = (criteria.query or '').strip().lower()
+        for address_line_1, suburb_name, sale_price, sale_date, bedrooms, bathrooms, metadata in rows:
+            address = f"{address_line_1}, {suburb_name}"
+            if query_text and query_text not in address.lower() and query_text not in suburb_name.lower():
+                continue
+            meta = metadata or {}
+            price = int(sale_price or 0)
+            distance_km = float(meta.get('distance_km', 0.0))
+            if criteria.min_price is not None and price < criteria.min_price:
+                continue
+            if criteria.max_price is not None and price > criteria.max_price:
+                continue
+            if criteria.max_distance_km is not None and distance_km > criteria.max_distance_km:
+                continue
+            items.append(
+                ComparableItem(
+                    address=address,
+                    price=price,
+                    distance_km=distance_km,
+                    match_reason=meta.get('match_reason', 'DB-backed comparable'),
+                    sold_date=str(sale_date),
+                    beds=int(bedrooms or 0),
+                    baths=int(bathrooms or 0),
+                )
+            )
+        return items if items else super().list_by_subject(criteria)
+
 
 class PostgresWatchlistRepository(MockWatchlistRepository):
     """Postgres-backed watchlist repository with mock fallback behavior."""
