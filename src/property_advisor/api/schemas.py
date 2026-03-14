@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel
+from pydantic import Field
 
 
 class HealthResponse(BaseModel):
@@ -41,6 +42,8 @@ class DataSourceStatus(BaseModel):
     source: Literal["mock", "postgres", "fallback_mock"]
     is_fallback: bool
     message: str
+    consistency: Literal["uniform", "mixed"] = "uniform"
+    upstream_sources: Dict[str, Literal["mock", "postgres", "fallback_mock"]] = Field(default_factory=dict)
 
 class SuburbOverviewSummary(BaseModel):
     tracked_suburbs: int

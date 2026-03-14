@@ -38,19 +38,46 @@ from property_advisor.api.schemas import (
 _DAL = DataAccessLayer.create(create_session_factory())
 
 
-def _resolve_data_source(dal: DataAccessLayer, repository: object, domain: str) -> DataSourceStatus:
+def _read_source(repository: object) -> Literal["mock", "postgres", "fallback_mock"]:
     source = getattr(repository, "last_source", "mock")
     if source not in {"mock", "postgres", "fallback_mock"}:
-        source = "mock"
+        return "mock"
+    return source
+
+
+def _resolve_data_source(
+    dal: DataAccessLayer,
+    repository: object,
+    domain: str,
+    upstream_repositories: Optional[Dict[str, object]] = None,
+) -> DataSourceStatus:
+    source = _read_source(repository)
+    upstream_sources = {name: _read_source(repo) for name, repo in (upstream_repositories or {}).items()}
+    all_sources = {source, *upstream_sources.values()}
+    consistency = "uniform" if len(all_sources) <= 1 else "mixed"
 
     if source == "postgres":
-        message = f"{domain} is served from PostgreSQL."
-    elif dal.mode == "postgres":
-        message = f"{domain} fell back to mock data because PostgreSQL data was unavailable."
+        primary_message = f"{domain} is DB-backed from PostgreSQL."
+    elif source == "fallback_mock":
+        primary_message = f"{domain} is using fallback mock payloads because PostgreSQL data was unavailable."
     else:
-        message = f"{domain} is running in mock mode."
+        primary_message = f"{domain} is using mock fixtures."
 
-    return DataSourceStatus(mode=dal.mode, source=source, is_fallback=(source == "fallback_mock"), message=message)
+    if upstream_sources:
+        details = ", ".join(f"{name}:{value}" for name, value in sorted(upstream_sources.items()))
+        primary_message = f"{primary_message} Upstream sources -> {details}."
+
+    if consistency == "mixed":
+        primary_message = f"{primary_message} Response uses a mixed-source chain."
+
+    return DataSourceStatus(
+        mode=dal.mode,
+        source=source,
+        is_fallback=(source == "fallback_mock"),
+        message=primary_message,
+        consistency=consistency,
+        upstream_sources=upstream_sources,
+    )
 
 
 def get_health_status() -> HealthResponse:
@@ -102,7 +129,12 @@ def get_suburbs_overview(dal: DataAccessLayer = _DAL) -> SuburbsOverviewResponse
 
     return SuburbsOverviewResponse(
         generated_at=datetime.now(timezone.utc),
-        data_source=_resolve_data_source(dal, dal.suburbs, "Suburb overview"),
+        data_source=_resolve_data_source(
+            dal,
+            dal.suburbs,
+            "Suburb overview",
+            upstream_repositories={"watchlist": dal.watchlist},
+        ),
         summary=summary,
         investor_signals=[
             SummaryCard(
@@ -226,7 +258,12 @@ def get_property_advice(
 
     return advice.model_copy(
         update={
-            "data_source": _resolve_data_source(dal, dal.property_advice, "Property advice"),
+            "data_source": _resolve_data_source(
+                dal,
+                dal.property_advice,
+                "Property advice",
+                upstream_repositories={"suburbs": dal.suburbs, "comparables": dal.comparables, "watchlist": dal.watchlist},
+            ),
             "advice": advice.advice.model_copy(update={"next_steps": next_steps}),
             "market_context": market_context,
             "comparable_snapshot": comparable_snapshot,
@@ -327,7 +364,7 @@ def get_comparables(
         empty_summary = ComparableSummary(count=0, min_price=0, max_price=0, average_price=0)
         narrative = _build_comparable_narrative(empty_summary, query)
         return ComparablesResponse(
-            data_source=_resolve_data_source(dal, dal.comparables, "Comparables"),
+            data_source=_resolve_data_source(dal, dal.comparables, "Comparables", upstream_repositories={"suburbs": dal.suburbs}),
             subject=query,
             set_quality="empty",
             query=query,
@@ -353,7 +390,7 @@ def get_comparables(
     )
     narrative = _build_comparable_narrative(summary, query)
     return ComparablesResponse(
-        data_source=_resolve_data_source(dal, dal.comparables, "Comparables"),
+        data_source=_resolve_data_source(dal, dal.comparables, "Comparables", upstream_repositories={"suburbs": dal.suburbs}),
         subject=query,
         set_quality="mvp-sample-filtered" if any(v is not None for v in [min_price, max_price, max_distance_km]) else "mvp-sample",
         query=query,
@@ -445,7 +482,7 @@ def get_watchlist(
     return WatchlistResponse(
         generated_at=datetime.now(timezone.utc),
         mode=dal.mode,
-        data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist"),
+        data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist", upstream_repositories={"suburbs": dal.suburbs}),
         summary=summary,
         items=items,
         groups=_build_watchlist_groups(group_by, items),
@@ -472,7 +509,7 @@ def get_watchlist_detail(suburb_slug: str, dal: DataAccessLayer = _DAL) -> Optio
     return WatchlistDetailResponse(
         generated_at=datetime.now(timezone.utc),
         mode=dal.mode,
-        data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist detail"),
+        data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist detail", upstream_repositories={"suburbs": dal.suburbs}),
         item=item,
     )
 
@@ -482,7 +519,7 @@ def get_watchlist_alerts(severity: Optional[str] = None, dal: DataAccessLayer = 
     return WatchlistAlertsResponse(
         generated_at=datetime.now(timezone.utc),
         mode=dal.mode,
-        data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist alerts"),
+        data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist alerts", upstream_repositories={"suburbs": dal.suburbs}),
         total=len(items),
         items=items,
     )

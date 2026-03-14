@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getSuburbsOverview, getWatchlist } from "../../lib/api";
-import { EmptyState, MetricCard, PageIntro, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
+import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 
 export default async function SuburbsPage() {
   try {
@@ -17,10 +17,7 @@ export default async function SuburbsPage() {
 
         <WorkflowSnapshotPanel snapshot={suburbs.workflow_snapshot} />
 
-        <section className="panel">
-          <p className="meta-label">Data source</p>
-          <p className="lede compact">{suburbs.data_source.message}</p>
-        </section>
+        <DataSourcePanel status={suburbs.data_source} />
 
         <section className="stats-grid">
           <MetricCard label="Tracked suburbs" value={suburbs.summary.tracked_suburbs} />

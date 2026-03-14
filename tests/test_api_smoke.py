@@ -18,6 +18,7 @@ def test_suburbs_overview_shape() -> None:
     assert payload["workflow_links"]
     assert payload["workflow_snapshot"]["stage"] == "suburb_dashboard"
     assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
+    assert payload["data_source"]["consistency"] in {"uniform", "mixed"}
     assert {item["trend"] for item in payload["items"]} == {
         "watching",
         "steady",
@@ -34,6 +35,7 @@ def test_property_advisor_shape() -> None:
     assert payload["summary_cards"]
     assert payload["workflow_snapshot"]["next_href"].startswith("/comparables")
     assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
+    assert payload["data_source"]["consistency"] in {"uniform", "mixed"}
 
 
 def test_comparables_shape() -> None:
@@ -44,6 +46,7 @@ def test_comparables_shape() -> None:
     assert payload["summary_cards"]
     assert payload["workflow_snapshot"]["stage"] == "comparables"
     assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
+    assert payload["data_source"]["consistency"] in {"uniform", "mixed"}
 
 
 def test_watchlist_shape() -> None:
@@ -53,7 +56,9 @@ def test_watchlist_shape() -> None:
     assert payload["items"][0]["alerts"]
     assert payload["workflow_links"]
     assert payload["workflow_snapshot"]["stage"] == "watchlist"
+    assert isinstance(payload["data_source"]["upstream_sources"], dict)
     assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
+    assert payload["data_source"]["consistency"] in {"uniform", "mixed"}
 
 
 def test_watchlist_group_and_detail_routes() -> None:
@@ -69,6 +74,7 @@ def test_watchlist_alerts_route() -> None:
     assert payload["total"] >= 1
     assert all(item["severity"] == "high" for item in payload["items"])
     assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
+    assert payload["data_source"]["consistency"] in {"uniform", "mixed"}
 
 
 def test_watchlist_detail_not_found() -> None:

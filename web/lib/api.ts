@@ -59,6 +59,8 @@ export type DataSourceStatus = {
   source: "mock" | "postgres" | "fallback_mock";
   is_fallback: boolean;
   message: string;
+  consistency: "uniform" | "mixed";
+  upstream_sources: Record<string, "mock" | "postgres" | "fallback_mock">;
 };
 
 export type SuburbOverviewItem = {

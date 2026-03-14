@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, getPropertyAdvisor } from "../../lib/api";
-import { EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
+import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 
 type AdvisorPageProps = {
   searchParams?: Promise<{ query?: string; query_type?: "address" | "slug" | "auto"; focus_strategy?: "yield" | "owner-occupier" | "balanced" }>;
@@ -48,10 +48,7 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
 
         <WorkflowSnapshotPanel snapshot={advisor.workflow_snapshot} />
 
-        <section className="panel">
-          <p className="meta-label">Data source</p>
-          <p className="lede compact">{advisor.data_source.message}</p>
-        </section>
+        <DataSourcePanel status={advisor.data_source} />
 
         <SummaryCardGrid cards={advisor.summary_cards} />
         <WorkflowLinks links={advisor.workflow_links} />

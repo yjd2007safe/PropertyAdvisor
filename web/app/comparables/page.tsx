@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getComparables } from "../../lib/api";
-import { EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
+import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 
 type ComparablesPageProps = {
   searchParams?: Promise<{ query?: string; max_items?: string; min_price?: string; max_price?: string; max_distance_km?: string }>;
@@ -43,10 +43,7 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
 
         <WorkflowSnapshotPanel snapshot={comparables.workflow_snapshot} />
 
-        <section className="panel">
-          <p className="meta-label">Data source</p>
-          <p className="lede compact">{comparables.data_source.message}</p>
-        </section>
+        <DataSourcePanel status={comparables.data_source} />
 
         <SummaryCardGrid cards={comparables.summary_cards} />
         <WorkflowLinks links={comparables.workflow_links} />
