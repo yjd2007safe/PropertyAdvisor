@@ -3,6 +3,7 @@ from __future__ import annotations
 """Repository abstractions and mock implementations for API services."""
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import List, Literal, Optional, Protocol
 
 import psycopg
@@ -69,6 +70,54 @@ class WatchlistRepository(Protocol):
         ...
 
 
+
+
+def _normalize_query(value: str) -> str:
+    return value.strip().lower()
+
+
+def _slugify_suburb(suburb_name: str, state_code: Optional[str], postcode: Optional[object]) -> str:
+    base = suburb_name.strip().lower().replace(" ", "-")
+    state = (state_code or "").strip().lower()
+    postcode_text = str(postcode).strip() if postcode is not None else ""
+    if state and postcode_text:
+        return f"{base}-{state}-{postcode_text}"
+    if state:
+        return f"{base}-{state}"
+    if postcode_text:
+        return f"{base}-{postcode_text}"
+    return base
+
+
+def _format_property_address(address_line_1: Optional[str], suburb_name: Optional[str], state_code: Optional[str], postcode: Optional[object]) -> str:
+    street = (address_line_1 or "").strip()
+    suburb = (suburb_name or "").strip()
+    state = (state_code or "").strip()
+    post = str(postcode).strip() if postcode is not None else ""
+    locality = " ".join(part for part in [suburb, state, post] if part)
+    if street and locality:
+        return f"{street}, {locality}"
+    return street or locality
+
+
+def _normalize_watch_status(value: Optional[str]) -> Literal["active", "review", "paused"]:
+    normalized = (value or "").strip().lower()
+    if normalized in {"active", "review", "paused"}:
+        return normalized
+    if "pause" in normalized:
+        return "paused"
+    if "review" in normalized or "watch" in normalized:
+        return "review"
+    return "active"
+
+
+def _coerce_sale_date(value: object) -> str:
+    if value is None:
+        return "unknown"
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return str(value)
+
 class MockSuburbRepository:
     last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
 
@@ -85,7 +134,7 @@ class MockPropertyAdviceRepository:
 
     def get_by_address_or_slug(self, query: str) -> Optional[PropertyAdvisorResponse]:
         self.last_source = "mock"
-        normalized = query.strip().lower()
+        normalized = _normalize_query(query)
         default = PROPERTY_ADVISOR_FIXTURE
         if not normalized:
             return default
@@ -118,7 +167,7 @@ class MockComparableRepository:
 
     def list_by_subject(self, criteria: ComparableQuery) -> List[ComparableItem]:
         self.last_source = "mock"
-        normalized = criteria.query.strip().lower()
+        normalized = _normalize_query(criteria.query)
         if not normalized:
             source = list(COMPARABLES_FIXTURE.items)
         elif normalized in {"none", "empty", "no-match"}:
@@ -198,7 +247,7 @@ class PostgresSuburbRepository(MockSuburbRepository):
         items: List[SuburbOverviewItem] = []
         mock_index = {item.slug: item for item in SUBURBS_OVERVIEW_FIXTURE.items}
         for suburb_name, state_code, postcode in rows:
-            slug = f"{suburb_name.lower().replace(' ', '-')}-{(state_code or '').lower()}-{postcode}" if postcode else suburb_name.lower().replace(' ', '-')
+            slug = _slugify_suburb(suburb_name, state_code, postcode)
             fixture = mock_index.get(slug)
             items.append(
                 SuburbOverviewItem(
@@ -228,7 +277,7 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
             item = super().get_by_address_or_slug(query)
             self.last_source = "fallback_mock"
             return item
-        normalized = query.strip().lower()
+        normalized = _normalize_query(query)
         try:
             with psycopg.connect(self.session_factory.config.url) as conn:
                 with conn.cursor() as cur:
@@ -261,8 +310,8 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
             self.last_source = "fallback_mock"
             return item
         for row in rows:
-            address = f"{row[0]}, {row[1]} {row[2]} {row[3]}".strip()
-            slug = f"{row[1].lower().replace(' ', '-')}-{(row[2] or '').lower()}-{row[3]}" if row[3] else row[1].lower().replace(' ', '-')
+            address = _format_property_address(row[0], row[1], row[2], row[3])
+            slug = _slugify_suburb(row[1], row[2], row[3])
             if normalized and normalized not in address.lower() and normalized != slug:
                 continue
             fixture = PROPERTY_ADVISOR_FIXTURE
@@ -328,9 +377,9 @@ class PostgresComparableRepository(MockComparableRepository):
             self.last_source = "fallback_mock"
             return items
         items: List[ComparableItem] = []
-        query_text = (criteria.query or '').strip().lower()
+        query_text = _normalize_query(criteria.query or "")
         for address_line_1, suburb_name, sale_price, sale_date, bedrooms, bathrooms, metadata in rows:
-            address = f"{address_line_1}, {suburb_name}"
+            address = _format_property_address(address_line_1, suburb_name, None, None)
             if query_text and query_text not in address.lower() and query_text not in suburb_name.lower():
                 continue
             meta = metadata or {}
@@ -348,7 +397,7 @@ class PostgresComparableRepository(MockComparableRepository):
                     price=price,
                     distance_km=distance_km,
                     match_reason=meta.get('match_reason', 'DB-backed comparable'),
-                    sold_date=str(sale_date),
+                    sold_date=_coerce_sale_date(sale_date),
                     beds=int(bedrooms or 0),
                     baths=int(bathrooms or 0),
                 )
@@ -406,7 +455,7 @@ class PostgresWatchlistRepository(MockWatchlistRepository):
         entries: List[WatchlistEntry] = []
         for suburb_name, state_code, postcode, threshold_text, config in rows:
             cfg = config or {}
-            slug = cfg.get('suburb_slug') or f"{suburb_name.lower().replace(' ', '-')}-{(state_code or '').lower()}-{postcode}"
+            slug = cfg.get('suburb_slug') or _slugify_suburb(suburb_name, state_code, postcode)
             alerts = [WatchlistAlert.model_validate(item) for item in cfg.get('alerts', [])]
             entries.append(
                 WatchlistEntry(
@@ -414,7 +463,7 @@ class PostgresWatchlistRepository(MockWatchlistRepository):
                     suburb_name=suburb_name,
                     state=state_code or 'QLD',
                     strategy=cfg.get('strategy', 'balanced'),
-                    watch_status=cfg.get('watch_status', threshold_text or 'active'),
+                    watch_status=_normalize_watch_status(cfg.get('watch_status') or threshold_text),
                     notes=cfg.get('notes', 'DB-backed watchlist entry loaded from alert_rules config.'),
                     target_buy_range_min=int(cfg.get('target_buy_range_min', 0)),
                     target_buy_range_max=int(cfg.get('target_buy_range_max', 0)),

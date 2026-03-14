@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getWatchlist, getWatchlistAlerts, getWatchlistDetail } from "../../lib/api";
-import { AlertBadge, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
+import { AlertBadge, DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 
 type WatchlistPageProps = {
   searchParams?: Promise<{
@@ -42,11 +42,13 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
 
         <WorkflowSnapshotPanel snapshot={watchlist.workflow_snapshot} />
 
-        <section className="panel">
-          <p className="meta-label">Data source</p>
-          <p className="lede compact">{watchlist.data_source.message}</p>
-          <p className="lede compact">Alert feed: {alertFeed.data_source.source}</p>
-        </section>
+        <DataSourcePanel
+          status={{
+            ...watchlist.data_source,
+            upstream_sources: { ...watchlist.data_source.upstream_sources, alert_feed: alertFeed.data_source.source }
+          }}
+          label="Data source"
+        />
 
         <SummaryCardGrid cards={watchlist.summary_cards} />
         <WorkflowLinks links={watchlist.workflow_links} />

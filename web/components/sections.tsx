@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ReactNode } from "react";
-import { SummaryCard, WorkflowLink, WorkflowSnapshot } from "../lib/api";
+import { DataSourceStatus, SummaryCard, WorkflowLink, WorkflowSnapshot } from "../lib/api";
 
 export function PageIntro({ eyebrow, title, lede, aside }: { eyebrow: string; title: string; lede: string; aside?: ReactNode }) {
   return (
@@ -79,6 +79,19 @@ export function WorkflowSnapshotPanel({ snapshot }: { snapshot: WorkflowSnapshot
         {snapshot.primary_suburb_slug ? <span>Suburb: {snapshot.primary_suburb_slug}</span> : null}
       </div>
       <Link className="workflow-cta" href={snapshot.next_href}>Continue workflow →</Link>
+    </section>
+  );
+}
+
+
+export function DataSourcePanel({ status, label = "Data source" }: { status: DataSourceStatus; label?: string }) {
+  const upstream = Object.entries(status.upstream_sources);
+  return (
+    <section className="panel">
+      <p className="meta-label">{label}</p>
+      <p className="lede compact">{status.message}</p>
+      <p className="lede compact">Primary: {status.source} · Consistency: {status.consistency}</p>
+      {upstream.length > 0 ? <p className="lede compact">Upstreams: {upstream.map(([name, source]) => `${name}:${source}`).join(", ")}</p> : null}
     </section>
   );
 }

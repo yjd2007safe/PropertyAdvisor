@@ -2,7 +2,7 @@ import psycopg
 
 from property_advisor.api.data_access import DataAccessLayer
 from property_advisor.api.db import DatabaseConfig, DatabaseSessionFactory
-from property_advisor.api.repositories import ComparableQuery, PostgresComparableRepository, PostgresSuburbRepository
+from property_advisor.api.repositories import ComparableQuery, PostgresComparableRepository, PostgresSuburbRepository, WatchlistQuery
 from property_advisor.api.services import (
     get_comparables,
     get_property_advice,
@@ -139,6 +139,7 @@ def test_service_data_source_reports_fallback_when_postgres_unavailable(monkeypa
     assert response.data_source.mode == "postgres"
     assert response.data_source.source == "fallback_mock"
     assert response.data_source.is_fallback is True
+    assert response.data_source.consistency in {"uniform", "mixed"}
 
 
 def test_service_data_source_reports_postgres_when_rows_exist(monkeypatch) -> None:
@@ -173,3 +174,86 @@ def test_service_data_source_reports_postgres_when_rows_exist(monkeypatch) -> No
     response = get_comparables(query="southport", max_items=2, dal=dal)
     assert response.data_source.source == "postgres"
     assert response.data_source.is_fallback is False
+    assert "suburbs" in response.data_source.upstream_sources
+
+
+def test_suburbs_overview_marks_mixed_sources_when_watchlist_falls_back(monkeypatch) -> None:
+    dal = DataAccessLayer.create(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    class _Cursor:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchall(self):
+            return self.rows
+
+    class _Conn:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor(self.rows)
+
+    calls = {"count": 0}
+
+    def _switching_connect(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return _Conn([("Southport", "QLD", "4215")])
+        raise psycopg.OperationalError("watchlist unavailable")
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", _switching_connect)
+    payload = get_suburbs_overview(dal=dal)
+    assert payload.data_source.source == "postgres"
+    assert payload.data_source.upstream_sources["watchlist"] == "fallback_mock"
+    assert payload.data_source.consistency == "mixed"
+
+
+def test_watchlist_repository_normalizes_nonstandard_status(monkeypatch) -> None:
+    repo = DataAccessLayer.create(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    ).watchlist
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchall(self):
+            return [("Southport", "QLD", "4215", "watch", {"alerts": []})]
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", lambda *args, **kwargs: _Conn())
+    entries = repo.list_entries(criteria=WatchlistQuery())
+    assert entries[0].watch_status == "review"
