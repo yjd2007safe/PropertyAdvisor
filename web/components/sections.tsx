@@ -86,9 +86,18 @@ export function WorkflowSnapshotPanel({ snapshot }: { snapshot: WorkflowSnapshot
 
 export function DataSourcePanel({ status, label = "Data source" }: { status: DataSourceStatus; label?: string }) {
   const upstream = Object.entries(status.upstream_sources);
+  const statusTitle =
+    status.status_label === "live_db"
+      ? "Live DB"
+      : status.status_label === "fallback"
+        ? "Fallback"
+        : "Sample data";
+
   return (
     <section className="panel">
       <p className="meta-label">{label}</p>
+      <p className="lede compact">Status: {statusTitle}</p>
+      <p className="lede compact">{status.investor_note}</p>
       <p className="lede compact">{status.message}</p>
       <p className="lede compact">Primary: {status.source} · Consistency: {status.consistency}</p>
       {upstream.length > 0 ? <p className="lede compact">Upstreams: {upstream.map(([name, source]) => `${name}:${source}`).join(", ")}</p> : null}

@@ -257,3 +257,75 @@ def test_watchlist_repository_normalizes_nonstandard_status(monkeypatch) -> None
     monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", lambda *args, **kwargs: _Conn())
     entries = repo.list_entries(criteria=WatchlistQuery())
     assert entries[0].watch_status == "review"
+
+
+def test_data_source_status_label_for_mock_mode() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    response = get_suburbs_overview(dal=dal)
+    assert response.data_source.source == "mock"
+    assert response.data_source.status_label == "sample_data"
+    assert "Sample fixtures" in response.data_source.investor_note
+
+
+def test_data_source_status_label_for_fallback_mode(monkeypatch) -> None:
+    dal = DataAccessLayer.create(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    def _boom(*args, **kwargs):
+        raise psycopg.OperationalError("db unavailable")
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", _boom)
+    response = get_watchlist(dal=dal)
+    assert response.data_source.source == "fallback_mock"
+    assert response.data_source.status_label == "fallback"
+    assert "Fallback sample payloads" in response.data_source.investor_note
+
+
+def test_data_source_status_label_for_live_db_mode(monkeypatch) -> None:
+    dal = DataAccessLayer.create(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    class _Cursor:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchall(self):
+            return self.rows
+
+    class _Conn:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor(self.rows)
+
+    calls = {"count": 0}
+
+    def _switching_connect(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return _Conn([("Southport", "QLD", "4215")])
+        return _Conn([("Southport", "QLD", "4215", "active", {"alerts": []})])
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", _switching_connect)
+    response = get_suburbs_overview(dal=dal)
+    assert response.data_source.source == "postgres"
+    assert response.data_source.status_label == "live_db"
+    assert "Live DB feed" in response.data_source.investor_note
