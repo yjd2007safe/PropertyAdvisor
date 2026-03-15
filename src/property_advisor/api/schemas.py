@@ -42,6 +42,8 @@ class DataSourceStatus(BaseModel):
     source: Literal["mock", "postgres", "fallback_mock"]
     is_fallback: bool
     message: str
+    status_label: Literal["live_db", "fallback", "sample_data"] = "sample_data"
+    investor_note: str = "Sample fixtures are active; use as directional guidance only."
     consistency: Literal["uniform", "mixed"] = "uniform"
     upstream_sources: Dict[str, Literal["mock", "postgres", "fallback_mock"]] = Field(default_factory=dict)
 

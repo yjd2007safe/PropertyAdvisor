@@ -59,6 +59,8 @@ export type DataSourceStatus = {
   source: "mock" | "postgres" | "fallback_mock";
   is_fallback: boolean;
   message: string;
+  status_label: "live_db" | "fallback" | "sample_data";
+  investor_note: string;
   consistency: "uniform" | "mixed";
   upstream_sources: Record<string, "mock" | "postgres" | "fallback_mock">;
 };

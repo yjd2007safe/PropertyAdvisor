@@ -58,10 +58,16 @@ def _resolve_data_source(
 
     if source == "postgres":
         primary_message = f"{domain} is DB-backed from PostgreSQL."
+        status_label = "live_db"
+        investor_note = "Live DB feed available for this view."
     elif source == "fallback_mock":
         primary_message = f"{domain} is using fallback mock payloads because PostgreSQL data was unavailable."
+        status_label = "fallback"
+        investor_note = "Fallback sample payloads are shown while DB reads recover."
     else:
         primary_message = f"{domain} is using mock fixtures."
+        status_label = "sample_data"
+        investor_note = "Sample fixtures are active; use as directional guidance only."
 
     if upstream_sources:
         details = ", ".join(f"{name}:{value}" for name, value in sorted(upstream_sources.items()))
@@ -75,6 +81,12 @@ def _resolve_data_source(
         source=source,
         is_fallback=(source == "fallback_mock"),
         message=primary_message,
+        status_label=status_label,
+        investor_note=(
+            f"{investor_note} Mixed-source response detected across dependencies."
+            if consistency == "mixed"
+            else investor_note
+        ),
         consistency=consistency,
         upstream_sources=upstream_sources,
     )
@@ -221,7 +233,11 @@ def get_property_advice(
         summary=(
             "Subject pricing sits inside the current comparable range."
             if position == "in_range"
-            else "Subject pricing appears stretched relative to recent sample comparables."
+            else (
+                "No matched comparables available yet; confidence is constrained by sample depth."
+                if position == "insufficient_data"
+                else "Subject pricing appears stretched relative to recent sample comparables."
+            )
         ),
     )
 
