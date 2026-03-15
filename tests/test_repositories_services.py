@@ -329,3 +329,75 @@ def test_data_source_status_label_for_live_db_mode(monkeypatch) -> None:
     assert response.data_source.source == "postgres"
     assert response.data_source.status_label == "live_db"
     assert "Live DB feed" in response.data_source.investor_note
+
+
+def test_data_source_breakdown_and_fallback_reason_on_db_error(monkeypatch) -> None:
+    dal = DataAccessLayer.create(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    def _boom(*args, **kwargs):
+        raise psycopg.OperationalError("db unavailable")
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", _boom)
+    response = get_comparables(query="southport", max_items=2, dal=dal)
+    assert response.data_source.source == "fallback_mock"
+    assert response.data_source.source_breakdown["fallback_mock"] >= 1
+    assert response.data_source.fallback_reason is not None
+    assert "Comparables query failed" in response.data_source.fallback_reason
+
+
+def test_data_source_breakdown_for_mixed_suburb_response(monkeypatch) -> None:
+    dal = DataAccessLayer.create(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    class _Cursor:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchall(self):
+            return self.rows
+
+    class _Conn:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor(self.rows)
+
+    calls = {"count": 0}
+
+    def _switching_connect(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return _Conn([("Southport", "QLD", "4215")])
+        raise psycopg.OperationalError("watchlist unavailable")
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", _switching_connect)
+    payload = get_suburbs_overview(dal=dal)
+    assert payload.data_source.consistency == "mixed"
+    assert payload.data_source.source_breakdown["postgres"] >= 1
+    assert payload.data_source.source_breakdown["fallback_mock"] >= 1
+
+
+def test_property_advice_decision_summary_includes_comp_range() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    response = get_property_advice(query="southport-qld-4215", query_type="slug", dal=dal)
+    assert "Subject price anchor" in response.decision_summary
+    assert "comp range" in response.decision_summary

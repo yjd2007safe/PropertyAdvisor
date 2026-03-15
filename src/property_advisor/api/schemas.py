@@ -46,6 +46,8 @@ class DataSourceStatus(BaseModel):
     investor_note: str = "Sample fixtures are active; use as directional guidance only."
     consistency: Literal["uniform", "mixed"] = "uniform"
     upstream_sources: Dict[str, Literal["mock", "postgres", "fallback_mock"]] = Field(default_factory=dict)
+    source_breakdown: Dict[Literal["mock", "postgres", "fallback_mock"], int] = Field(default_factory=dict)
+    fallback_reason: Optional[str] = None
 
 class SuburbOverviewSummary(BaseModel):
     tracked_suburbs: int
