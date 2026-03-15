@@ -120,9 +120,11 @@ def _coerce_sale_date(value: object) -> str:
 
 class MockSuburbRepository:
     last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
+    last_fallback_reason: Optional[str] = None
 
     def list_overview(self) -> List[SuburbOverviewItem]:
         self.last_source = "mock"
+        self.last_fallback_reason = None
         return list(SUBURBS_OVERVIEW_FIXTURE.items)
 
     def get_by_slug(self, slug: str) -> Optional[SuburbOverviewItem]:
@@ -131,9 +133,11 @@ class MockSuburbRepository:
 
 class MockPropertyAdviceRepository:
     last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
+    last_fallback_reason: Optional[str] = None
 
     def get_by_address_or_slug(self, query: str) -> Optional[PropertyAdvisorResponse]:
         self.last_source = "mock"
+        self.last_fallback_reason = None
         normalized = _normalize_query(query)
         default = PROPERTY_ADVISOR_FIXTURE
         if not normalized:
@@ -164,9 +168,11 @@ class MockPropertyAdviceRepository:
 
 class MockComparableRepository:
     last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
+    last_fallback_reason: Optional[str] = None
 
     def list_by_subject(self, criteria: ComparableQuery) -> List[ComparableItem]:
         self.last_source = "mock"
+        self.last_fallback_reason = None
         normalized = _normalize_query(criteria.query)
         if not normalized:
             source = list(COMPARABLES_FIXTURE.items)
@@ -188,9 +194,11 @@ class MockComparableRepository:
 
 class MockWatchlistRepository:
     last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
+    last_fallback_reason: Optional[str] = None
 
     def list_entries(self, criteria: WatchlistQuery) -> List[WatchlistEntry]:
         self.last_source = "mock"
+        self.last_fallback_reason = None
         items = list(WATCHLIST_FIXTURE)
         if criteria.suburb_slug:
             items = [entry for entry in items if entry.suburb_slug == criteria.suburb_slug]
@@ -204,10 +212,12 @@ class MockWatchlistRepository:
 
     def get_entry(self, suburb_slug: str) -> Optional[WatchlistEntry]:
         self.last_source = "mock"
+        self.last_fallback_reason = None
         return next((entry for entry in WATCHLIST_FIXTURE if entry.suburb_slug == suburb_slug), None)
 
     def list_alerts(self, severity: Optional[str] = None) -> List[WatchlistAlert]:
         self.last_source = "mock"
+        self.last_fallback_reason = None
         alerts = [alert for entry in WATCHLIST_FIXTURE for alert in entry.alerts]
         if severity:
             return [alert for alert in alerts if alert.severity == severity]
@@ -222,6 +232,7 @@ class PostgresSuburbRepository(MockSuburbRepository):
         if not self.session_factory.config.url:
             items = super().list_overview()
             self.last_source = "fallback_mock"
+            self.last_fallback_reason = "No database URL configured for suburb overview."
             return items
         try:
             with psycopg.connect(self.session_factory.config.url) as conn:
@@ -235,15 +246,18 @@ class PostgresSuburbRepository(MockSuburbRepository):
                         """
                     )
                     rows = cur.fetchall()
-        except psycopg.Error:
+        except psycopg.Error as exc:
             items = super().list_overview()
             self.last_source = "fallback_mock"
+            self.last_fallback_reason = f"Suburb overview query failed: {exc.__class__.__name__}"
             return items
         if not rows:
             items = super().list_overview()
             self.last_source = "fallback_mock"
+            self.last_fallback_reason = "Suburb overview query returned 0 rows."
             return items
         self.last_source = "postgres"
+        self.last_fallback_reason = None
         items: List[SuburbOverviewItem] = []
         mock_index = {item.slug: item for item in SUBURBS_OVERVIEW_FIXTURE.items}
         for suburb_name, state_code, postcode in rows:
@@ -276,6 +290,7 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
         if not self.session_factory.config.url:
             item = super().get_by_address_or_slug(query)
             self.last_source = "fallback_mock"
+            self.last_fallback_reason = "No database URL configured for property advice."
             return item
         normalized = _normalize_query(query)
         try:
@@ -305,9 +320,10 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
                         """
                     )
                     rows = cur.fetchall()
-        except psycopg.Error:
+        except psycopg.Error as exc:
             item = super().get_by_address_or_slug(query)
             self.last_source = "fallback_mock"
+            self.last_fallback_reason = f"Property advice query failed: {exc.__class__.__name__}"
             return item
         for row in rows:
             address = _format_property_address(row[0], row[1], row[2], row[3])
@@ -317,6 +333,7 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
             fixture = PROPERTY_ADVISOR_FIXTURE
             metrics = row[13] or {}
             self.last_source = "postgres"
+            self.last_fallback_reason = None
             return fixture.model_copy(
                 update={
                     'property': fixture.property.model_copy(
@@ -339,6 +356,7 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
             )
         item = super().get_by_address_or_slug(query)
         self.last_source = "fallback_mock"
+        self.last_fallback_reason = "No property advice row matched query; served mock guidance."
         return item
 
 
@@ -350,6 +368,7 @@ class PostgresComparableRepository(MockComparableRepository):
         if not self.session_factory.config.url:
             items = super().list_by_subject(criteria)
             self.last_source = "fallback_mock"
+            self.last_fallback_reason = "No database URL configured for comparables."
             return items
         try:
             with psycopg.connect(self.session_factory.config.url) as conn:
@@ -372,9 +391,10 @@ class PostgresComparableRepository(MockComparableRepository):
                         (criteria.max_items,)
                     )
                     rows = cur.fetchall()
-        except psycopg.Error:
+        except psycopg.Error as exc:
             items = super().list_by_subject(criteria)
             self.last_source = "fallback_mock"
+            self.last_fallback_reason = f"Comparables query failed: {exc.__class__.__name__}"
             return items
         items: List[ComparableItem] = []
         query_text = _normalize_query(criteria.query or "")
@@ -404,9 +424,11 @@ class PostgresComparableRepository(MockComparableRepository):
             )
         if items:
             self.last_source = "postgres"
+            self.last_fallback_reason = None
             return items
         items = super().list_by_subject(criteria)
         self.last_source = "fallback_mock"
+        self.last_fallback_reason = "Comparable query returned 0 matches after filters; served mock comps."
         return items
 
 
@@ -423,6 +445,7 @@ class PostgresWatchlistRepository(MockWatchlistRepository):
         if not self.session_factory.config.url:
             items = list(WATCHLIST_FIXTURE)
             self.last_source = "fallback_mock"
+            self.last_fallback_reason = "No database URL configured for watchlist."
             return items
         try:
             with psycopg.connect(self.session_factory.config.url) as conn:
@@ -443,15 +466,18 @@ class PostgresWatchlistRepository(MockWatchlistRepository):
                         """
                     )
                     rows = cur.fetchall()
-        except psycopg.Error:
+        except psycopg.Error as exc:
             items = list(WATCHLIST_FIXTURE)
             self.last_source = "fallback_mock"
+            self.last_fallback_reason = f"Watchlist query failed: {exc.__class__.__name__}"
             return items
         if not rows:
             items = list(WATCHLIST_FIXTURE)
             self.last_source = "fallback_mock"
+            self.last_fallback_reason = "Watchlist query returned 0 rows."
             return items
         self.last_source = "postgres"
+        self.last_fallback_reason = None
         entries: List[WatchlistEntry] = []
         for suburb_name, state_code, postcode, threshold_text, config in rows:
             cfg = config or {}

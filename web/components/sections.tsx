@@ -86,6 +86,7 @@ export function WorkflowSnapshotPanel({ snapshot }: { snapshot: WorkflowSnapshot
 
 export function DataSourcePanel({ status, label = "Data source" }: { status: DataSourceStatus; label?: string }) {
   const upstream = Object.entries(status.upstream_sources);
+  const breakdown = status.source_breakdown;
   const statusTitle =
     status.status_label === "live_db"
       ? "Live DB"
@@ -101,6 +102,8 @@ export function DataSourcePanel({ status, label = "Data source" }: { status: Dat
       <p className="lede compact">{status.message}</p>
       <p className="lede compact">Primary: {status.source} · Consistency: {status.consistency}</p>
       {upstream.length > 0 ? <p className="lede compact">Upstreams: {upstream.map(([name, source]) => `${name}:${source}`).join(", ")}</p> : null}
+      <p className="lede compact">Breakdown: postgres {breakdown.postgres} · fallback {breakdown.fallback_mock} · mock {breakdown.mock}</p>
+      {status.fallback_reason ? <p className="lede compact">Fallback reason: {status.fallback_reason}</p> : null}
     </section>
   );
 }

@@ -63,6 +63,8 @@ export type DataSourceStatus = {
   investor_note: string;
   consistency: "uniform" | "mixed";
   upstream_sources: Record<string, "mock" | "postgres" | "fallback_mock">;
+  source_breakdown: Record<"mock" | "postgres" | "fallback_mock", number>;
+  fallback_reason?: string | null;
 };
 
 export type SuburbOverviewItem = {

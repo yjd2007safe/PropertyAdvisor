@@ -52,8 +52,13 @@ def _resolve_data_source(
     upstream_repositories: Optional[Dict[str, object]] = None,
 ) -> DataSourceStatus:
     source = _read_source(repository)
+    fallback_reason = getattr(repository, "last_fallback_reason", None)
     upstream_sources = {name: _read_source(repo) for name, repo in (upstream_repositories or {}).items()}
-    all_sources = {source, *upstream_sources.values()}
+    source_breakdown = {"mock": 0, "postgres": 0, "fallback_mock": 0}
+    source_breakdown[source] += 1
+    for upstream_source in upstream_sources.values():
+        source_breakdown[upstream_source] += 1
+    all_sources = {key for key, count in source_breakdown.items() if count > 0}
     consistency = "uniform" if len(all_sources) <= 1 else "mixed"
 
     if source == "postgres":
@@ -73,6 +78,9 @@ def _resolve_data_source(
         details = ", ".join(f"{name}:{value}" for name, value in sorted(upstream_sources.items()))
         primary_message = f"{primary_message} Upstream sources -> {details}."
 
+    if fallback_reason:
+        primary_message = f"{primary_message} Fallback reason: {fallback_reason}"
+
     if consistency == "mixed":
         primary_message = f"{primary_message} Response uses a mixed-source chain."
 
@@ -89,6 +97,8 @@ def _resolve_data_source(
         ),
         consistency=consistency,
         upstream_sources=upstream_sources,
+        source_breakdown=source_breakdown,
+        fallback_reason=fallback_reason,
     )
 
 
@@ -213,7 +223,8 @@ def get_property_advice(
     prices = [item.price for item in comparable_items]
     comparable_min = min(prices) if prices else 0
     comparable_max = max(prices) if prices else 0
-    position = _get_price_position(895000, comparable_min, comparable_max)
+    subject_price = 895000
+    position = _get_price_position(subject_price, comparable_min, comparable_max)
 
     strategy_note = f"Align recommendation with {strategy_focus} watchlist strategy assumptions."
     next_steps = list(advice.advice.next_steps)
@@ -285,6 +296,7 @@ def get_property_advice(
             "comparable_snapshot": comparable_snapshot,
             "decision_summary": (
                 f"{advice.advice.recommendation.title()} with {advice.advice.confidence} confidence. "
+                f"Subject price anchor ${subject_price:,}; comp range ${comparable_min:,}-${comparable_max:,}. "
                 "Use comparables and watchlist alerts together before placing an offer."
             ),
             "rationale": rationale,
@@ -358,6 +370,18 @@ def _build_comparable_summary_cards(summary: ComparableSummary, narrative: Compa
     ]
 
 
+
+def _resolve_comparable_set_quality(
+    source: Literal["mock", "postgres", "fallback_mock"],
+    min_price: Optional[int],
+    max_price: Optional[int],
+    max_distance_km: Optional[float],
+) -> str:
+    filtered = any(value is not None for value in [min_price, max_price, max_distance_km])
+    if source == "postgres":
+        return "db-backed-filtered" if filtered else "db-backed"
+    return "mvp-sample-filtered" if filtered else "mvp-sample"
+
 def get_comparables(
     query: str = PROPERTY_ADVISOR_FIXTURE.property.address,
     max_items: int = 5,
@@ -408,7 +432,12 @@ def get_comparables(
     return ComparablesResponse(
         data_source=_resolve_data_source(dal, dal.comparables, "Comparables", upstream_repositories={"suburbs": dal.suburbs}),
         subject=query,
-        set_quality="mvp-sample-filtered" if any(v is not None for v in [min_price, max_price, max_distance_km]) else "mvp-sample",
+        set_quality=_resolve_comparable_set_quality(
+            _read_source(dal.comparables),
+            min_price=min_price,
+            max_price=max_price,
+            max_distance_km=max_distance_km,
+        ),
         query=query,
         items=items,
         summary=summary,
