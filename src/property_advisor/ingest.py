@@ -114,8 +114,152 @@ def _normalize_text(value: Any) -> Optional[str]:
     return text or None
 
 
+# Address abbreviation mapping for normalization
+_ADDRESS_ABBREVIATIONS = {
+    # Street types
+    "street": "St",
+    "st": "St",
+    "road": "Rd",
+    "rd": "Rd",
+    "avenue": "Ave",
+    "ave": "Ave",
+    "av": "Ave",
+    "drive": "Dr",
+    "dr": "Dr",
+    "court": "Ct",
+    "ct": "Ct",
+    "lane": "Ln",
+    "ln": "Ln",
+    "place": "Pl",
+    "pl": "Pl",
+    "parade": "Pde",
+    "pde": "Pde",
+    "terrace": "Tce",
+    "tce": "Tce",
+    "highway": "Hwy",
+    "hwy": "Hwy",
+    "boulevard": "Blvd",
+    "blvd": "Blvd",
+    "crescent": "Cres",
+    "cres": "Cres",
+    "circuit": "Cct",
+    "cct": "Cct",
+    "close": "Cl",
+    "cl": "Cl",
+    "grove": "Gr",
+    "gr": "Gr",
+    "heights": "Hts",
+    "hts": "Hts",
+    "expressway": "Expy",
+    "expy": "Expy",
+    # Unit/Apartment indicators
+    "apartment": "Apt",
+    "apt": "Apt",
+    "unit": "Unit",
+    "flat": "Unit",
+    "suite": "Ste",
+    "ste": "Ste",
+    "level": "Lvl",
+    "lvl": "Lvl",
+    "shop": "Shop",
+    "lot": "Lot",
+    # Directions
+    "north": "N",
+    "n": "N",
+    "south": "S",
+    "s": "S",
+    "east": "E",
+    "e": "E",
+    "west": "W",
+    "w": "W",
+}
+
+
 def _normalize_address(value: Any) -> str:
-    return " ".join(str(value or "").split()).title()
+    """Normalize address with abbreviation standardization.
+    
+    Handles:
+    - Whitespace normalization
+    - Abbreviation standardization (St/Street, Rd/Road, etc.)
+    - Unit/Apartment number extraction (preserved but standardized format)
+    - Title casing
+    """
+    import re
+    
+    if not value:
+        return ""
+    
+    text = str(value).strip()
+    
+    # Extract unit number if present (e.g., "Unit 5, 123 Main St" or "5/123 Main St")
+    unit_prefix = ""
+    
+    # Check for "Unit X, " or "Apt X, " prefix
+    unit_match = re.match(r'^(unit|apt|apartment|flat|suite|ste|shop|lot)\s*(\w+)[,\s]+(.+)$', text, re.IGNORECASE)
+    if unit_match:
+        unit_prefix = f"Unit {unit_match.group(2)} "
+        text = unit_match.group(3)
+    else:
+        # Check for "X/123" format (Australian unit notation) - but only if it looks like a unit number
+        # (starts with digit or single letter, followed by slash and then a street number)
+        slash_match = re.match(r'^([0-9]+|[A-Za-z])/(\d+\s+.+)$', text)
+        if slash_match:
+            unit_prefix = f"Unit {slash_match.group(1)} "
+            text = slash_match.group(2)
+    
+    # Normalize whitespace
+    text = " ".join(text.split())
+    
+    # Standardize abbreviations - only replace full words at end of address
+    # Process from end to avoid double-expansion (e.g., "Parade Pde" -> "Pde Pde")
+    words = text.split()
+    normalized_words = []
+    
+    for i, word in enumerate(words):
+        lower_word = word.lower().rstrip(",.")
+        # Only abbreviate if it's a street type at the end or a unit indicator
+        if lower_word in _ADDRESS_ABBREVIATIONS:
+            # Check if this word was already processed as an abbreviation
+            # (avoid double-expansion by checking if result would be different)
+            abbrev = _ADDRESS_ABBREVIATIONS[lower_word]
+            if abbrev.lower() != lower_word:
+                normalized_words.append(abbrev)
+            else:
+                normalized_words.append(word)
+        else:
+            normalized_words.append(word)
+    
+    text = " ".join(normalized_words)
+    
+    # Apply title case
+    text = text.title()
+    
+    # Add unit prefix back if present
+    if unit_prefix:
+        text = unit_prefix + text
+    
+    return text
+
+
+def _get_address_matching_key(address: str) -> str:
+    """Generate a normalized matching key for address comparison.
+    
+    This removes unit numbers and standardizes format for fuzzy matching.
+    All abbreviations are expanded to their full form for consistent matching.
+    """
+    import re
+    
+    # First normalize the address to standardize abbreviations
+    normalized = _normalize_address(address)
+    text = normalized.lower()
+    
+    # Remove unit prefixes like "unit 5 " or "5/123 " (Australian notation)
+    text = re.sub(r'^(unit|apt|apartment|flat|suite|ste|shop|lot)\s*\w+\s+', '', text)
+    
+    # Normalize whitespace and punctuation
+    text = re.sub(r'[\s,\.]+', ' ', text).strip()
+    
+    return text
 
 
 def _normalize_suburb(value: Any) -> str:
@@ -164,8 +308,25 @@ def parse_source_payload(source_name: str, payload: dict[str, Any]) -> Canonical
     )
 
 
+class PropertyMatchConfidence:
+    """Confidence levels for property matching."""
+    EXACT = "exact"           # Exact address match (case-insensitive)
+    NORMALIZED = "normalized"  # Normalized form matches (St/Street equivalent)
+    REVIEW = "review"         # Low confidence, needs manual review
+
+
 class CanonicalStore(Protocol):
     def upsert_listing_observation(self, record: CanonicalListingRecord) -> str:
+        ...
+    
+    def find_property_match(
+        self, 
+        record: CanonicalListingRecord
+    ) -> tuple[Optional[str], str]:
+        """Find matching property_id and return confidence level.
+        
+        Returns: (property_id or None, confidence level)
+        """
         ...
 
 
@@ -174,21 +335,80 @@ class InMemoryCanonicalStore:
 
     def __init__(self) -> None:
         self.suburbs: dict[tuple[str, Optional[str], Optional[str]], str] = {}
-        self.properties: dict[tuple[str, str, Optional[str], Optional[str]], str] = {}
+        # Properties stored by normalized key for matching
+        self.properties: dict[str, dict[str, Any]] = {}  # key -> {id, address, suburb, state, postcode}
         self.listings: dict[tuple[str, str], dict[str, Any]] = {}
         self.listing_snapshots: list[dict[str, Any]] = []
+        self._property_counter = 0
+
+    def _make_property_key(self, address: str, suburb: str, state: Optional[str], postcode: Optional[str]) -> str:
+        """Create a matching key for property lookup."""
+        return f"{address.lower().strip()}|{suburb.lower().strip()}|{state or ''}|{postcode or ''}"
+
+    def find_property_match(
+        self, 
+        record: CanonicalListingRecord
+    ) -> tuple[Optional[str], str]:
+        """Find matching property with confidence scoring.
+        
+        Matching strategy:
+        1. EXACT: Exact normalized address match
+        2. NORMALIZED: Address matching key matches (handles St/Street variations)
+        3. REVIEW: No confident match found
+        """
+        # Try exact match first
+        exact_key = self._make_property_key(
+            record.address_line_1, 
+            record.suburb_name, 
+            record.state_code, 
+            record.postcode
+        )
+        if exact_key in self.properties:
+            return self.properties[exact_key]["id"], PropertyMatchConfidence.EXACT
+        
+        # Try normalized match (handles abbreviations)
+        matching_key = _get_address_matching_key(record.address_line_1)
+        norm_key = self._make_property_key(
+            matching_key,
+            record.suburb_name,
+            record.state_code,
+            record.postcode
+        )
+        
+        for key, prop in self.properties.items():
+            stored_matching_key = _get_address_matching_key(prop["address"])
+            if (stored_matching_key == matching_key and 
+                prop["suburb"].lower() == record.suburb_name.lower() and
+                prop["state"] == record.state_code and
+                prop["postcode"] == record.postcode):
+                return prop["id"], PropertyMatchConfidence.NORMALIZED
+        
+        return None, PropertyMatchConfidence.REVIEW
 
     def upsert_listing_observation(self, record: CanonicalListingRecord) -> str:
         suburb_key = (record.suburb_name, record.state_code, record.postcode)
         suburb_id = self.suburbs.setdefault(suburb_key, f"suburb-{len(self.suburbs) + 1}")
 
-        prop_key = (
-            record.address_line_1.lower(),
-            record.suburb_name.lower(),
-            record.state_code,
-            record.postcode,
-        )
-        property_id = self.properties.setdefault(prop_key, f"property-{len(self.properties) + 1}")
+        # Find existing property or create new one
+        property_id, confidence = self.find_property_match(record)
+        
+        if property_id is None:
+            self._property_counter += 1
+            property_id = f"property-{self._property_counter}"
+            prop_key = self._make_property_key(
+                record.address_line_1,
+                record.suburb_name,
+                record.state_code,
+                record.postcode
+            )
+            self.properties[prop_key] = {
+                "id": property_id,
+                "address": record.address_line_1,
+                "suburb": record.suburb_name,
+                "state": record.state_code,
+                "postcode": record.postcode,
+                "confidence": confidence,
+            }
 
         listing_key = (record.source_name, record.source_listing_id)
         current = self.listings.get(listing_key)
@@ -228,6 +448,55 @@ class PostgresCanonicalStore:
     def __init__(self, database_url: str):
         self.database_url = database_url
 
+    def find_property_match(
+        self, 
+        record: CanonicalListingRecord
+    ) -> tuple[Optional[str], str]:
+        """Find matching property in postgres with confidence scoring.
+        
+        Matching strategy:
+        1. EXACT: Exact normalized_address match
+        2. NORMALIZED: matching_key matches (handles St/Street variations)
+        3. REVIEW: No confident match found
+        """
+        with psycopg.connect(self.database_url) as conn:
+            with conn.cursor() as cur:
+                # Try exact match first using normalized_address
+                normalized_address = f"{record.address_line_1.lower()}|{record.suburb_name.lower()}|{record.state_code or ''}|{record.postcode or ''}"
+                cur.execute(
+                    """
+                    SELECT id FROM properties 
+                    WHERE normalized_address = %s
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                    """,
+                    (normalized_address,)
+                )
+                result = cur.fetchone()
+                if result:
+                    return result[0], PropertyMatchConfidence.EXACT
+                
+                # Try normalized match using matching_key
+                matching_key = _get_address_matching_key(record.address_line_1)
+                cur.execute(
+                    """
+                    SELECT id FROM properties 
+                    WHERE matching_key = %s
+                      AND suburb_name = %s
+                      AND (state_code = %s OR (state_code IS NULL AND %s IS NULL))
+                      AND (postcode = %s OR (postcode IS NULL AND %s IS NULL))
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                    """,
+                    (matching_key, record.suburb_name, record.state_code, record.state_code,
+                     record.postcode, record.postcode)
+                )
+                result = cur.fetchone()
+                if result:
+                    return result[0], PropertyMatchConfidence.NORMALIZED
+                
+                return None, PropertyMatchConfidence.REVIEW
+
     def upsert_listing_observation(self, record: CanonicalListingRecord) -> str:
         with psycopg.connect(self.database_url) as conn:
             with conn.cursor() as cur:
@@ -243,39 +512,48 @@ class PostgresCanonicalStore:
                 )
                 suburb_id = cur.fetchone()[0]
 
-                normalized_address = f"{record.address_line_1.lower()}|{record.suburb_name.lower()}|{record.state_code or ''}|{record.postcode or ''}"
-                cur.execute(
-                    """
-                    insert into properties (
-                        suburb_id, address_line_1, suburb_name, state_code, postcode,
-                        normalized_address, property_type, bedrooms, bathrooms, source_confidence
+                # Find or create property with confidence tracking
+                property_id, confidence = self.find_property_match(record)
+                
+                if property_id is None:
+                    normalized_address = f"{record.address_line_1.lower()}|{record.suburb_name.lower()}|{record.state_code or ''}|{record.postcode or ''}"
+                    matching_key = _get_address_matching_key(record.address_line_1)
+                    
+                    cur.execute(
+                        """
+                        insert into properties (
+                            suburb_id, address_line_1, suburb_name, state_code, postcode,
+                            normalized_address, matching_key, property_type, bedrooms, bathrooms, 
+                            source_confidence
+                        )
+                        values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        on conflict do nothing
+                        """,
+                        (
+                            suburb_id,
+                            record.address_line_1,
+                            record.suburb_name,
+                            record.state_code,
+                            record.postcode,
+                            normalized_address,
+                            matching_key,
+                            record.property_type,
+                            record.bedrooms,
+                            record.bathrooms,
+                            confidence,
+                        ),
                     )
-                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'high')
-                    on conflict do nothing
-                    """,
-                    (
-                        suburb_id,
-                        record.address_line_1,
-                        record.suburb_name,
-                        record.state_code,
-                        record.postcode,
-                        normalized_address,
-                        record.property_type,
-                        record.bedrooms,
-                        record.bathrooms,
-                    ),
-                )
 
-                cur.execute(
-                    """
-                    select id from properties
-                    where normalized_address = %s
-                    order by created_at asc
-                    limit 1
-                    """,
-                    (normalized_address,),
-                )
-                property_id = cur.fetchone()[0]
+                    cur.execute(
+                        """
+                        select id from properties
+                        where normalized_address = %s
+                        order by created_at asc
+                        limit 1
+                        """,
+                        (normalized_address,),
+                    )
+                    property_id = cur.fetchone()[0]
 
                 cur.execute(
                     """
