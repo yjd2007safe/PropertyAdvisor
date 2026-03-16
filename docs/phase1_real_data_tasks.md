@@ -10,6 +10,22 @@ Convert the existing postgres-aware application into a real data system that can
 - Read repositories already support postgres mode for some surfaces.
 - Current bottleneck is not schema creation; it is repeatable population and refresh.
 
+## Current implementation status (WIP round: source contract + ingest foundation)
+
+Completed in this round:
+- First production slice frozen as **Southport, QLD, 4215**.
+- Written source contract added in `docs/phase1_source_contract.md`.
+- Canonical ingest MVP command added (`python -m property_advisor.ingest`) with:
+  - file-based payload input
+  - structured run metadata counts
+  - canonical suburb/property/listing upsert flow
+  - listing snapshot append on every observation
+
+Still pending for later Phase 1 rounds:
+- sales/rental event persistence
+- refresh orchestration command with locking
+- demo-slice backfill verification against a real Postgres instance
+
 ## Ordered task list
 
 ### 1. Freeze the first production slice
