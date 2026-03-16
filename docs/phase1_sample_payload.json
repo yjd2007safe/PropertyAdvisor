@@ -1,0 +1,31 @@
+[
+  {
+    "source_listing_id": "rea-1001",
+    "listing_type": "sale",
+    "status": "active",
+    "address": "10 Marine Parade",
+    "suburb": "Southport",
+    "state": "qld",
+    "postcode": "4215",
+    "property_type": "unit",
+    "beds": 2,
+    "baths": 2,
+    "asking_price": 875000,
+    "headline": "Broadwater unit with marina outlook",
+    "description": "Recently renovated two-bedroom unit near light rail"
+  },
+  {
+    "source_listing_id": "rea-1002",
+    "listing_type": "rent",
+    "status": "for_rent",
+    "address": "25 Nerang St",
+    "suburb": "Southport",
+    "state": "QLD",
+    "postcode": "4215",
+    "property_type": "unit",
+    "beds": 1,
+    "baths": 1,
+    "rent_price_weekly": 650,
+    "headline": "Central Southport rental"
+  }
+]

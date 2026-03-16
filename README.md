@@ -86,6 +86,33 @@ Default web URL: `http://localhost:3000`
 pytest
 ```
 
+
+## Phase 1 ingest MVP (real-data foundation)
+
+The first Phase 1 slice now includes a practical canonical ingest command for one target suburb slice.
+
+- Source contract + target slice: `docs/phase1_source_contract.md`
+- Example payload: `docs/phase1_sample_payload.json`
+
+Run in-memory (validation + structured counts):
+
+```bash
+python -m property_advisor.ingest \
+  --source-name realestate_export \
+  --target-slice southport-qld-4215 \
+  --input docs/phase1_sample_payload.json
+```
+
+Run against Postgres (idempotent upserts + listing snapshots):
+
+```bash
+python -m property_advisor.ingest \
+  --source-name realestate_export \
+  --target-slice southport-qld-4215 \
+  --input docs/phase1_sample_payload.json \
+  --database-url "$DATABASE_URL"
+```
+
 ## Developer Notes
 
 - The FastAPI service is intentionally lightweight and placeholder-backed so real data services can plug in later without rewriting the app boundary.
