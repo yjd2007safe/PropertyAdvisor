@@ -2,7 +2,12 @@ import psycopg
 
 from property_advisor.api.data_access import DataAccessLayer
 from property_advisor.api.db import DatabaseConfig, DatabaseSessionFactory
-from property_advisor.api.repositories import ComparableQuery, PostgresComparableRepository, PostgresSuburbRepository, WatchlistQuery
+from property_advisor.api.repositories import (
+    ComparableQuery,
+    PostgresComparableRepository,
+    PostgresSuburbRepository,
+    WatchlistQuery,
+)
 from property_advisor.api.services import (
     get_comparables,
     get_property_advice,
@@ -158,7 +163,7 @@ def test_service_data_source_reports_postgres_when_rows_exist(monkeypatch) -> No
             return None
 
         def fetchall(self):
-            return [("1 Test St", "Southport", 900000, "2025-01-01", 3, 2, {"distance_km": 0.5})]
+            return [("1 Test St", "Southport", "QLD", "4215", 900000, "2025-01-01", 3, 2, {"distance_km": 0.5})]
 
     class _Conn:
         def __enter__(self):
@@ -401,3 +406,140 @@ def test_property_advice_decision_summary_includes_comp_range() -> None:
     response = get_property_advice(query="southport-qld-4215", query_type="slug", dal=dal)
     assert "Subject price anchor" in response.decision_summary
     assert "comp range" in response.decision_summary
+
+
+def test_postgres_seeded_southport_reads_cover_overview_comparables_and_watchlist(monkeypatch) -> None:
+    dal = DataAccessLayer.create(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    class _Cursor:
+        def __init__(self):
+            self.rows = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            q = " ".join(query.split()).lower()
+            if "from sales_events se" in q:
+                self.rows = [
+                    (
+                        "12 Nerang St",
+                        "Southport",
+                        "QLD",
+                        "4215",
+                        910000,
+                        "2025-02-10",
+                        3,
+                        2,
+                        {"distance_km": 0.42, "match_reason": "seeded sale event"},
+                    )
+                ]
+            elif "from suburbs s" in q and "market_metrics" in q:
+                self.rows = [("Southport", "QLD", "4215", 935000, 760, 21, "warm")]
+            elif "from alert_rules ar" in q:
+                self.rows = [
+                    (
+                        "Southport",
+                        "QLD",
+                        "4215",
+                        "review",
+                        {
+                            "suburb_slug": "southport-qld-4215",
+                            "strategy": "balanced",
+                            "watch_status": "review",
+                            "notes": "Seeded Southport watchlist row",
+                            "target_buy_range_min": 880000,
+                            "target_buy_range_max": 940000,
+                            "alerts": [
+                                {
+                                    "id": "seed-alert-1",
+                                    "title": "Price drift",
+                                    "severity": "high",
+                                    "detail": "Comparable median moved 2.1% week-on-week.",
+                                    "metric": "median_sale_price",
+                                    "observed_at": "2025-02-11T00:00:00Z",
+                                }
+                            ],
+                        },
+                    )
+                ]
+            else:
+                self.rows = []
+
+        def fetchall(self):
+            return self.rows
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", lambda *args, **kwargs: _Conn())
+
+    overview = get_suburbs_overview(dal=dal)
+    comparables = get_comparables(query="southport-qld-4215", max_items=5, dal=dal)
+    detail = get_watchlist_detail(suburb_slug="southport-qld-4215", dal=dal)
+
+    assert overview.data_source.source == "postgres"
+    assert overview.items[0].slug == "southport-qld-4215"
+    assert overview.items[0].median_price == 935000
+
+    assert comparables.data_source.source == "postgres"
+    assert comparables.items
+    assert comparables.items[0].address == "12 Nerang St, Southport QLD 4215"
+    assert comparables.items[0].match_reason == "seeded sale event"
+
+    assert detail is not None
+    assert detail.data_source.source == "postgres"
+    assert detail.item.suburb_slug == "southport-qld-4215"
+    assert detail.item.alerts[0].severity == "high"
+
+
+def test_postgres_comparables_keeps_db_source_when_seeded_rows_exist_but_query_has_no_match(monkeypatch) -> None:
+    dal = DataAccessLayer.create(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            self.query = " ".join(query.split()).lower()
+
+        def fetchall(self):
+            if "from sales_events se" in self.query:
+                return [("12 Nerang St", "Southport", "QLD", "4215", 910000, "2025-02-10", 3, 2, {"distance_km": 0.42})]
+            return [("Southport", "QLD", "4215")]
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", lambda *args, **kwargs: _Conn())
+
+    response = get_comparables(query="burleigh-heads-qld-4220", max_items=5, dal=dal)
+
+    assert response.items == []
+    assert response.set_quality == "empty"
+    assert response.data_source.source == "postgres"
+    assert response.data_source.is_fallback is False

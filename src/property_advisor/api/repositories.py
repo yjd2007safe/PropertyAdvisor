@@ -413,6 +413,8 @@ class PostgresComparableRepository(MockComparableRepository):
                         select
                           p.address_line_1,
                           p.suburb_name,
+                          p.state_code,
+                          p.postcode,
                           se.sale_price,
                           se.sale_date,
                           p.bedrooms,
@@ -433,9 +435,10 @@ class PostgresComparableRepository(MockComparableRepository):
             return items
         items: List[ComparableItem] = []
         query_text = _normalize_query(criteria.query or "")
-        for address_line_1, suburb_name, sale_price, sale_date, bedrooms, bathrooms, metadata in rows:
-            address = _format_property_address(address_line_1, suburb_name, None, None)
-            if query_text and query_text not in address.lower() and query_text not in suburb_name.lower():
+        for address_line_1, suburb_name, state_code, postcode, sale_price, sale_date, bedrooms, bathrooms, metadata in rows:
+            address = _format_property_address(address_line_1, suburb_name, state_code, postcode)
+            suburb_slug = _slugify_suburb(suburb_name, state_code, postcode)
+            if query_text and query_text not in address.lower() and query_text not in suburb_name.lower() and query_text != suburb_slug:
                 continue
             meta = metadata or {}
             price = int(sale_price or 0)
@@ -461,6 +464,10 @@ class PostgresComparableRepository(MockComparableRepository):
             self.last_source = "postgres"
             self.last_fallback_reason = None
             return items
+        if rows:
+            self.last_source = "postgres"
+            self.last_fallback_reason = None
+            return []
         items = super().list_by_subject(criteria)
         self.last_source = "fallback_mock"
         self.last_fallback_reason = "Comparable query returned 0 matches after filters; served mock comps."
