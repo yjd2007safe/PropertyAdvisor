@@ -24,7 +24,13 @@ Completed in this round:
 Still pending for later Phase 1 rounds:
 - sales/rental event persistence
 - refresh orchestration command with locking
-- demo-slice backfill verification against a real Postgres instance
+- expanded production breadth beyond the Southport demo slice
+
+## Round 6 closure notes (Southport demo slice)
+
+- Southport now has a code-driven backfill + verification command path (`backfill-verify-southport`) that runs ingest, refresh, market metrics, and row-count verification without manual SQL edits.
+- Verification output explicitly reports canonical row counts for the phase-1 slice tables and can be re-run independently.
+- Known data-quality limits for the demo slice are documented in `docs/phase1_source_contract.md` for Phase 1 handoff evidence.
 
 ## Ordered task list
 

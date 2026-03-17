@@ -842,6 +842,17 @@ class RefreshRunSummary:
     ingest: dict[str, Any]
 
 
+DEFAULT_SOUTHPORT_ROW_COUNT_MINIMUMS: dict[str, int] = {
+    "suburbs": 1,
+    "properties": 1,
+    "listings": 1,
+    "listing_snapshots": 1,
+    "sales_events": 0,
+    "rental_events": 0,
+    "market_metrics": 0,
+}
+
+
 def run_southport_refresh(
     *,
     source_name: str,
@@ -913,6 +924,106 @@ def run_southport_refresh(
     finally:
         if lock_path.exists():
             lock_path.unlink()
+
+
+def collect_southport_row_counts(*, database_url: str) -> dict[str, int]:
+    """Collect row counts for the canonical phase-1 tables in the Southport slice."""
+
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                with southport_suburbs as (
+                  select id
+                  from suburbs
+                  where lower(suburb_name) = lower('Southport')
+                    and coalesce(upper(state_code), '') = 'QLD'
+                    and coalesce(postcode, '') = '4215'
+                ),
+                southport_properties as (
+                  select p.id
+                  from properties p
+                  join southport_suburbs s on s.id = p.suburb_id
+                ),
+                southport_listings as (
+                  select l.id
+                  from listings l
+                  join southport_properties p on p.id = l.property_id
+                )
+                select
+                  (select count(*)::int from southport_suburbs) as suburbs,
+                  (select count(*)::int from southport_properties) as properties,
+                  (select count(*)::int from southport_listings) as listings,
+                  (select count(*)::int from listing_snapshots ls join southport_listings l on l.id = ls.listing_id) as listing_snapshots,
+                  (select count(*)::int from sales_events se join southport_properties p on p.id = se.property_id) as sales_events,
+                  (select count(*)::int from rental_events re join southport_properties p on p.id = re.property_id) as rental_events,
+                  (select count(*)::int from market_metrics mm join southport_suburbs s on s.id = mm.suburb_id) as market_metrics
+                """
+            )
+            row = cur.fetchone()
+
+    return {
+        "suburbs": row[0],
+        "properties": row[1],
+        "listings": row[2],
+        "listing_snapshots": row[3],
+        "sales_events": row[4],
+        "rental_events": row[5],
+        "market_metrics": row[6],
+    }
+
+
+def verify_southport_demo_slice(
+    *,
+    database_url: str,
+    expected_minimums: Optional[dict[str, int]] = None,
+) -> dict[str, Any]:
+    """Verify the demo slice has enough persisted rows to support phase-1 handoff."""
+
+    row_counts = collect_southport_row_counts(database_url=database_url)
+    minimums = {**DEFAULT_SOUTHPORT_ROW_COUNT_MINIMUMS, **(expected_minimums or {})}
+    failures = [table for table, minimum in minimums.items() if row_counts.get(table, 0) < minimum]
+    has_outcome_history = row_counts["sales_events"] > 0 or row_counts["rental_events"] > 0
+
+    return {
+        "target_slice": "southport-qld-4215",
+        "row_counts": row_counts,
+        "minimums": minimums,
+        "meets_minimums": len(failures) == 0,
+        "minimum_failures": failures,
+        "has_outcome_history": has_outcome_history,
+    }
+
+
+def run_southport_backfill_and_verify(
+    *,
+    source_name: str,
+    input_path: Path,
+    database_url: str,
+    lock_path: Path = Path(".refresh-southport.lock"),
+    summary_path: Optional[Path] = None,
+    verification_path: Optional[Path] = None,
+) -> dict[str, Any]:
+    """Run the full refresh + metrics + row-count verification pipeline for Southport."""
+
+    refresh = run_southport_refresh(
+        source_name=source_name,
+        input_path=input_path,
+        store=PostgresCanonicalStore(database_url),
+        lock_path=lock_path,
+        summary_path=summary_path,
+        database_url=database_url,
+    )
+    verification = verify_southport_demo_slice(database_url=database_url)
+    report = {
+        "target_slice": "southport-qld-4215",
+        "refresh": refresh,
+        "verification": verification,
+    }
+    if verification_path is not None:
+        verification_path.parent.mkdir(parents=True, exist_ok=True)
+        verification_path.write_text(json.dumps(report, indent=2))
+    return report
 
 
 def run_file_ingest(
@@ -990,6 +1101,17 @@ def build_cli_parser() -> argparse.ArgumentParser:
     refresh_parser.add_argument("--lock-path", default=".refresh-southport.lock", help="Lock file path used to block overlapping runs")
     refresh_parser.add_argument("--summary-path", default=".refresh/runs/southport_refresh_runs.json", help="JSON file where run summaries are appended")
 
+    verify_parser = subparsers.add_parser("verify-southport-demo", help="Validate canonical Southport row counts for demo readiness")
+    verify_parser.add_argument("--database-url", required=True)
+
+    backfill_parser = subparsers.add_parser("backfill-verify-southport", help="Run Southport refresh and emit a verification report")
+    backfill_parser.add_argument("--source-name", required=True)
+    backfill_parser.add_argument("--input", required=True, help="Path to JSON payload list")
+    backfill_parser.add_argument("--database-url", required=True)
+    backfill_parser.add_argument("--lock-path", default=".refresh-southport.lock")
+    backfill_parser.add_argument("--summary-path", default=".refresh/runs/southport_refresh_runs.json")
+    backfill_parser.add_argument("--verification-path", default=".refresh/runs/southport_demo_verification.json")
+
     return parser
 
 
@@ -1020,6 +1142,23 @@ def main(argv: Optional[list[str]] = None) -> int:
             lock_path=Path(args.lock_path),
             summary_path=Path(args.summary_path),
             database_url=args.database_url,
+        )
+        print(json.dumps(result, indent=2))
+        return 0
+
+    if command == "verify-southport-demo":
+        result = verify_southport_demo_slice(database_url=args.database_url)
+        print(json.dumps(result, indent=2))
+        return 0
+
+    if command == "backfill-verify-southport":
+        result = run_southport_backfill_and_verify(
+            source_name=args.source_name,
+            input_path=Path(args.input),
+            database_url=args.database_url,
+            lock_path=Path(args.lock_path),
+            summary_path=Path(args.summary_path),
+            verification_path=Path(args.verification_path),
         )
         print(json.dumps(result, indent=2))
         return 0
