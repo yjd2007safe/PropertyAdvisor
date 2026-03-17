@@ -113,6 +113,21 @@ python -m property_advisor.ingest \
   --database-url "$DATABASE_URL"
 ```
 
+
+Run the Southport refresh orchestration (locking + run summary append):
+
+```bash
+python -m property_advisor.ingest refresh-southport \
+  --source-name realestate_export \
+  --input docs/phase1_sample_payload.json \
+  --database-url "$DATABASE_URL"
+```
+
+Notes:
+- `refresh-southport` acquires a lock file (`.refresh-southport.lock` by default) and fails fast if one already exists.
+- Run summaries are appended to `.refresh/runs/southport_refresh_runs.json` by default (override with `--summary-path`).
+- Sold/leased outcome payload fields now persist idempotently to `sales_events` / `rental_events` keyed by `(source_name, source_event_id)`; if no explicit source event id is provided, a deterministic fallback id is generated from source listing identity.
+
 ## Developer Notes
 
 - The FastAPI service is intentionally lightweight and placeholder-backed so real data services can plug in later without rewriting the app boundary.
