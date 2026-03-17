@@ -7,6 +7,8 @@ import json
 import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+
+from property_advisor.market_metrics import generate_suburb_market_metrics
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
@@ -35,6 +37,8 @@ class IngestRunMetadata:
     sales_events_updated_count: int = 0
     rental_events_inserted_count: int = 0
     rental_events_updated_count: int = 0
+    market_metrics_inserted_count: int = 0
+    market_metrics_updated_count: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +54,8 @@ class IngestRunMetadata:
             "sales_events_updated_count": self.sales_events_updated_count,
             "rental_events_inserted_count": self.rental_events_inserted_count,
             "rental_events_updated_count": self.rental_events_updated_count,
+            "market_metrics_inserted_count": self.market_metrics_inserted_count,
+            "market_metrics_updated_count": self.market_metrics_updated_count,
         }
 
 
@@ -843,6 +849,10 @@ def run_southport_refresh(
     store: CanonicalStore,
     lock_path: Path = Path(".refresh-southport.lock"),
     summary_path: Optional[Path] = None,
+    database_url: Optional[str] = None,
+    metric_period: str = "monthly",
+    metric_period_start: Optional[date] = None,
+    metric_period_end: Optional[date] = None,
 ) -> dict[str, Any]:
     started_at = datetime.now(timezone.utc)
     if lock_path.exists():
@@ -858,6 +868,21 @@ def run_southport_refresh(
             input_path=input_path,
             store=store,
         )
+        metrics_result: Optional[dict[str, Any]] = None
+        if database_url:
+            period_start = metric_period_start or date(started_at.year, started_at.month, 1)
+            period_end = metric_period_end or started_at.date()
+            metrics_result = generate_southport_market_metrics(
+                database_url=database_url,
+                period_start=period_start,
+                period_end=period_end,
+                metric_period=metric_period,
+            )
+            if metrics_result["inserted"]:
+                ingest_result.market_metrics_inserted_count += 1
+            else:
+                ingest_result.market_metrics_updated_count += 1
+
         summary = RefreshRunSummary(
             target_slice="southport-qld-4215",
             started_at=started_at,
@@ -873,6 +898,7 @@ def run_southport_refresh(
             "input_path": summary.input_path,
             "lock_path": summary.lock_path,
             "ingest": summary.ingest,
+            "market_metrics": metrics_result,
         }
         if summary_path is not None:
             history: list[dict[str, Any]] = []
@@ -924,6 +950,29 @@ def run_file_ingest(
     return metadata
 
 
+
+def generate_southport_market_metrics(*, database_url: str, period_start: date, period_end: date, metric_period: str = "monthly") -> dict[str, Any]:
+    """Generate first-pass market metrics for the frozen Southport demo slice."""
+
+    result = generate_suburb_market_metrics(
+        database_url=database_url,
+        suburb_name="Southport",
+        state_code="QLD",
+        postcode="4215",
+        target_slice="southport-qld-4215",
+        metric_period=metric_period,
+        period_start=period_start,
+        period_end=period_end,
+    )
+    return {
+        "target_slice": result.target_slice,
+        "suburb_id": result.suburb_id,
+        "metric_period": result.metric_period,
+        "period_start": result.period_start.isoformat(),
+        "period_end": result.period_end.isoformat(),
+        "inserted": result.inserted,
+    }
+
 def build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Phase 1 ingest + refresh orchestration for Southport (QLD 4215).")
     subparsers = parser.add_subparsers(dest="command")
@@ -970,6 +1019,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             store=store,
             lock_path=Path(args.lock_path),
             summary_path=Path(args.summary_path),
+            database_url=args.database_url,
         )
         print(json.dumps(result, indent=2))
         return 0

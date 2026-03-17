@@ -239,8 +239,27 @@ class PostgresSuburbRepository(MockSuburbRepository):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        select suburb_name, state_code, postcode
-                        from suburbs
+                        select
+                          s.suburb_name,
+                          s.state_code,
+                          s.postcode,
+                          mm.median_sale_price,
+                          mm.median_weekly_rent,
+                          mm.avg_days_on_market,
+                          mm.market_temperature
+                        from suburbs s
+                        left join lateral (
+                          select
+                            m.median_sale_price,
+                            m.median_weekly_rent,
+                            m.avg_days_on_market,
+                            m.market_temperature
+                          from market_metrics m
+                          where m.suburb_id = s.id
+                            and m.property_type is null
+                          order by m.period_start desc, m.created_at desc
+                          limit 1
+                        ) mm on true
                         order by suburb_name asc
                         limit 20
                         """
@@ -260,19 +279,35 @@ class PostgresSuburbRepository(MockSuburbRepository):
         self.last_fallback_reason = None
         items: List[SuburbOverviewItem] = []
         mock_index = {item.slug: item for item in SUBURBS_OVERVIEW_FIXTURE.items}
-        for suburb_name, state_code, postcode in rows:
+        for row in rows:
+            suburb_name, state_code, postcode = row[0], row[1], row[2]
+            median_sale_price = row[3] if len(row) > 3 else None
+            median_weekly_rent = row[4] if len(row) > 4 else None
+            avg_dom = row[5] if len(row) > 5 else None
+            market_temperature = row[6] if len(row) > 6 else None
             slug = _slugify_suburb(suburb_name, state_code, postcode)
             fixture = mock_index.get(slug)
+            has_metrics = any(value is not None for value in [median_sale_price, median_weekly_rent, avg_dom, market_temperature])
+            trend = fixture.trend if fixture else 'watching'
+            if market_temperature in {'warm', 'hot'}:
+                trend = 'improving'
+            elif market_temperature in {'balanced'}:
+                trend = 'steady'
+
             items.append(
                 SuburbOverviewItem(
                     slug=slug,
                     name=suburb_name,
                     state=state_code or (fixture.state if fixture else 'QLD'),
-                    median_price=fixture.median_price if fixture else 0,
-                    median_rent=fixture.median_rent if fixture else 0,
-                    trend=fixture.trend if fixture else 'watching',
-                    note=fixture.note if fixture else 'DB-backed suburb loaded; richer metrics pending market_metrics wiring.',
-                    avg_days_on_market=fixture.avg_days_on_market if fixture else 0,
+                    median_price=int(median_sale_price or (fixture.median_price if fixture else 0)),
+                    median_rent=int(median_weekly_rent or (fixture.median_rent if fixture else 0)),
+                    trend=trend,
+                    note=(
+                        'Latest suburb metrics loaded from market_metrics.'
+                        if has_metrics
+                        else 'DB-backed suburb loaded; market_metrics row missing so fallback values are shown.'
+                    ),
+                    avg_days_on_market=int(avg_dom or (fixture.avg_days_on_market if fixture else 0)),
                     vacancy_rate_pct=fixture.vacancy_rate_pct if fixture else 0.0,
                 )
             )
