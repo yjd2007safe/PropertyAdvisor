@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
@@ -30,6 +31,10 @@ class IngestRunMetadata:
     updated_count: int = 0
     skipped_count: int = 0
     error_count: int = 0
+    sales_events_inserted_count: int = 0
+    sales_events_updated_count: int = 0
+    rental_events_inserted_count: int = 0
+    rental_events_updated_count: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -41,7 +46,19 @@ class IngestRunMetadata:
             "updated_count": self.updated_count,
             "skipped_count": self.skipped_count,
             "error_count": self.error_count,
+            "sales_events_inserted_count": self.sales_events_inserted_count,
+            "sales_events_updated_count": self.sales_events_updated_count,
+            "rental_events_inserted_count": self.rental_events_inserted_count,
+            "rental_events_updated_count": self.rental_events_updated_count,
         }
+
+
+@dataclass
+class EventUpsertResult:
+    sales_inserted: int = 0
+    sales_updated: int = 0
+    rentals_inserted: int = 0
+    rentals_updated: int = 0
 
 
 @dataclass
@@ -308,6 +325,65 @@ def parse_source_payload(source_name: str, payload: dict[str, Any]) -> Canonical
     )
 
 
+def _parse_event_date(value: Any) -> Optional[date]:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def _extract_sale_event(raw: dict[str, Any], *, source_name: str, property_id: str, listing_id: str) -> Optional[dict[str, Any]]:
+    status = _normalize_status(raw.get("status"), _normalize_listing_type(raw.get("listing_type")))
+    sold_price = raw.get("sold_price") or raw.get("sale_price")
+    sold_date = _parse_event_date(raw.get("sold_date") or raw.get("sale_date"))
+    if status != "sold" and sold_price is None and sold_date is None:
+        return None
+
+    source_event_id = _normalize_text(raw.get("sale_event_id") or raw.get("source_event_id"))
+    if not source_event_id:
+        source_event_id = f"sale:{source_name}:{_normalize_text(raw.get('source_listing_id') or raw.get('external_id')) or listing_id}"
+
+    return {
+        "property_id": property_id,
+        "listing_id": listing_id,
+        "sale_date": sold_date or datetime.now(timezone.utc).date(),
+        "sale_price": sold_price,
+        "sale_method": _normalize_text(raw.get("sale_method")),
+        "days_on_market": raw.get("days_on_market"),
+        "source_name": source_name,
+        "source_event_id": source_event_id,
+        "metadata": {"raw": raw},
+    }
+
+
+def _extract_rental_event(raw: dict[str, Any], *, source_name: str, property_id: str, listing_id: str) -> Optional[dict[str, Any]]:
+    status = _normalize_status(raw.get("status"), _normalize_listing_type(raw.get("listing_type")))
+    weekly_rent = raw.get("leased_price_weekly") or raw.get("leased_rent_weekly") or raw.get("rent_price_weekly")
+    lease_date = _parse_event_date(raw.get("leased_date") or raw.get("lease_date"))
+    if status != "leased" and weekly_rent is None and lease_date is None:
+        return None
+
+    source_event_id = _normalize_text(raw.get("rental_event_id") or raw.get("lease_event_id") or raw.get("source_event_id"))
+    if not source_event_id:
+        source_event_id = f"rent:{source_name}:{_normalize_text(raw.get('source_listing_id') or raw.get('external_id')) or listing_id}"
+
+    return {
+        "property_id": property_id,
+        "listing_id": listing_id,
+        "lease_date": lease_date or datetime.now(timezone.utc).date(),
+        "weekly_rent": weekly_rent,
+        "days_on_market": raw.get("days_on_market"),
+        "source_name": source_name,
+        "source_event_id": source_event_id,
+        "metadata": {"raw": raw},
+    }
+
+
 class PropertyMatchConfidence:
     """Confidence levels for property matching."""
     EXACT = "exact"           # Exact address match (case-insensitive)
@@ -318,13 +394,16 @@ class PropertyMatchConfidence:
 class CanonicalStore(Protocol):
     def upsert_listing_observation(self, record: CanonicalListingRecord) -> str:
         ...
-    
+
+    def upsert_outcome_events(self, *, raw_payload: dict[str, Any], record: CanonicalListingRecord) -> EventUpsertResult:
+        ...
+
     def find_property_match(
-        self, 
+        self,
         record: CanonicalListingRecord
     ) -> tuple[Optional[str], str]:
         """Find matching property_id and return confidence level.
-        
+
         Returns: (property_id or None, confidence level)
         """
         ...
@@ -339,6 +418,8 @@ class InMemoryCanonicalStore:
         self.properties: dict[str, dict[str, Any]] = {}  # key -> {id, address, suburb, state, postcode}
         self.listings: dict[tuple[str, str], dict[str, Any]] = {}
         self.listing_snapshots: list[dict[str, Any]] = []
+        self.sales_events: dict[tuple[str, str], dict[str, Any]] = {}
+        self.rental_events: dict[tuple[str, str], dict[str, Any]] = {}
         self._property_counter = 0
 
     def _make_property_key(self, address: str, suburb: str, state: Optional[str], postcode: Optional[str]) -> str:
@@ -442,6 +523,37 @@ class InMemoryCanonicalStore:
             }
         )
         return change_type
+
+    def upsert_outcome_events(self, *, raw_payload: dict[str, Any], record: CanonicalListingRecord) -> EventUpsertResult:
+        listing_key = (record.source_name, record.source_listing_id)
+        listing = self.listings.get(listing_key)
+        if listing is None:
+            return EventUpsertResult()
+
+        sale_event = _extract_sale_event(raw_payload, source_name=record.source_name, property_id=listing["property_id"], listing_id=listing["id"])
+        rental_event = _extract_rental_event(raw_payload, source_name=record.source_name, property_id=listing["property_id"], listing_id=listing["id"])
+        result = EventUpsertResult()
+
+        if sale_event is not None:
+            key = (sale_event["source_name"], sale_event["source_event_id"])
+            if key in self.sales_events:
+                self.sales_events[key].update(sale_event)
+                result.sales_updated = 1
+            else:
+                self.sales_events[key] = sale_event
+                result.sales_inserted = 1
+
+        if rental_event is not None:
+            key = (rental_event["source_name"], rental_event["source_event_id"])
+            if key in self.rental_events:
+                self.rental_events[key].update(rental_event)
+                result.rentals_updated = 1
+            else:
+                self.rental_events[key] = rental_event
+                result.rentals_inserted = 1
+
+        return result
+
 
 
 class PostgresCanonicalStore:
@@ -622,6 +734,161 @@ class PostgresCanonicalStore:
         return "inserted" if inserted else "updated"
 
 
+    def upsert_outcome_events(self, *, raw_payload: dict[str, Any], record: CanonicalListingRecord) -> EventUpsertResult:
+        with psycopg.connect(self.database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select id, property_id from listings
+                    where source_name = %s and source_listing_id = %s
+                    limit 1
+                    """,
+                    (record.source_name, record.source_listing_id),
+                )
+                listing_row = cur.fetchone()
+                if listing_row is None:
+                    return EventUpsertResult()
+                listing_id, property_id = listing_row
+
+                result = EventUpsertResult()
+                sale_event = _extract_sale_event(raw_payload, source_name=record.source_name, property_id=property_id, listing_id=listing_id)
+                if sale_event is not None:
+                    cur.execute(
+                        """
+                        insert into sales_events (
+                            property_id, listing_id, sale_date, sale_price, sale_method,
+                            days_on_market, source_name, source_event_id, metadata
+                        )
+                        values (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                        on conflict (source_name, source_event_id)
+                        do update set
+                            property_id = excluded.property_id,
+                            listing_id = excluded.listing_id,
+                            sale_date = excluded.sale_date,
+                            sale_price = excluded.sale_price,
+                            sale_method = excluded.sale_method,
+                            days_on_market = excluded.days_on_market,
+                            metadata = excluded.metadata
+                        returning (xmax = 0)
+                        """,
+                        (
+                            sale_event["property_id"],
+                            sale_event["listing_id"],
+                            sale_event["sale_date"],
+                            sale_event["sale_price"],
+                            sale_event["sale_method"],
+                            sale_event["days_on_market"],
+                            sale_event["source_name"],
+                            sale_event["source_event_id"],
+                            json.dumps(sale_event["metadata"]),
+                        ),
+                    )
+                    if cur.fetchone()[0]:
+                        result.sales_inserted = 1
+                    else:
+                        result.sales_updated = 1
+
+                rental_event = _extract_rental_event(raw_payload, source_name=record.source_name, property_id=property_id, listing_id=listing_id)
+                if rental_event is not None:
+                    cur.execute(
+                        """
+                        insert into rental_events (
+                            property_id, listing_id, lease_date, weekly_rent,
+                            days_on_market, source_name, source_event_id, metadata
+                        )
+                        values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                        on conflict (source_name, source_event_id)
+                        do update set
+                            property_id = excluded.property_id,
+                            listing_id = excluded.listing_id,
+                            lease_date = excluded.lease_date,
+                            weekly_rent = excluded.weekly_rent,
+                            days_on_market = excluded.days_on_market,
+                            metadata = excluded.metadata
+                        returning (xmax = 0)
+                        """,
+                        (
+                            rental_event["property_id"],
+                            rental_event["listing_id"],
+                            rental_event["lease_date"],
+                            rental_event["weekly_rent"],
+                            rental_event["days_on_market"],
+                            rental_event["source_name"],
+                            rental_event["source_event_id"],
+                            json.dumps(rental_event["metadata"]),
+                        ),
+                    )
+                    if cur.fetchone()[0]:
+                        result.rentals_inserted = 1
+                    else:
+                        result.rentals_updated = 1
+            conn.commit()
+        return result
+
+
+@dataclass
+class RefreshRunSummary:
+    target_slice: str
+    started_at: datetime
+    completed_at: datetime
+    input_path: str
+    lock_path: str
+    ingest: dict[str, Any]
+
+
+def run_southport_refresh(
+    *,
+    source_name: str,
+    input_path: Path,
+    store: CanonicalStore,
+    lock_path: Path = Path(".refresh-southport.lock"),
+    summary_path: Optional[Path] = None,
+) -> dict[str, Any]:
+    started_at = datetime.now(timezone.utc)
+    if lock_path.exists():
+        raise RuntimeError(
+            f"refresh lock exists at {lock_path}. Remove it if no run is active, then rerun."
+        )
+
+    lock_path.write_text(started_at.isoformat())
+    try:
+        ingest_result = run_file_ingest(
+            source_name=source_name,
+            target_slice="southport-qld-4215",
+            input_path=input_path,
+            store=store,
+        )
+        summary = RefreshRunSummary(
+            target_slice="southport-qld-4215",
+            started_at=started_at,
+            completed_at=datetime.now(timezone.utc),
+            input_path=str(input_path),
+            lock_path=str(lock_path),
+            ingest=ingest_result.as_dict(),
+        )
+        summary_dict = {
+            "target_slice": summary.target_slice,
+            "started_at": summary.started_at.isoformat(),
+            "completed_at": summary.completed_at.isoformat(),
+            "input_path": summary.input_path,
+            "lock_path": summary.lock_path,
+            "ingest": summary.ingest,
+        }
+        if summary_path is not None:
+            history: list[dict[str, Any]] = []
+            if summary_path.exists():
+                history = json.loads(summary_path.read_text())
+                if not isinstance(history, list):
+                    history = []
+            history.append(summary_dict)
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(json.dumps(history, indent=2))
+        return summary_dict
+    finally:
+        if lock_path.exists():
+            lock_path.unlink()
+
+
 def run_file_ingest(
     *,
     source_name: str,
@@ -639,10 +906,15 @@ def run_file_ingest(
         try:
             record = parse_source_payload(source_name=source_name, payload=raw)
             outcome = store.upsert_listing_observation(record)
+            event_result = store.upsert_outcome_events(raw_payload=raw, record=record)
             if outcome == "inserted":
                 metadata.inserted_count += 1
             else:
                 metadata.updated_count += 1
+            metadata.sales_events_inserted_count += event_result.sales_inserted
+            metadata.sales_events_updated_count += event_result.sales_updated
+            metadata.rental_events_inserted_count += event_result.rentals_inserted
+            metadata.rental_events_updated_count += event_result.rentals_updated
         except ValueError:
             metadata.skipped_count += 1
         except Exception:
@@ -653,30 +925,56 @@ def run_file_ingest(
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Phase 1 ingest MVP for canonical suburb/property/listing upsert.")
-    parser.add_argument("--source-name", required=True)
-    parser.add_argument("--target-slice", required=True)
-    parser.add_argument("--input", required=True, help="Path to JSON payload list")
-    parser.add_argument("--database-url", default=None, help="Optional Postgres URL. If omitted, uses in-memory dry run")
+    parser = argparse.ArgumentParser(description="Phase 1 ingest + refresh orchestration for Southport (QLD 4215).")
+    subparsers = parser.add_subparsers(dest="command")
+
+    ingest_parser = subparsers.add_parser("ingest", help="Run ingest for a provided target slice and input payload")
+    ingest_parser.add_argument("--source-name", required=True)
+    ingest_parser.add_argument("--target-slice", required=True)
+    ingest_parser.add_argument("--input", required=True, help="Path to JSON payload list")
+    ingest_parser.add_argument("--database-url", default=None, help="Optional Postgres URL. If omitted, uses in-memory dry run")
+
+    refresh_parser = subparsers.add_parser("refresh-southport", help="Run repeatable refresh for southport-qld-4215 with lock file safety")
+    refresh_parser.add_argument("--source-name", required=True)
+    refresh_parser.add_argument("--input", required=True, help="Path to JSON payload list")
+    refresh_parser.add_argument("--database-url", default=None, help="Optional Postgres URL. If omitted, uses in-memory dry run")
+    refresh_parser.add_argument("--lock-path", default=".refresh-southport.lock", help="Lock file path used to block overlapping runs")
+    refresh_parser.add_argument("--summary-path", default=".refresh/runs/southport_refresh_runs.json", help="JSON file where run summaries are appended")
+
     return parser
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    args = build_cli_parser().parse_args(argv)
-    store: CanonicalStore
-    if args.database_url:
-        store = PostgresCanonicalStore(database_url=args.database_url)
-    else:
-        store = InMemoryCanonicalStore()
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0].startswith("--"):
+        argv = ["ingest", *argv]
+    args = build_cli_parser().parse_args(argv if argv else None)
+    command = args.command or "ingest"
 
-    result = run_file_ingest(
-        source_name=args.source_name,
-        target_slice=args.target_slice,
-        input_path=Path(args.input),
-        store=store,
-    )
-    print(json.dumps(result.as_dict(), indent=2))
-    return 0
+    if command == "ingest":
+        store: CanonicalStore = PostgresCanonicalStore(args.database_url) if args.database_url else InMemoryCanonicalStore()
+        result = run_file_ingest(
+            source_name=args.source_name,
+            target_slice=args.target_slice,
+            input_path=Path(args.input),
+            store=store,
+        )
+        print(json.dumps(result.as_dict(), indent=2))
+        return 0
+
+    if command == "refresh-southport":
+        store = PostgresCanonicalStore(args.database_url) if args.database_url else InMemoryCanonicalStore()
+        result = run_southport_refresh(
+            source_name=args.source_name,
+            input_path=Path(args.input),
+            store=store,
+            lock_path=Path(args.lock_path),
+            summary_path=Path(args.summary_path),
+        )
+        print(json.dumps(result, indent=2))
+        return 0
+
+    raise ValueError(f"unknown command: {command}")
 
 
 if __name__ == "__main__":

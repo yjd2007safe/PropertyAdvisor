@@ -6,7 +6,7 @@ This document freezes the first production Phase 1 real-data slice, per `docs/ph
 
 - **Geography:** Southport, QLD, 4215
 - **Country:** AU
-- **Scope for this MVP round:** sale + rental listing observations for one suburb slice, with canonical suburb/property/listing upsert and listing snapshot history.
+- **Scope for this MVP round:** sale + rental listing observations for one suburb slice, with canonical suburb/property/listing upsert, listing snapshot history, and sold/leased event persistence.
 
 ## Source contract (MVP)
 
@@ -38,6 +38,12 @@ Each record must include:
 - `listing_url`
 - `headline`
 - `description`
+- `sold_price` / `sale_price`
+- `sold_date` / `sale_date`
+- `sale_event_id` / `source_event_id`
+- `leased_rent_weekly` / `leased_price_weekly`
+- `leased_date` / `lease_date`
+- `rental_event_id` / `lease_event_id`
 
 ## Canonical mapping summary
 
@@ -100,3 +106,18 @@ python -m property_advisor.ingest \
   --input docs/phase1_sample_payload.json \
   --database-url "$DATABASE_URL"
 ```
+
+
+## Refresh orchestration command
+
+For repeatable Southport refresh runs with lock safety and summary history:
+
+```bash
+python -m property_advisor.ingest refresh-southport \
+  --source-name realestate_export \
+  --input docs/phase1_sample_payload.json \
+  --database-url "$DATABASE_URL"
+```
+
+- Lock file default: `.refresh-southport.lock` (override with `--lock-path`)
+- Run summary default: `.refresh/runs/southport_refresh_runs.json` (override with `--summary-path`)
