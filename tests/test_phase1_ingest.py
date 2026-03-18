@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from property_advisor.ingest import InMemoryCanonicalStore, parse_source_payload, run_file_ingest, run_southport_refresh
+from property_advisor.ingest import collect_southport_row_counts, run_southport_backfill_and_verify, verify_southport_demo_slice
 
 
 def test_parse_source_payload_requires_identity_and_location() -> None:
@@ -185,3 +186,96 @@ def test_run_southport_refresh_records_summary_and_blocks_active_lock(tmp_path: 
             lock_path=lock_path,
             summary_path=summary_path,
         )
+
+
+def test_verify_southport_demo_slice_reports_minimum_failures(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "property_advisor.ingest.collect_southport_row_counts",
+        lambda **kwargs: {
+            "suburbs": 1,
+            "properties": 1,
+            "listings": 1,
+            "listing_snapshots": 1,
+            "sales_events": 0,
+            "rental_events": 0,
+            "market_metrics": 0,
+        },
+    )
+
+    result = verify_southport_demo_slice(
+        database_url="postgresql://localhost/propertyadvisor",
+        expected_minimums={"sales_events": 1},
+    )
+
+    assert result["meets_minimums"] is False
+    assert result["minimum_failures"] == ["sales_events"]
+    assert result["has_outcome_history"] is False
+
+
+def test_collect_southport_row_counts_queries_canonical_tables(monkeypatch) -> None:
+    class _Cursor:
+        query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            self.query = query
+
+        def fetchone(self):
+            return (1, 2, 3, 4, 5, 6, 7)
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr("property_advisor.ingest.psycopg.connect", lambda *args, **kwargs: _Conn())
+    counts = collect_southport_row_counts(database_url="postgresql://localhost/propertyadvisor")
+
+    assert counts == {
+        "suburbs": 1,
+        "properties": 2,
+        "listings": 3,
+        "listing_snapshots": 4,
+        "sales_events": 5,
+        "rental_events": 6,
+        "market_metrics": 7,
+    }
+
+
+def test_run_southport_backfill_and_verify_writes_report(tmp_path: Path, monkeypatch) -> None:
+    input_path = tmp_path / "records.json"
+    input_path.write_text(json.dumps([{"source_listing_id": "rea-1", "address": "10 Marine Parade", "suburb": "Southport"}]))
+    summary_path = tmp_path / "runs.json"
+    verification_path = tmp_path / "verification.json"
+
+    monkeypatch.setattr(
+        "property_advisor.ingest.run_southport_refresh",
+        lambda **kwargs: {"target_slice": "southport-qld-4215", "ingest": {"inserted_count": 1}},
+    )
+    monkeypatch.setattr(
+        "property_advisor.ingest.verify_southport_demo_slice",
+        lambda **kwargs: {"target_slice": "southport-qld-4215", "meets_minimums": True, "row_counts": {"suburbs": 1}},
+    )
+
+    result = run_southport_backfill_and_verify(
+        source_name="realestate_export",
+        input_path=input_path,
+        database_url="postgresql://localhost/propertyadvisor",
+        summary_path=summary_path,
+        verification_path=verification_path,
+    )
+
+    assert result["verification"]["meets_minimums"] is True
+    assert verification_path.exists()
+    persisted = json.loads(verification_path.read_text())
+    assert persisted["target_slice"] == "southport-qld-4215"

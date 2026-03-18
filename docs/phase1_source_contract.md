@@ -121,3 +121,44 @@ python -m property_advisor.ingest refresh-southport \
 
 - Lock file default: `.refresh-southport.lock` (override with `--lock-path`)
 - Run summary default: `.refresh/runs/southport_refresh_runs.json` (override with `--summary-path`)
+
+
+## Demo-slice backfill + verification flow (Round 6)
+
+Use one command to run ingest + refresh + market metrics + row-count verification for the Southport slice:
+
+```bash
+python -m property_advisor.ingest backfill-verify-southport \
+  --source-name realestate_export \
+  --input docs/phase1_sample_payload.json \
+  --database-url "$DATABASE_URL"
+```
+
+The command persists:
+
+- refresh summaries in `.refresh/runs/southport_refresh_runs.json`
+- verification evidence in `.refresh/runs/southport_demo_verification.json`
+
+You can run verification independently:
+
+```bash
+python -m property_advisor.ingest verify-southport-demo \
+  --database-url "$DATABASE_URL"
+```
+
+Verification reports row counts for the canonical Phase 1 tables used by this slice:
+
+- `suburbs`
+- `properties`
+- `listings`
+- `listing_snapshots`
+- `sales_events`
+- `rental_events`
+- `market_metrics`
+
+### Known data-quality limits (Phase 1 demo slice)
+
+- The demo payload is intentionally small and operator-supplied; it is suitable for repeatable validation but not market completeness.
+- Address matching is deterministic and normalization-based, but ambiguous addresses may still require manual review in broader production data.
+- Event history can be sparse if feeds omit sold/leased outcome fields.
+- Market metrics are first-pass rollups over the available persisted records and should be treated as directional for demos.
