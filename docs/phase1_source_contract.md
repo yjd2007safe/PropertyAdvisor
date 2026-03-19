@@ -8,6 +8,21 @@ This document freezes the first production Phase 1 real-data slice, per `docs/ph
 - **Country:** AU
 - **Scope for this MVP round:** sale + rental listing observations for one suburb slice, with canonical suburb/property/listing upsert, listing snapshot history, and sold/leased event persistence.
 
+### Why Southport for Phase 1
+
+Southport was chosen as the first frozen slice for Phase 1 to keep the real-data rollout narrow, repeatable, and easy to verify end to end. It is not meant to imply long-term exclusivity or strategic preference for Southport as the only target market.
+
+Selection rationale for the Phase 1 MVP slice:
+
+- one-suburb scope keeps ingest, refresh, verification, and rollback/debug loops tight
+- the repo already used Southport heavily in mock fixtures, API defaults, and test flows, making it the cheapest slice to convert into a real-data proof point
+- prior Southport-oriented experimentation existed in the broader workspace, so using the same geography reduced setup friction while validating the OpenClaw-driven development workflow
+
+Important project-status note:
+
+- the separate `SouthportMarketAutomation` project was an OpenClaw workflow experiment and is now closed; it should not be treated as an active dependency or future production path for PropertyAdvisor
+- Southport remains only the current demo/proof slice for PropertyAdvisor Phase 1 until a broader production expansion decision is made
+
 ## Source contract (MVP)
 
 - **Source name:** operator-defined feed name (for example `realestate_export`).

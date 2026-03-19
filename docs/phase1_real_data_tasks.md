@@ -174,6 +174,34 @@ Still pending for later Phase 1 rounds:
 4. refresh orchestration + postgres integration tests
 5. demo-slice backfill + docs cleanup
 
+## Round 7 reset (2026-03-19)
+
+Round 6 established the Southport demo slice foundation, including code-driven backfill, refresh orchestration, first-pass market metrics, and verification evidence. That means the next round should not continue adding low-level ingest plumbing by inertia.
+
+Round 7 is redefined as a **Phase 1 productionization / observability correction round**.
+
+### New Round 7 objective
+
+Make the frozen Southport slice operationally legible and ready for recurring refresh, so later Phase 1 work can expand data breadth or deepen product usage without losing operator visibility.
+
+### Round 7 priorities
+
+1. **Operator-visible evidence**
+   - standardize run-summary and verification outputs so a human can quickly see what refreshed, what failed, and what remains demo-only
+2. **Refresh-contract hardening**
+   - make the Southport refresh/backfill command path clearer to run repeatedly, including explicit expectations for inputs, outputs, and safe reruns
+3. **Product-facing real-data readiness**
+   - document which current surfaces are genuinely supported by Southport postgres data versus still relying on placeholder/fallback behavior
+4. **Selection rationale + scope boundaries**
+   - document why Southport was chosen for Phase 1 and clarify that it is the current proof slice, not a permanent market commitment
+
+### Round 7 acceptance criteria
+
+- Southport selection rationale is written down
+- Phase 1 docs clearly distinguish demo-slice proof from broader production readiness
+- refresh/backfill artifacts are described clearly enough for repeated operator use
+- repo docs identify what real-data evidence currently exists and where fallback behavior still remains
+
 ## Phase 1 done when
 
 - one real suburb slice refreshes through code, not manual SQL
