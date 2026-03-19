@@ -852,6 +852,106 @@ DEFAULT_SOUTHPORT_ROW_COUNT_MINIMUMS: dict[str, int] = {
     "market_metrics": 0,
 }
 
+SOUTHPORT_SLICE_ID = "southport-qld-4215"
+SOUTHPORT_PROOF_SLICE_BOUNDARY = {
+    "geography": {"suburb": "Southport", "state": "QLD", "postcode": "4215", "country": "AU"},
+    "included_real_data_tables": [
+        "suburbs",
+        "properties",
+        "listings",
+        "listing_snapshots",
+        "sales_events",
+        "rental_events",
+        "market_metrics",
+    ],
+    "excluded_broader_production_capabilities": [
+        "additional suburbs or postcodes",
+        "broad-market completeness checks",
+        "operator-independent source acquisition",
+        "frontend-wide postgres cutover",
+        "non-Southport demo validation",
+    ],
+}
+SOUTHPORT_REAL_DATA_BACKED_NOW = [
+    "Canonical suburb/property/listing persistence for Southport, QLD 4215",
+    "Listing snapshot history for repeat refreshes on the frozen Southport slice",
+    "Sales/rental outcome event persistence when the payload includes sold/leased fields",
+    "First-pass Southport market metric persistence when --database-url is provided",
+    "Row-count verification for the canonical Southport proof-slice tables",
+]
+SOUTHPORT_FALLBACK_OR_DEMO_ONLY = [
+    "Payload completeness and market coverage remain operator-supplied rather than guaranteed by the pipeline",
+    "Broader production readiness outside Southport still depends on later slice expansion and read-path hardening",
+    "Demo verification confirms minimum evidence for the frozen slice, not full-market completeness or SLA-backed operations",
+]
+SOUTHPORT_SAFE_RERUN_STEPS = [
+    "Confirm DATABASE_URL points at the intended environment before writing",
+    "Run refresh-southport with the canonical payload for Southport only",
+    "Review the appended refresh artifact for ingest counts and market_metrics status",
+    "Run backfill-verify-southport or verify-southport-demo to confirm proof-slice evidence still meets minimums",
+]
+
+
+def _isoformat_utc(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat()
+
+
+def _build_southport_scope_descriptor() -> dict[str, Any]:
+    return {
+        "slice_id": SOUTHPORT_SLICE_ID,
+        "proof_slice_boundary": SOUTHPORT_PROOF_SLICE_BOUNDARY,
+        "real_data_backed_now": SOUTHPORT_REAL_DATA_BACKED_NOW,
+        "fallback_or_demo_only": SOUTHPORT_FALLBACK_OR_DEMO_ONLY,
+    }
+
+
+def _build_southport_operator_readiness(*, proof_slice_ready: bool, has_market_metrics: bool, has_outcome_history: bool | None = None) -> dict[str, Any]:
+    proof_slice_status = "ready" if proof_slice_ready else "needs_attention"
+    notes = [
+        "Proof-slice evidence covers only the frozen Southport slice and should not be read as whole-product production readiness.",
+        "Broader production readiness still requires additional slices, feed coverage, and postgres-backed read-path rollout beyond this artifact.",
+    ]
+    if not has_market_metrics:
+        notes.append("Market metrics are skipped when refresh runs without --database-url, so evidence remains ingest-only for that run.")
+    if has_outcome_history is False:
+        notes.append("Outcome-history evidence is currently absent in row counts; sold/leased rows depend on source payload coverage.")
+    return {
+        "proof_slice_status": proof_slice_status,
+        "proof_slice_ready": proof_slice_ready,
+        "broader_production_status": "not_yet_complete",
+        "notes": notes,
+    }
+
+
+def _build_refresh_operator_summary(*, ingest: dict[str, Any], market_metrics: Optional[dict[str, Any]], proof_slice_ready: bool) -> dict[str, Any]:
+    market_metrics_status = "persisted" if market_metrics else "skipped_no_database"
+    return {
+        "headline": f"Southport refresh completed for proof slice {SOUTHPORT_SLICE_ID}",
+        "proof_slice_evidence": [
+            f"Listings inserted={ingest['inserted_count']} updated={ingest['updated_count']} skipped={ingest['skipped_count']} errors={ingest['error_count']}",
+            f"Outcome events sales(inserted={ingest['sales_events_inserted_count']}, updated={ingest['sales_events_updated_count']}) rentals(inserted={ingest['rental_events_inserted_count']}, updated={ingest['rental_events_updated_count']})",
+            f"Market metrics status: {market_metrics_status}",
+        ],
+        "production_readiness_boundary": SOUTHPORT_FALLBACK_OR_DEMO_ONLY,
+        "safe_rerun_steps": SOUTHPORT_SAFE_RERUN_STEPS,
+        "proof_slice_ready": proof_slice_ready,
+    }
+
+
+def _build_verification_operator_summary(*, row_counts: dict[str, int], failures: list[str], proof_slice_ready: bool, has_outcome_history: bool) -> dict[str, Any]:
+    headline_status = "passed" if proof_slice_ready else "needs attention"
+    return {
+        "headline": f"Southport proof-slice verification {headline_status}",
+        "proof_slice_evidence": [
+            "Row counts: " + ", ".join(f"{table}={count}" for table, count in row_counts.items()),
+            f"Outcome history present: {'yes' if has_outcome_history else 'no'}",
+            f"Minimum failures: {', '.join(failures) if failures else 'none'}",
+        ],
+        "production_readiness_boundary": SOUTHPORT_FALLBACK_OR_DEMO_ONLY,
+        "safe_rerun_steps": SOUTHPORT_SAFE_RERUN_STEPS,
+        "proof_slice_ready": proof_slice_ready,
+    }
+
 
 def run_southport_refresh(
     *,
@@ -875,7 +975,7 @@ def run_southport_refresh(
     try:
         ingest_result = run_file_ingest(
             source_name=source_name,
-            target_slice="southport-qld-4215",
+            target_slice=SOUTHPORT_SLICE_ID,
             input_path=input_path,
             store=store,
         )
@@ -894,22 +994,41 @@ def run_southport_refresh(
             else:
                 ingest_result.market_metrics_updated_count += 1
 
+        completed_at = datetime.now(timezone.utc)
         summary = RefreshRunSummary(
-            target_slice="southport-qld-4215",
+            target_slice=SOUTHPORT_SLICE_ID,
             started_at=started_at,
-            completed_at=datetime.now(timezone.utc),
+            completed_at=completed_at,
             input_path=str(input_path),
             lock_path=str(lock_path),
             ingest=ingest_result.as_dict(),
         )
         summary_dict = {
+            "artifact_type": "southport_refresh_run_summary",
+            "artifact_contract_version": 2,
             "target_slice": summary.target_slice,
-            "started_at": summary.started_at.isoformat(),
-            "completed_at": summary.completed_at.isoformat(),
-            "input_path": summary.input_path,
-            "lock_path": summary.lock_path,
-            "ingest": summary.ingest,
-            "market_metrics": metrics_result,
+            "scope": _build_southport_scope_descriptor(),
+            "run": {
+                "started_at": _isoformat_utc(summary.started_at),
+                "completed_at": _isoformat_utc(summary.completed_at),
+                "duration_seconds": round((completed_at - started_at).total_seconds(), 3),
+                "input_path": summary.input_path,
+                "lock_path": summary.lock_path,
+                "source_name": source_name,
+            },
+            "proof_slice_evidence": {
+                "ingest": summary.ingest,
+                "market_metrics": metrics_result,
+            },
+            "production_readiness": _build_southport_operator_readiness(
+                proof_slice_ready=summary.ingest["error_count"] == 0,
+                has_market_metrics=metrics_result is not None,
+            ),
+            "operator_summary": _build_refresh_operator_summary(
+                ingest=summary.ingest,
+                market_metrics=metrics_result,
+                proof_slice_ready=summary.ingest["error_count"] == 0,
+            ),
         }
         if summary_path is not None:
             history: list[dict[str, Any]] = []
@@ -984,14 +1103,31 @@ def verify_southport_demo_slice(
     minimums = {**DEFAULT_SOUTHPORT_ROW_COUNT_MINIMUMS, **(expected_minimums or {})}
     failures = [table for table, minimum in minimums.items() if row_counts.get(table, 0) < minimum]
     has_outcome_history = row_counts["sales_events"] > 0 or row_counts["rental_events"] > 0
+    proof_slice_ready = len(failures) == 0
 
     return {
-        "target_slice": "southport-qld-4215",
-        "row_counts": row_counts,
-        "minimums": minimums,
-        "meets_minimums": len(failures) == 0,
-        "minimum_failures": failures,
-        "has_outcome_history": has_outcome_history,
+        "artifact_type": "southport_verification_report",
+        "artifact_contract_version": 2,
+        "target_slice": SOUTHPORT_SLICE_ID,
+        "scope": _build_southport_scope_descriptor(),
+        "proof_slice_evidence": {
+            "row_counts": row_counts,
+            "minimums": minimums,
+            "meets_minimums": proof_slice_ready,
+            "minimum_failures": failures,
+            "has_outcome_history": has_outcome_history,
+        },
+        "production_readiness": _build_southport_operator_readiness(
+            proof_slice_ready=proof_slice_ready,
+            has_market_metrics=row_counts["market_metrics"] > 0,
+            has_outcome_history=has_outcome_history,
+        ),
+        "operator_summary": _build_verification_operator_summary(
+            row_counts=row_counts,
+            failures=failures,
+            proof_slice_ready=proof_slice_ready,
+            has_outcome_history=has_outcome_history,
+        ),
     }
 
 
@@ -1016,15 +1152,30 @@ def run_southport_backfill_and_verify(
     )
     verification = verify_southport_demo_slice(database_url=database_url)
     report = {
-        "target_slice": "southport-qld-4215",
-        "refresh": refresh,
-        "verification": verification,
+        "artifact_type": "southport_backfill_verification_report",
+        "artifact_contract_version": 2,
+        "target_slice": SOUTHPORT_SLICE_ID,
+        "scope": _build_southport_scope_descriptor(),
+        "proof_slice_evidence": {
+            "refresh": refresh,
+            "verification": verification,
+        },
+        "production_readiness": verification["production_readiness"],
+        "operator_summary": {
+            "headline": f"Southport backfill + verification completed for {SOUTHPORT_SLICE_ID}",
+            "proof_slice_evidence": [
+                refresh["operator_summary"]["headline"],
+                verification["operator_summary"]["headline"],
+            ],
+            "production_readiness_boundary": SOUTHPORT_FALLBACK_OR_DEMO_ONLY,
+            "safe_rerun_steps": SOUTHPORT_SAFE_RERUN_STEPS,
+            "proof_slice_ready": verification["production_readiness"]["proof_slice_ready"],
+        },
     }
     if verification_path is not None:
         verification_path.parent.mkdir(parents=True, exist_ok=True)
         verification_path.write_text(json.dumps(report, indent=2))
     return report
-
 
 def run_file_ingest(
     *,

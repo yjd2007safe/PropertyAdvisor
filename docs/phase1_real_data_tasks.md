@@ -32,6 +32,12 @@ Still pending for later Phase 1 rounds:
 - Verification output explicitly reports canonical row counts for the phase-1 slice tables and can be re-run independently.
 - Known data-quality limits for the demo slice are documented in `docs/phase1_source_contract.md` for Phase 1 handoff evidence.
 
+## Round 7 closure notes (operator observability / legibility)
+
+- Southport refresh and verification artifacts now separate `proof_slice_evidence` from `production_readiness`, so operators can see what is backed by persisted Southport rows versus what is still broader rollout work.
+- `refresh-southport`, `verify-southport-demo`, and `backfill-verify-southport` now emit aligned operator summaries with rerun guidance and explicit proof-slice boundaries.
+- Regression tests now pin the artifact contract so future rounds do not blur proof-slice evidence with broader production-readiness claims.
+
 ## Ordered task list
 
 ### 1. Freeze the first production slice
