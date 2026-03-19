@@ -3,7 +3,7 @@ from __future__ import annotations
 """Repository abstractions and mock implementations for API services."""
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import List, Literal, Optional, Protocol
 
 import psycopg
@@ -31,6 +31,32 @@ class ComparableQuery:
     min_price: Optional[int] = None
     max_price: Optional[int] = None
     max_distance_km: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class ComparableSubject:
+    property_id: str
+    address: str
+    suburb_name: str
+    state_code: Optional[str]
+    postcode: Optional[object]
+    property_type: Optional[str]
+    bedrooms: Optional[int]
+    bathrooms: Optional[int]
+
+
+@dataclass(frozen=True)
+class ComparableCandidate:
+    property_id: str
+    address: str
+    suburb_name: str
+    suburb_slug: str
+    property_type: Optional[str]
+    sale_price: int
+    sale_date: object
+    bedrooms: Optional[int]
+    bathrooms: Optional[int]
+    metadata: dict
 
 
 @dataclass(frozen=True)
@@ -117,6 +143,69 @@ def _coerce_sale_date(value: object) -> str:
     if isinstance(value, (date, datetime)):
         return value.isoformat()
     return str(value)
+
+
+def _coerce_to_date(value: object) -> Optional[date]:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+        except ValueError:
+            return None
+    return None
+
+
+def _normalize_property_type(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
+
+
+def _bedroom_band_matches(subject: ComparableSubject, candidate: ComparableCandidate) -> bool:
+    if subject.bedrooms is None or candidate.bedrooms is None:
+        return True
+    return abs(subject.bedrooms - candidate.bedrooms) <= 1
+
+
+def _bathroom_band_matches(subject: ComparableSubject, candidate: ComparableCandidate) -> bool:
+    if subject.bathrooms is None or candidate.bathrooms is None:
+        return True
+    return abs(subject.bathrooms - candidate.bathrooms) <= 1
+
+
+def _candidate_within_recency_window(candidate: ComparableCandidate, today: Optional[date] = None) -> bool:
+    candidate_date = _coerce_to_date(candidate.sale_date)
+    if candidate_date is None:
+        return False
+    anchor = today or date.today()
+    return candidate_date >= anchor - timedelta(days=365)
+
+
+def _candidate_sort_key(subject: ComparableSubject, candidate: ComparableCandidate) -> tuple:
+    same_suburb = 0 if _normalize_query(candidate.suburb_name) == _normalize_query(subject.suburb_name) else 1
+    same_type = 0 if _normalize_property_type(candidate.property_type) == _normalize_property_type(subject.property_type) else 1
+    bed_gap = abs((candidate.bedrooms or subject.bedrooms or 0) - (subject.bedrooms or candidate.bedrooms or 0))
+    bath_gap = abs((candidate.bathrooms or subject.bathrooms or 0) - (subject.bathrooms or candidate.bathrooms or 0))
+    candidate_date = _coerce_to_date(candidate.sale_date) or date.min
+    return (same_suburb, same_type, bed_gap, bath_gap, -candidate_date.toordinal(), candidate.sale_price)
+
+
+def select_comparable_candidates(
+    subject: ComparableSubject,
+    candidates: List[ComparableCandidate],
+    max_items: int,
+) -> List[ComparableCandidate]:
+    eligible = [
+        candidate
+        for candidate in candidates
+        if candidate.property_id != subject.property_id
+        and _candidate_within_recency_window(candidate)
+        and _bedroom_band_matches(subject, candidate)
+        and _bathroom_band_matches(subject, candidate)
+    ]
+    eligible.sort(key=lambda candidate: _candidate_sort_key(subject, candidate))
+    return eligible[:max_items]
 
 class MockSuburbRepository:
     last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
@@ -399,6 +488,104 @@ class PostgresComparableRepository(MockComparableRepository):
     def __init__(self, session_factory: DatabaseSessionFactory):
         self.session_factory = session_factory
 
+    def _load_subject(self, cur, criteria: ComparableQuery) -> Optional[ComparableSubject]:
+        normalized = _normalize_query(criteria.query)
+        cur.execute(
+            """
+            select
+              p.id,
+              p.address_line_1,
+              p.suburb_name,
+              p.state_code,
+              p.postcode,
+              p.property_type,
+              p.bedrooms,
+              p.bathrooms
+            from properties p
+            where lower(coalesce(p.address_line_1, '') || ', ' || coalesce(p.suburb_name, '') || ' ' || coalesce(p.state_code, '') || ' ' || coalesce(p.postcode::text, '')) like %s
+               or lower(coalesce(p.suburb_name, '')) = %s
+               or lower(
+                    replace(coalesce(p.suburb_name, ''), ' ', '-') || '-' || lower(coalesce(p.state_code, '')) || '-' || coalesce(p.postcode::text, '')
+                  ) = %s
+            order by
+              case
+                when lower(
+                    replace(coalesce(p.suburb_name, ''), ' ', '-') || '-' || lower(coalesce(p.state_code, '')) || '-' || coalesce(p.postcode::text, '')
+                  ) = %s then 0
+                when lower(coalesce(p.address_line_1, '') || ', ' || coalesce(p.suburb_name, '') || ' ' || coalesce(p.state_code, '') || ' ' || coalesce(p.postcode::text, '')) = %s then 1
+                when lower(coalesce(p.suburb_name, '')) = %s then 2
+                else 3
+              end,
+              p.updated_at desc nulls last,
+              p.created_at desc
+            limit 1
+            """,
+            (
+                f"%{normalized}%",
+                normalized,
+                normalized,
+                normalized,
+                normalized,
+                normalized,
+            ),
+        )
+        if hasattr(cur, "fetchone"):
+            row = cur.fetchone()
+        else:
+            rows = cur.fetchall()
+            row = rows[0] if rows else None
+        if not row:
+            return None
+        return ComparableSubject(
+            property_id=str(row[0]),
+            address=_format_property_address(row[1], row[2], row[3], row[4]),
+            suburb_name=row[2] or "",
+            state_code=row[3],
+            postcode=row[4],
+            property_type=row[5],
+            bedrooms=int(row[6]) if row[6] is not None else None,
+            bathrooms=int(row[7]) if row[7] is not None else None,
+        )
+
+    def _load_candidate_rows(self, cur) -> List[ComparableCandidate]:
+        cur.execute(
+            """
+            select
+              p.id,
+              p.address_line_1,
+              p.suburb_name,
+              p.state_code,
+              p.postcode,
+              p.property_type,
+              se.sale_price,
+              se.sale_date,
+              p.bedrooms,
+              p.bathrooms,
+              se.metadata
+            from sales_events se
+            join properties p on p.id = se.property_id
+            where se.sale_price is not null
+            order by se.sale_date desc nulls last, se.created_at desc
+            limit 250
+            """
+        )
+        rows = cur.fetchall()
+        return [
+            ComparableCandidate(
+                property_id=str(row[0]),
+                address=_format_property_address(row[1], row[2], row[3], row[4]),
+                suburb_name=row[2] or "",
+                suburb_slug=_slugify_suburb(row[2] or "", row[3], row[4]),
+                property_type=row[5],
+                sale_price=int(row[6] or 0),
+                sale_date=row[7],
+                bedrooms=int(row[8]) if row[8] is not None else None,
+                bathrooms=int(row[9]) if row[9] is not None else None,
+                metadata=row[10] or {},
+            )
+            for row in rows
+        ]
+
     def list_by_subject(self, criteria: ComparableQuery) -> List[ComparableItem]:
         if not self.session_factory.config.url:
             items = super().list_by_subject(criteria)
@@ -408,40 +595,23 @@ class PostgresComparableRepository(MockComparableRepository):
         try:
             with psycopg.connect(self.session_factory.config.url) as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        select
-                          p.address_line_1,
-                          p.suburb_name,
-                          p.state_code,
-                          p.postcode,
-                          se.sale_price,
-                          se.sale_date,
-                          p.bedrooms,
-                          p.bathrooms,
-                          se.metadata
-                        from sales_events se
-                        join properties p on p.id = se.property_id
-                        order by se.sale_date desc nulls last, se.created_at desc
-                        limit %s
-                        """,
-                        (criteria.max_items,)
-                    )
-                    rows = cur.fetchall()
+                    subject = self._load_subject(cur, criteria)
+                    candidate_rows = self._load_candidate_rows(cur)
         except psycopg.Error as exc:
             items = super().list_by_subject(criteria)
             self.last_source = "fallback_mock"
             self.last_fallback_reason = f"Comparables query failed: {exc.__class__.__name__}"
             return items
+        if subject is None:
+            items = super().list_by_subject(criteria)
+            self.last_source = "fallback_mock"
+            self.last_fallback_reason = "No persisted subject property matched comparables query."
+            return items
+        selected_rows = select_comparable_candidates(subject, candidate_rows, max_items=criteria.max_items)
         items: List[ComparableItem] = []
-        query_text = _normalize_query(criteria.query or "")
-        for address_line_1, suburb_name, state_code, postcode, sale_price, sale_date, bedrooms, bathrooms, metadata in rows:
-            address = _format_property_address(address_line_1, suburb_name, state_code, postcode)
-            suburb_slug = _slugify_suburb(suburb_name, state_code, postcode)
-            if query_text and query_text not in address.lower() and query_text not in suburb_name.lower() and query_text != suburb_slug:
-                continue
-            meta = metadata or {}
-            price = int(sale_price or 0)
+        for candidate in selected_rows:
+            meta = candidate.metadata or {}
+            price = int(candidate.sale_price or 0)
             distance_km = float(meta.get('distance_km', 0.0))
             if criteria.min_price is not None and price < criteria.min_price:
                 continue
@@ -449,28 +619,39 @@ class PostgresComparableRepository(MockComparableRepository):
                 continue
             if criteria.max_distance_km is not None and distance_km > criteria.max_distance_km:
                 continue
+            same_suburb = _normalize_query(candidate.suburb_name) == _normalize_query(subject.suburb_name)
+            same_type = _normalize_property_type(candidate.property_type) == _normalize_property_type(subject.property_type)
+            feature_text = f"{candidate.bedrooms or 'unknown'} bed/{candidate.bathrooms or 'unknown'} bath band"
+            match_reason = meta.get(
+                "match_reason",
+                (
+                    "same suburb, same property type, recent sale"
+                    if same_suburb and same_type
+                    else "recent persisted sale candidate"
+                ),
+            )
             items.append(
                 ComparableItem(
-                    address=address,
+                    address=candidate.address,
                     price=price,
                     distance_km=distance_km,
-                    match_reason=meta.get('match_reason', 'DB-backed comparable'),
-                    sold_date=_coerce_sale_date(sale_date),
-                    beds=int(bedrooms or 0),
-                    baths=int(bathrooms or 0),
+                    match_reason=f"{match_reason}; {feature_text}",
+                    sold_date=_coerce_sale_date(candidate.sale_date),
+                    beds=int(candidate.bedrooms or 0),
+                    baths=int(candidate.bathrooms or 0),
                 )
             )
         if items:
             self.last_source = "postgres"
             self.last_fallback_reason = None
             return items
-        if rows:
+        if candidate_rows:
             self.last_source = "postgres"
             self.last_fallback_reason = None
             return []
         items = super().list_by_subject(criteria)
         self.last_source = "fallback_mock"
-        self.last_fallback_reason = "Comparable query returned 0 matches after filters; served mock comps."
+        self.last_fallback_reason = "Comparable candidate query returned 0 persisted sale rows; served mock comps."
         return items
 
 

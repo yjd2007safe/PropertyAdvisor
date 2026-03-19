@@ -122,6 +122,10 @@ class AdvisoryInputs(BaseModel):
     query: str
     query_type: Literal["address", "slug", "auto"]
     suburb_slug: Optional[str] = None
+    contract_version: str = "phase2.round1"
+    required_persisted_inputs: Dict[str, bool] = Field(default_factory=dict)
+    optional_persisted_inputs: Dict[str, bool] = Field(default_factory=dict)
+    missing_data_behavior: Dict[str, str] = Field(default_factory=dict)
 
 
 class PropertyAdvisorResponse(BaseModel):
@@ -154,6 +158,7 @@ class ComparableSummary(BaseModel):
     min_price: int
     max_price: int
     average_price: int
+    sample_state: Literal["empty", "low", "adequate"] = "adequate"
 
 
 class ComparableNarrative(BaseModel):

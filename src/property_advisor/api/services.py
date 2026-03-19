@@ -192,6 +192,39 @@ def _get_price_position(subject_price: int, low: int, high: int) -> str:
     return "in_range"
 
 
+def _build_advisory_input_contract(
+    query: str,
+    effective_type: str,
+    suburb_slug: Optional[str],
+    comparable_count: int,
+) -> AdvisoryInputs:
+    required_inputs = {
+        "subject_property_identity": bool(query),
+        "persisted_property_record": bool(suburb_slug or effective_type in {"address", "slug"}),
+    }
+    optional_inputs = {
+        "persisted_comparable_sales": comparable_count > 0,
+        "persisted_suburb_metrics": suburb_slug is not None,
+        "persisted_watchlist_context": True,
+    }
+    missing_behavior = {
+        "required": "If required persisted identity is missing, return baseline watch guidance rather than synthesizing unsupported advice.",
+        "persisted_comparable_sales": (
+            "If no comparable candidates pass selection rules, advice remains available but confidence and comparable snapshot move to explicit insufficient-data semantics."
+        ),
+        "persisted_suburb_metrics": "If suburb metrics are missing, retain property advice output and use baseline demand/supply wording.",
+        "persisted_watchlist_context": "If watchlist context is missing, omit strategy-specific reinforcement and keep a balanced default lens.",
+    }
+    return AdvisoryInputs(
+        query=query,
+        query_type=effective_type,
+        suburb_slug=suburb_slug,
+        required_persisted_inputs=required_inputs,
+        optional_persisted_inputs=optional_inputs,
+        missing_data_behavior=missing_behavior,
+    )
+
+
 def get_property_advice(
     query: str = PROPERTY_ADVISOR_FIXTURE.property.address,
     query_type: str = "auto",
@@ -283,6 +316,13 @@ def get_property_advice(
         ),
     ]
 
+    advisory_inputs = _build_advisory_input_contract(
+        query=query,
+        effective_type=effective_type,
+        suburb_slug=(suburb.slug if suburb else advice.inputs.suburb_slug),
+        comparable_count=len(comparable_items),
+    )
+
     return advice.model_copy(
         update={
             "data_source": _resolve_data_source(
@@ -326,11 +366,7 @@ def get_property_advice(
                 next_href=f"/comparables?query={(suburb.slug if suburb else query)}",
                 investor_message="Use this recommendation with comp evidence and watchlist alerts as one decision chain.",
             ),
-            "inputs": AdvisoryInputs(
-                query=query,
-                query_type=effective_type,
-                suburb_slug=suburb.slug if suburb else advice.inputs.suburb_slug,
-            ),
+            "inputs": advisory_inputs,
         }
     )
 
@@ -342,6 +378,13 @@ def _build_comparable_narrative(summary: ComparableSummary, query: str) -> Compa
             spread_commentary="No usable comps matched the current filters.",
             investor_takeaway="Broaden radius or price bounds before making a decision.",
             action_prompt="Relax one filter and rerun the comp set.",
+        )
+    if summary.sample_state == "low":
+        return ComparableNarrative(
+            price_position="aligned",
+            spread_commentary=f"Only {summary.count} persisted sale candidate(s) matched for {query}; treat the range as directional only.",
+            investor_takeaway="Low sample depth means negotiation anchors are usable, but conviction should stay conservative.",
+            action_prompt="Validate the closest sale manually and rerun when fresher evidence lands.",
         )
 
     spread = summary.max_price - summary.min_price
@@ -363,6 +406,12 @@ def _build_comparable_narrative(summary: ComparableSummary, query: str) -> Compa
 def _build_comparable_summary_cards(summary: ComparableSummary, narrative: ComparableNarrative) -> List[SummaryCard]:
     if summary.count == 0:
         return [SummaryCard(title="Comp set", value="No matches", detail="Widen filters to restore signal quality.")]
+    if summary.sample_state == "low":
+        return [
+            SummaryCard(title="Comp set", value="Low sample", detail="Persisted candidate rules found fewer than 3 matches."),
+            SummaryCard(title="Average price", value=f"${summary.average_price:,}", detail="Directional only until more evidence is available."),
+            SummaryCard(title="Action", value="Validate manually", detail=narrative.action_prompt),
+        ]
     return [
         SummaryCard(title="Average price", value=f"${summary.average_price:,}", detail="Directional anchor for negotiation planning."),
         SummaryCard(title="Price spread", value=f"${summary.max_price - summary.min_price:,}", detail="Tighter spreads usually improve confidence."),
@@ -401,7 +450,7 @@ def get_comparables(
     )
 
     if not items:
-        empty_summary = ComparableSummary(count=0, min_price=0, max_price=0, average_price=0)
+        empty_summary = ComparableSummary(count=0, min_price=0, max_price=0, average_price=0, sample_state="empty")
         narrative = _build_comparable_narrative(empty_summary, query)
         return ComparablesResponse(
             data_source=_resolve_data_source(dal, dal.comparables, "Comparables", upstream_repositories={"suburbs": dal.suburbs}),
@@ -427,17 +476,21 @@ def get_comparables(
         min_price=min(prices),
         max_price=max(prices),
         average_price=round(mean(prices)),
+        sample_state=("low" if len(items) < 3 else "adequate"),
     )
     narrative = _build_comparable_narrative(summary, query)
     return ComparablesResponse(
         data_source=_resolve_data_source(dal, dal.comparables, "Comparables", upstream_repositories={"suburbs": dal.suburbs}),
         subject=query,
-        set_quality=_resolve_comparable_set_quality(
+        set_quality=(
+            "db-backed-low-sample"
+            if _read_source(dal.comparables) == "postgres" and summary.sample_state == "low"
+            else _resolve_comparable_set_quality(
             _read_source(dal.comparables),
             min_price=min_price,
             max_price=max_price,
             max_distance_km=max_distance_km,
-        ),
+        )),
         query=query,
         items=items,
         summary=summary,
