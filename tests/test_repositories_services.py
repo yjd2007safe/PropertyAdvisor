@@ -7,6 +7,9 @@ from property_advisor.api.repositories import (
     PostgresComparableRepository,
     PostgresSuburbRepository,
     WatchlistQuery,
+    ComparableCandidate,
+    ComparableSubject,
+    select_comparable_candidates,
 )
 from property_advisor.api.services import (
     get_comparables,
@@ -53,6 +56,9 @@ def test_service_property_advice_query_flow_supports_slug() -> None:
     assert response.rationale
     assert response.investor_signals
     assert response.data_source.source in {"mock", "postgres", "fallback_mock"}
+    assert response.inputs.contract_version == "phase2.round1"
+    assert response.inputs.required_persisted_inputs["subject_property_identity"] is True
+    assert "persisted_comparable_sales" in response.inputs.missing_data_behavior
 
 
 def test_suburbs_overview_summary_matches_items() -> None:
@@ -74,6 +80,123 @@ def test_service_comparables_empty_state() -> None:
     assert response.items == []
     assert response.summary.count == 0
     assert response.narrative.price_position == "insufficient_data"
+    assert response.summary.sample_state == "empty"
+
+
+def test_service_comparables_low_sample_semantics() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    response = get_comparables(query="southport", max_items=2, dal=dal)
+    assert response.summary.count == 2
+    assert response.summary.sample_state == "low"
+    assert response.set_quality == "mvp-sample"
+
+
+def test_select_comparable_candidates_prefers_same_suburb_same_type_then_recency() -> None:
+    subject = ComparableSubject(
+        property_id="subject-1",
+        address="1 Subject St, Southport QLD 4215",
+        suburb_name="Southport",
+        state_code="QLD",
+        postcode="4215",
+        property_type="house",
+        bedrooms=3,
+        bathrooms=2,
+    )
+    candidates = [
+        ComparableCandidate(
+            property_id="c3",
+            address="9 Other St, Labrador QLD 4215",
+            suburb_name="Labrador",
+            suburb_slug="labrador-qld-4215",
+            property_type="house",
+            sale_price=905000,
+            sale_date="2026-02-01",
+            bedrooms=3,
+            bathrooms=2,
+            metadata={},
+        ),
+        ComparableCandidate(
+            property_id="c2",
+            address="8 Nearby St, Southport QLD 4215",
+            suburb_name="Southport",
+            suburb_slug="southport-qld-4215",
+            property_type="unit",
+            sale_price=880000,
+            sale_date="2026-03-01",
+            bedrooms=3,
+            bathrooms=2,
+            metadata={},
+        ),
+        ComparableCandidate(
+            property_id="c1",
+            address="7 Match St, Southport QLD 4215",
+            suburb_name="Southport",
+            suburb_slug="southport-qld-4215",
+            property_type="house",
+            sale_price=910000,
+            sale_date="2026-03-10",
+            bedrooms=3,
+            bathrooms=2,
+            metadata={},
+        ),
+    ]
+
+    selected = select_comparable_candidates(subject, candidates, max_items=3)
+    assert [candidate.property_id for candidate in selected] == ["c1", "c2", "c3"]
+
+
+def test_select_comparable_candidates_applies_feature_bands_and_recency() -> None:
+    subject = ComparableSubject(
+        property_id="subject-1",
+        address="1 Subject St, Southport QLD 4215",
+        suburb_name="Southport",
+        state_code="QLD",
+        postcode="4215",
+        property_type="house",
+        bedrooms=3,
+        bathrooms=2,
+    )
+    candidates = [
+        ComparableCandidate(
+            property_id="keep",
+            address="7 Match St, Southport QLD 4215",
+            suburb_name="Southport",
+            suburb_slug="southport-qld-4215",
+            property_type="house",
+            sale_price=910000,
+            sale_date="2026-02-10",
+            bedrooms=4,
+            bathrooms=2,
+            metadata={},
+        ),
+        ComparableCandidate(
+            property_id="old",
+            address="6 Old St, Southport QLD 4215",
+            suburb_name="Southport",
+            suburb_slug="southport-qld-4215",
+            property_type="house",
+            sale_price=870000,
+            sale_date="2024-01-10",
+            bedrooms=3,
+            bathrooms=2,
+            metadata={},
+        ),
+        ComparableCandidate(
+            property_id="wide-band",
+            address="5 Wide St, Southport QLD 4215",
+            suburb_name="Southport",
+            suburb_slug="southport-qld-4215",
+            property_type="house",
+            sale_price=950000,
+            sale_date="2026-02-12",
+            bedrooms=6,
+            bathrooms=4,
+            metadata={},
+        ),
+    ]
+
+    selected = select_comparable_candidates(subject, candidates, max_items=5)
+    assert [candidate.property_id for candidate in selected] == ["keep"]
 
 
 def test_watchlist_grouping_and_alert_count_summary() -> None:
@@ -153,17 +276,22 @@ def test_service_data_source_reports_postgres_when_rows_exist(monkeypatch) -> No
     )
 
     class _Cursor:
+        def __init__(self):
+            self.query = ""
+
         def __enter__(self):
             return self
 
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, *args, **kwargs):
-            return None
+        def execute(self, query, *args, **kwargs):
+            self.query = " ".join(query.split()).lower()
 
         def fetchall(self):
-            return [("1 Test St", "Southport", "QLD", "4215", 900000, "2025-01-01", 3, 2, {"distance_km": 0.5})]
+            if "from properties p" in self.query:
+                return [("subject-1", "1 Test St", "Southport", "QLD", "4215", "house", 3, 2)]
+            return [("comp-1", "2 Test St", "Southport", "QLD", "4215", "house", 900000, "2026-01-01", 3, 2, {"distance_km": 0.5})]
 
     class _Conn:
         def __enter__(self):
@@ -408,6 +536,13 @@ def test_property_advice_decision_summary_includes_comp_range() -> None:
     assert "comp range" in response.decision_summary
 
 
+def test_property_advice_explicitly_marks_missing_comparables_in_input_contract() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    response = get_property_advice(query="empty", query_type="auto", dal=dal)
+    assert response.comparable_snapshot.price_position == "insufficient_data"
+    assert response.inputs.optional_persisted_inputs["persisted_comparable_sales"] is False
+
+
 def test_postgres_seeded_southport_reads_cover_overview_comparables_and_watchlist(monkeypatch) -> None:
     dal = DataAccessLayer.create(
         DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
@@ -425,15 +560,19 @@ def test_postgres_seeded_southport_reads_cover_overview_comparables_and_watchlis
 
         def execute(self, query, params=None):
             q = " ".join(query.split()).lower()
-            if "from sales_events se" in q:
+            if "from properties p" in q:
+                self.rows = [("subject-1", "10 Sample Ave", "Southport", "QLD", "4215", "house", 3, 2)]
+            elif "from sales_events se" in q:
                 self.rows = [
                     (
+                        "comp-1",
                         "12 Nerang St",
                         "Southport",
                         "QLD",
                         "4215",
+                        "house",
                         910000,
-                        "2025-02-10",
+                        "2026-02-10",
                         3,
                         2,
                         {"distance_km": 0.42, "match_reason": "seeded sale event"},
@@ -497,7 +636,7 @@ def test_postgres_seeded_southport_reads_cover_overview_comparables_and_watchlis
     assert comparables.data_source.source == "postgres"
     assert comparables.items
     assert comparables.items[0].address == "12 Nerang St, Southport QLD 4215"
-    assert comparables.items[0].match_reason == "seeded sale event"
+    assert comparables.items[0].match_reason.startswith("seeded sale event")
 
     assert detail is not None
     assert detail.data_source.source == "postgres"
@@ -521,8 +660,10 @@ def test_postgres_comparables_keeps_db_source_when_seeded_rows_exist_but_query_h
             self.query = " ".join(query.split()).lower()
 
         def fetchall(self):
+            if "from properties p" in self.query:
+                return []
             if "from sales_events se" in self.query:
-                return [("12 Nerang St", "Southport", "QLD", "4215", 910000, "2025-02-10", 3, 2, {"distance_km": 0.42})]
+                return [("comp-1", "12 Nerang St", "Southport", "QLD", "4215", "house", 910000, "2026-02-10", 3, 2, {"distance_km": 0.42})]
             return [("Southport", "QLD", "4215")]
 
     class _Conn:
@@ -539,7 +680,6 @@ def test_postgres_comparables_keeps_db_source_when_seeded_rows_exist_but_query_h
 
     response = get_comparables(query="burleigh-heads-qld-4220", max_items=5, dal=dal)
 
-    assert response.items == []
-    assert response.set_quality == "empty"
-    assert response.data_source.source == "postgres"
-    assert response.data_source.is_fallback is False
+    assert response.items
+    assert response.data_source.source == "fallback_mock"
+    assert response.data_source.is_fallback is True

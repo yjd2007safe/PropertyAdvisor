@@ -145,11 +145,51 @@ Phase 1 has produced a usable real-data slice with enough persisted property/lis
 
 ## Recommended auto_dev round breakdown
 
-1. market metric rollups + tests
-2. comparable candidate selection + scoring
-3. comparable set persistence + API read path
-4. advice snapshot generation + regression suite
+1. advisory input contract + DB-backed comparable candidate selection
+2. comparable scoring + comparable set persistence + API read path
+3. advice snapshot generation + regression suite
+4. confidence / fallback semantics hardening
 5. alert rule integration for evidence changes
+
+## Phase 2 Round 1 slice (start here)
+
+### Round objective
+
+Establish a stable advisory input contract and replace the current placeholder comparable lookup with deliberate DB-backed candidate selection on persisted evidence.
+
+### In scope
+
+1. **Advisory input contract**
+   - define the advisory engine input shape explicitly
+   - separate required inputs from optional inputs
+   - define missing-data behavior for each input group
+2. **Comparable candidate selection on stored data**
+   - select candidates from persisted property / sales data rather than a thin recent-sales dump
+   - prefer same-suburb / same-property-type evidence first
+   - add practical recency and basic feature-banding rules
+   - make low-sample and empty-sample behavior explicit
+3. **API/service wiring**
+   - route comparables reads through the new candidate-selection layer
+   - keep response semantics deliberate when DB evidence is thin
+4. **Regression coverage**
+   - add query-level tests for candidate selection, empty samples, and low-sample fallback behavior
+   - add tests for advisory input contract / missing-input behavior where practical
+
+### Out of scope
+
+- comparable scoring weights
+- `comparable_sets` / `comparable_members` persistence
+- `property_advice_snapshots` generation
+- alert rule integration
+- broad market expansion beyond the Southport proof slice
+
+### Success criteria
+
+- advisory generation has a stable input contract instead of ad-hoc service-layer assembly
+- comparable candidates come from deliberate persisted-evidence rules
+- comparables API no longer behaves like a raw recent-sales dump
+- low-sample and empty-sample cases are explicit and regression-tested
+- the next round can focus only on scoring/persistence instead of redefining inputs
 
 ## Phase 2 done when
 
