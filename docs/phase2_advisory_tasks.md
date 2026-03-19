@@ -146,10 +146,44 @@ Phase 1 has produced a usable real-data slice with enough persisted property/lis
 ## Recommended auto_dev round breakdown
 
 1. advisory input contract + DB-backed comparable candidate selection
-2. comparable scoring + comparable set persistence + API read path
+2. comparable scoring + comparable set persistence + latest-set read path
 3. advice snapshot generation + regression suite
 4. confidence / fallback semantics hardening
 5. alert rule integration for evidence changes
+
+## Phase 2 Round 2 slice (next)
+
+### Round objective
+
+Turn the newly deliberate comparable candidate layer into persisted evidence by scoring candidates, storing comparable sets/members, and reading the latest generated set through the API.
+
+### In scope
+
+1. **Comparable scoring**
+   - score candidates by recency, distance, feature similarity, and price/rent relevance
+   - produce per-member rationale data and an overall set-quality score
+2. **Comparable persistence**
+   - persist `comparable_sets` and `comparable_members`
+   - define deterministic regeneration behavior for repeated runs and algorithm versioning
+3. **Latest-set read path**
+   - expose API/service read path for the latest generated comparable set
+   - prefer persisted comparable evidence over ad-hoc candidate assembly where the set exists
+4. **Regression coverage**
+   - add tests for scoring behavior, persistence semantics, regeneration/idempotency expectations, and latest-set reads
+
+### Out of scope
+
+- property advice snapshot generation
+- confidence/rationale semantics for final recommendation outputs
+- alert integration
+- broad market expansion beyond the Southport proof slice
+
+### Success criteria
+
+- latest comparable set can be generated deterministically from the same inputs/version
+- comparable members carry explicit rationale/quality evidence
+- comparables API can read the latest persisted set rather than only ad-hoc candidate queries
+- tests lock scoring and persistence behavior so Round 3 can focus on advice snapshots
 
 ## Phase 2 Round 1 slice (start here)
 
