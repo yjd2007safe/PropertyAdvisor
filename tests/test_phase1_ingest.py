@@ -174,8 +174,11 @@ def test_run_southport_refresh_records_summary_and_blocks_active_lock(tmp_path: 
 
     runs = json.loads(summary_path.read_text())
     assert len(runs) == 2
-    assert runs[1]["ingest"]["sales_events_inserted_count"] == 0
-    assert runs[1]["ingest"]["sales_events_updated_count"] == 1
+    assert runs[1]["artifact_type"] == "southport_refresh_run_summary"
+    assert runs[1]["proof_slice_evidence"]["ingest"]["sales_events_inserted_count"] == 0
+    assert runs[1]["proof_slice_evidence"]["ingest"]["sales_events_updated_count"] == 1
+    assert runs[1]["production_readiness"]["broader_production_status"] == "not_yet_complete"
+    assert "proof_slice_evidence" in runs[1]["operator_summary"]
 
     lock_path.write_text("active")
     with pytest.raises(RuntimeError):
@@ -207,9 +210,11 @@ def test_verify_southport_demo_slice_reports_minimum_failures(monkeypatch) -> No
         expected_minimums={"sales_events": 1},
     )
 
-    assert result["meets_minimums"] is False
-    assert result["minimum_failures"] == ["sales_events"]
-    assert result["has_outcome_history"] is False
+    assert result["proof_slice_evidence"]["meets_minimums"] is False
+    assert result["proof_slice_evidence"]["minimum_failures"] == ["sales_events"]
+    assert result["proof_slice_evidence"]["has_outcome_history"] is False
+    assert result["production_readiness"]["proof_slice_status"] == "needs_attention"
+    assert result["production_readiness"]["broader_production_status"] == "not_yet_complete"
 
 
 def test_collect_southport_row_counts_queries_canonical_tables(monkeypatch) -> None:
@@ -260,11 +265,11 @@ def test_run_southport_backfill_and_verify_writes_report(tmp_path: Path, monkeyp
 
     monkeypatch.setattr(
         "property_advisor.ingest.run_southport_refresh",
-        lambda **kwargs: {"target_slice": "southport-qld-4215", "ingest": {"inserted_count": 1}},
+        lambda **kwargs: {"artifact_type": "southport_refresh_run_summary", "target_slice": "southport-qld-4215", "operator_summary": {"headline": "refresh ok"}, "production_readiness": {"proof_slice_ready": True}, "proof_slice_evidence": {"ingest": {"inserted_count": 1}}},
     )
     monkeypatch.setattr(
         "property_advisor.ingest.verify_southport_demo_slice",
-        lambda **kwargs: {"target_slice": "southport-qld-4215", "meets_minimums": True, "row_counts": {"suburbs": 1}},
+        lambda **kwargs: {"artifact_type": "southport_verification_report", "target_slice": "southport-qld-4215", "operator_summary": {"headline": "verification ok"}, "production_readiness": {"proof_slice_ready": True, "broader_production_status": "not_yet_complete"}, "proof_slice_evidence": {"meets_minimums": True, "row_counts": {"suburbs": 1}}},
     )
 
     result = run_southport_backfill_and_verify(
@@ -275,7 +280,59 @@ def test_run_southport_backfill_and_verify_writes_report(tmp_path: Path, monkeyp
         verification_path=verification_path,
     )
 
-    assert result["verification"]["meets_minimums"] is True
+    assert result["proof_slice_evidence"]["verification"]["proof_slice_evidence"]["meets_minimums"] is True
     assert verification_path.exists()
     persisted = json.loads(verification_path.read_text())
     assert persisted["target_slice"] == "southport-qld-4215"
+    assert persisted["artifact_type"] == "southport_backfill_verification_report"
+    assert persisted["operator_summary"]["proof_slice_ready"] is True
+
+
+def test_run_southport_refresh_artifact_separates_proof_slice_from_readiness(tmp_path: Path) -> None:
+    input_path = tmp_path / "records.json"
+    input_path.write_text(json.dumps([{
+        "source_listing_id": "rea-1",
+        "address": "10 Marine Parade",
+        "suburb": "Southport",
+        "state": "QLD",
+        "postcode": "4215",
+        "listing_type": "sale",
+    }]))
+
+    result = run_southport_refresh(
+        source_name="realestate_export",
+        input_path=input_path,
+        store=InMemoryCanonicalStore(),
+        summary_path=tmp_path / "runs.json",
+    )
+
+    assert result["scope"]["proof_slice_boundary"]["geography"]["suburb"] == "Southport"
+    assert result["proof_slice_evidence"]["ingest"]["inserted_count"] == 1
+    assert result["proof_slice_evidence"]["market_metrics"] is None
+    assert result["production_readiness"]["proof_slice_ready"] is True
+    assert result["production_readiness"]["broader_production_status"] == "not_yet_complete"
+    assert any("whole-product production readiness" in note for note in result["production_readiness"]["notes"])
+    assert result["operator_summary"]["safe_rerun_steps"][0].startswith("Confirm DATABASE_URL")
+
+
+def test_verify_southport_demo_slice_artifact_contract_v2(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "property_advisor.ingest.collect_southport_row_counts",
+        lambda **kwargs: {
+            "suburbs": 1,
+            "properties": 2,
+            "listings": 3,
+            "listing_snapshots": 4,
+            "sales_events": 1,
+            "rental_events": 0,
+            "market_metrics": 1,
+        },
+    )
+
+    result = verify_southport_demo_slice(database_url="postgresql://localhost/propertyadvisor")
+
+    assert result["artifact_contract_version"] == 2
+    assert result["proof_slice_evidence"]["row_counts"]["sales_events"] == 1
+    assert result["proof_slice_evidence"]["has_outcome_history"] is True
+    assert result["operator_summary"]["proof_slice_ready"] is True
+    assert result["scope"]["fallback_or_demo_only"]

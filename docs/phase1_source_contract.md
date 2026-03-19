@@ -8,6 +8,21 @@ This document freezes the first production Phase 1 real-data slice, per `docs/ph
 - **Country:** AU
 - **Scope for this MVP round:** sale + rental listing observations for one suburb slice, with canonical suburb/property/listing upsert, listing snapshot history, and sold/leased event persistence.
 
+### Why Southport for Phase 1
+
+Southport was chosen as the first frozen slice for Phase 1 to keep the real-data rollout narrow, repeatable, and easy to verify end to end. It is not meant to imply long-term exclusivity or strategic preference for Southport as the only target market.
+
+Selection rationale for the Phase 1 MVP slice:
+
+- one-suburb scope keeps ingest, refresh, verification, and rollback/debug loops tight
+- the repo already used Southport heavily in mock fixtures, API defaults, and test flows, making it the cheapest slice to convert into a real-data proof point
+- prior Southport-oriented experimentation existed in the broader workspace, so using the same geography reduced setup friction while validating the OpenClaw-driven development workflow
+
+Important project-status note:
+
+- the separate `SouthportMarketAutomation` project was an OpenClaw workflow experiment and is now closed; it should not be treated as an active dependency or future production path for PropertyAdvisor
+- Southport remains only the current demo/proof slice for PropertyAdvisor Phase 1 until a broader production expansion decision is made
+
 ## Source contract (MVP)
 
 - **Source name:** operator-defined feed name (for example `realestate_export`).
@@ -139,6 +154,13 @@ The command persists:
 - refresh summaries in `.refresh/runs/southport_refresh_runs.json`
 - verification evidence in `.refresh/runs/southport_demo_verification.json`
 
+Both artifacts now use the same operator-facing contract:
+
+- `scope`: declares the frozen Southport proof-slice boundary and explicitly lists broader production capabilities that are still out of scope.
+- `proof_slice_evidence`: contains the actual refresh/verification evidence backed by persisted Southport rows.
+- `production_readiness`: explains whether the proof slice is healthy while also clarifying that broader production rollout is still incomplete.
+- `operator_summary`: human-readable headlines, proof-slice evidence bullets, and safe rerun steps.
+
 You can run verification independently:
 
 ```bash
@@ -162,3 +184,33 @@ Verification reports row counts for the canonical Phase 1 tables used by this sl
 - Address matching is deterministic and normalization-based, but ambiguous addresses may still require manual review in broader production data.
 - Event history can be sparse if feeds omit sold/leased outcome fields.
 - Market metrics are first-pass rollups over the available persisted records and should be treated as directional for demos.
+
+
+## Operator interpretation guide (Round 7)
+
+### What is real-data-backed now
+
+For the frozen `southport-qld-4215` slice, the following are backed by persisted canonical rows and verification artifacts:
+
+- suburb/property/listing upserts
+- listing snapshot history across reruns
+- sold/leased event persistence when source payloads contain outcome fields
+- first-pass market metrics for Southport when refresh runs with `--database-url`
+- row-count verification across the canonical phase-1 Southport tables
+
+### What remains fallback or demo-only
+
+The current artifacts do **not** prove:
+
+- completeness for suburbs beyond Southport
+- market-wide coverage or SLA-backed source acquisition
+- full product postgres readiness for every API/UI surface
+- demo-free operation when payloads omit sold/leased outcomes
+
+### Safe rerun checklist
+
+1. Verify the payload is still scoped to Southport, QLD, 4215.
+2. Confirm the target `DATABASE_URL` before running writes.
+3. Run `refresh-southport` and inspect the appended `proof_slice_evidence` / `production_readiness` sections.
+4. Run `verify-southport-demo` for a read-only check, or `backfill-verify-southport` when you want the refresh plus persisted verification report in one step.
+5. Treat any `production_readiness.broader_production_status = not_yet_complete` value as expected for this round; only `proof_slice_ready` should gate the frozen-slice handoff.

@@ -114,7 +114,7 @@ python -m property_advisor.ingest \
 ```
 
 
-Run the Southport refresh orchestration (locking + run summary append):
+Run the Southport refresh orchestration (locking + operator-facing run summary append):
 
 ```bash
 python -m property_advisor.ingest refresh-southport \
@@ -126,7 +126,18 @@ python -m property_advisor.ingest refresh-southport \
 Notes:
 - `refresh-southport` acquires a lock file (`.refresh-southport.lock` by default) and fails fast if one already exists.
 - Run summaries are appended to `.refresh/runs/southport_refresh_runs.json` by default (override with `--summary-path`).
+- Persisted refresh artifacts now separate `proof_slice_evidence` from `production_readiness`, so operators can distinguish real Southport evidence from broader rollout work still pending.
 - Sold/leased outcome payload fields now persist idempotently to `sales_events` / `rental_events` keyed by `(source_name, source_event_id)`; if no explicit source event id is provided, a deterministic fallback id is generated from source listing identity.
+
+Current real-data-backed status for the frozen Southport slice:
+- Real-data-backed now: canonical suburb/property/listing persistence, snapshot history, outcome events when present, first-pass market metrics, and row-count verification for `Southport, QLD, 4215`.
+- Still fallback/demo-only: broader market completeness, additional suburbs, operator-independent feed acquisition, and product-wide postgres readiness outside the Southport proof slice.
+
+Safe rerun flow for operators:
+1. Confirm `DATABASE_URL` points at the intended environment.
+2. Run `refresh-southport` with the canonical Southport payload.
+3. Review the latest artifact in `.refresh/runs/southport_refresh_runs.json`.
+4. Run `backfill-verify-southport` or `verify-southport-demo` to confirm proof-slice minimums still pass.
 
 ## Developer Notes
 
