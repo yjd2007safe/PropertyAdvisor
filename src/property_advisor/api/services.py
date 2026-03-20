@@ -219,6 +219,7 @@ def _build_advisory_input_contract(
         query=query,
         query_type=effective_type,
         suburb_slug=suburb_slug,
+        contract_version="phase2.round3",
         required_persisted_inputs=required_inputs,
         optional_persisted_inputs=optional_inputs,
         missing_data_behavior=missing_behavior,
@@ -322,6 +323,7 @@ def get_property_advice(
         suburb_slug=(suburb.slug if suburb else advice.inputs.suburb_slug),
         comparable_count=len(comparable_items),
     )
+    use_persisted_snapshot = _read_source(dal.property_advice) == "postgres" and advice.advice.evidence_summary is not None
 
     return advice.model_copy(
         update={
@@ -332,15 +334,19 @@ def get_property_advice(
                 upstream_repositories={"suburbs": dal.suburbs, "comparables": dal.comparables, "watchlist": dal.watchlist},
             ),
             "advice": advice.advice.model_copy(update={"next_steps": next_steps}),
-            "market_context": market_context,
-            "comparable_snapshot": comparable_snapshot,
+            "market_context": (advice.market_context if use_persisted_snapshot else market_context),
+            "comparable_snapshot": (advice.comparable_snapshot if use_persisted_snapshot else comparable_snapshot),
             "decision_summary": (
-                f"{advice.advice.recommendation.title()} with {advice.advice.confidence} confidence. "
-                f"Subject price anchor ${subject_price:,}; comp range ${comparable_min:,}-${comparable_max:,}. "
-                "Use comparables and watchlist alerts together before placing an offer."
+                advice.decision_summary
+                if use_persisted_snapshot
+                else (
+                    f"{advice.advice.recommendation.title()} with {advice.advice.confidence} confidence. "
+                    f"Subject price anchor ${subject_price:,}; comp range ${comparable_min:,}-${comparable_max:,}. "
+                    "Use comparables and watchlist alerts together before placing an offer."
+                )
             ),
-            "rationale": rationale,
-            "investor_signals": investor_signals,
+            "rationale": (advice.rationale if use_persisted_snapshot and advice.rationale else rationale),
+            "investor_signals": (advice.investor_signals if use_persisted_snapshot and advice.investor_signals else investor_signals),
             "summary_cards": [
                 SummaryCard(
                     title="Recommendation",
