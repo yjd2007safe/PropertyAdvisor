@@ -144,6 +144,7 @@ class PropertyAdvisorResponse(BaseModel):
 
 
 class ComparableItem(BaseModel):
+    property_id: Optional[str] = None
     address: str
     price: int
     distance_km: float
@@ -151,6 +152,8 @@ class ComparableItem(BaseModel):
     sold_date: str
     beds: int
     baths: int
+    score: Optional[float] = None
+    rationale: Dict[str, object] = Field(default_factory=dict)
 
 
 class ComparableSummary(BaseModel):
@@ -159,6 +162,9 @@ class ComparableSummary(BaseModel):
     max_price: int
     average_price: int
     sample_state: Literal["empty", "low", "adequate"] = "adequate"
+    quality_score: Optional[float] = None
+    quality_label: Optional[str] = None
+    algorithm_version: Optional[str] = None
 
 
 class ComparableNarrative(BaseModel):

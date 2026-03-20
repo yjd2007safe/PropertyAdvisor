@@ -439,18 +439,30 @@ def get_comparables(
     max_distance_km: Optional[float] = None,
     dal: DataAccessLayer = _DAL,
 ) -> ComparablesResponse:
-    items = dal.comparables.list_by_subject(
-        ComparableQuery(
-            query=query,
-            max_items=max_items,
-            min_price=min_price,
-            max_price=max_price,
-            max_distance_km=max_distance_km,
-        )
+    criteria = ComparableQuery(
+        query=query,
+        max_items=max_items,
+        min_price=min_price,
+        max_price=max_price,
+        max_distance_km=max_distance_km,
     )
+    latest_set = dal.comparables.get_latest_set(criteria)
+    generated_set = latest_set or (
+        dal.comparables.generate_comparable_set(criteria) if _read_source(dal.comparables) != "mock" else None
+    )
+    items = generated_set.items if generated_set is not None else dal.comparables.list_by_subject(criteria)
 
     if not items:
-        empty_summary = ComparableSummary(count=0, min_price=0, max_price=0, average_price=0, sample_state="empty")
+        empty_summary = ComparableSummary(
+            count=0,
+            min_price=0,
+            max_price=0,
+            average_price=0,
+            sample_state="empty",
+            quality_score=(generated_set.quality_score if generated_set is not None else None),
+            quality_label=(generated_set.quality_label if generated_set is not None else None),
+            algorithm_version=(generated_set.algorithm_version if generated_set is not None else None),
+        )
         narrative = _build_comparable_narrative(empty_summary, query)
         return ComparablesResponse(
             data_source=_resolve_data_source(dal, dal.comparables, "Comparables", upstream_repositories={"suburbs": dal.suburbs}),
@@ -477,20 +489,32 @@ def get_comparables(
         max_price=max(prices),
         average_price=round(mean(prices)),
         sample_state=("low" if len(items) < 3 else "adequate"),
+        quality_score=(generated_set.quality_score if generated_set is not None else None),
+        quality_label=(generated_set.quality_label if generated_set is not None else None),
+        algorithm_version=(generated_set.algorithm_version if generated_set is not None else None),
     )
     narrative = _build_comparable_narrative(summary, query)
     return ComparablesResponse(
         data_source=_resolve_data_source(dal, dal.comparables, "Comparables", upstream_repositories={"suburbs": dal.suburbs}),
         subject=query,
         set_quality=(
-            "db-backed-low-sample"
-            if _read_source(dal.comparables) == "postgres" and summary.sample_state == "low"
-            else _resolve_comparable_set_quality(
-            _read_source(dal.comparables),
-            min_price=min_price,
-            max_price=max_price,
-            max_distance_km=max_distance_km,
-        )),
+            f"persisted-{generated_set.quality_label}"
+            if latest_set is not None
+            else (
+                f"generated-{generated_set.quality_label}"
+                if generated_set is not None and _read_source(dal.comparables) == "postgres"
+                else (
+                    "db-backed-low-sample"
+                    if _read_source(dal.comparables) == "postgres" and summary.sample_state == "low"
+                    else _resolve_comparable_set_quality(
+                        _read_source(dal.comparables),
+                        min_price=min_price,
+                        max_price=max_price,
+                        max_distance_km=max_distance_km,
+                    )
+                )
+            )
+        ),
         query=query,
         items=items,
         summary=summary,

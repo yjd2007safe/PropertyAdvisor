@@ -3,8 +3,10 @@ from __future__ import annotations
 """Repository abstractions and mock implementations for API services."""
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from typing import List, Literal, Optional, Protocol
+from datetime import date, datetime, timedelta, timezone
+from statistics import mean
+from typing import Any, Dict, List, Literal, Optional, Protocol
+import json
 
 import psycopg
 
@@ -60,6 +62,28 @@ class ComparableCandidate:
 
 
 @dataclass(frozen=True)
+class ScoredComparableCandidate:
+    candidate: ComparableCandidate
+    rank_order: int
+    similarity_score: float
+    distance_km: float
+    price_delta_pct: float
+    rationale: Dict[str, Any]
+    match_reason: str
+    feature_summary: str
+
+
+@dataclass(frozen=True)
+class ComparableSetResult:
+    set_id: Optional[str]
+    algorithm_version: str
+    generated_at: Optional[str]
+    quality_score: float
+    quality_label: str
+    items: List[ComparableItem]
+
+
+@dataclass(frozen=True)
 class WatchlistQuery:
     suburb_slug: Optional[str] = None
     strategy: Optional[str] = None
@@ -82,6 +106,12 @@ class PropertyAdviceRepository(Protocol):
 
 class ComparableRepository(Protocol):
     def list_by_subject(self, criteria: ComparableQuery) -> List[ComparableItem]:
+        ...
+
+    def get_latest_set(self, criteria: ComparableQuery) -> Optional[ComparableSetResult]:
+        ...
+
+    def generate_comparable_set(self, criteria: ComparableQuery) -> ComparableSetResult:
         ...
 
 
@@ -207,6 +237,155 @@ def select_comparable_candidates(
     eligible.sort(key=lambda candidate: _candidate_sort_key(subject, candidate))
     return eligible[:max_items]
 
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _score_candidate(subject: ComparableSubject, candidate: ComparableCandidate) -> ScoredComparableCandidate:
+    meta = candidate.metadata or {}
+    sale_date = _coerce_to_date(candidate.sale_date)
+    anchor_date = date.today()
+    recency_days = max((anchor_date - sale_date).days, 0) if sale_date else 365
+    recency_score = max(0.0, 1.0 - min(recency_days, 365) / 365.0)
+
+    distance_km = _safe_float(meta.get("distance_km"), 0.0)
+    distance_score = max(0.0, 1.0 - min(distance_km, 10.0) / 10.0)
+
+    bed_gap = abs((candidate.bedrooms or subject.bedrooms or 0) - (subject.bedrooms or candidate.bedrooms or 0))
+    bath_gap = abs((candidate.bathrooms or subject.bathrooms or 0) - (subject.bathrooms or candidate.bathrooms or 0))
+    same_type = _normalize_property_type(candidate.property_type) == _normalize_property_type(subject.property_type)
+    same_suburb = _normalize_query(candidate.suburb_name) == _normalize_query(subject.suburb_name)
+    feature_score = max(0.0, 1.0 - (bed_gap * 0.18 + bath_gap * 0.14))
+    if same_type:
+        feature_score = min(1.0, feature_score + 0.18)
+    if same_suburb:
+        feature_score = min(1.0, feature_score + 0.08)
+
+    subject_price = _safe_float(meta.get("subject_price"))
+    subject_rent = _safe_float(meta.get("subject_rent_weekly"))
+    price_delta_pct = _safe_float(meta.get("price_delta_pct"))
+    if not price_delta_pct and subject_price > 0:
+        price_delta_pct = ((candidate.sale_price - subject_price) / subject_price) * 100.0
+    price_relevance = max(0.0, 1.0 - min(abs(price_delta_pct), 40.0) / 40.0)
+
+    rent_delta_pct = _safe_float(meta.get("rent_delta_pct"))
+    if subject_rent > 0:
+        rent_relevance = max(0.0, 1.0 - min(abs(rent_delta_pct), 40.0) / 40.0)
+        relevance_score = round((price_relevance * 0.65) + (rent_relevance * 0.35), 3)
+    else:
+        relevance_score = round(price_relevance, 3)
+
+    similarity_score = round(
+        (recency_score * 0.30) + (distance_score * 0.25) + (feature_score * 0.30) + (relevance_score * 0.15),
+        3,
+    )
+
+    rationale = {
+        "recency_days": recency_days,
+        "recency_score": round(recency_score, 3),
+        "distance_km": round(distance_km, 3),
+        "distance_score": round(distance_score, 3),
+        "same_suburb": same_suburb,
+        "same_property_type": same_type,
+        "bedroom_gap": bed_gap,
+        "bathroom_gap": bath_gap,
+        "feature_score": round(feature_score, 3),
+        "price_delta_pct": round(price_delta_pct, 3),
+        "price_relevance_score": round(price_relevance, 3),
+        "rent_delta_pct": round(rent_delta_pct, 3),
+        "relevance_score": relevance_score,
+    }
+    feature_summary = f"{candidate.bedrooms or 'unknown'} bed/{candidate.bathrooms or 'unknown'} bath"
+    match_reason = meta.get(
+        "match_reason",
+        (
+            "same suburb, same property type, scored recent sale"
+            if same_suburb and same_type
+            else "scored persisted sale candidate"
+        ),
+    )
+    return ScoredComparableCandidate(
+        candidate=candidate,
+        rank_order=0,
+        similarity_score=similarity_score,
+        distance_km=round(distance_km, 3),
+        price_delta_pct=round(price_delta_pct, 3),
+        rationale=rationale,
+        match_reason=match_reason,
+        feature_summary=feature_summary,
+    )
+
+
+def score_comparable_candidates(
+    subject: ComparableSubject,
+    candidates: List[ComparableCandidate],
+    max_items: int,
+) -> List[ScoredComparableCandidate]:
+    shortlisted = select_comparable_candidates(subject, candidates, max_items=max_items)
+    scored = [_score_candidate(subject, candidate) for candidate in shortlisted]
+    scored.sort(
+        key=lambda item: (
+            -item.similarity_score,
+            item.distance_km,
+            abs(item.price_delta_pct),
+            _candidate_sort_key(subject, item.candidate),
+        )
+    )
+    ranked: List[ScoredComparableCandidate] = []
+    for index, item in enumerate(scored, start=1):
+        ranked.append(
+            ScoredComparableCandidate(
+                candidate=item.candidate,
+                rank_order=index,
+                similarity_score=item.similarity_score,
+                distance_km=item.distance_km,
+                price_delta_pct=item.price_delta_pct,
+                rationale=item.rationale,
+                match_reason=item.match_reason,
+                feature_summary=item.feature_summary,
+            )
+        )
+    return ranked
+
+
+def _build_set_quality(scored: List[ScoredComparableCandidate]) -> tuple[float, str]:
+    if not scored:
+        return 0.0, "empty"
+    avg_score = round(mean(item.similarity_score for item in scored), 3)
+    if len(scored) < 3:
+        return avg_score, "low_sample"
+    if avg_score >= 0.78:
+        return avg_score, "high"
+    if avg_score >= 0.62:
+        return avg_score, "moderate"
+    return avg_score, "thin"
+
+
+def _scored_to_item(item: ScoredComparableCandidate) -> ComparableItem:
+    return ComparableItem(
+        property_id=item.candidate.property_id,
+        address=item.candidate.address,
+        price=_safe_int(item.candidate.sale_price),
+        distance_km=item.distance_km,
+        match_reason=f"{item.match_reason}; {item.feature_summary}",
+        sold_date=_coerce_sale_date(item.candidate.sale_date),
+        beds=_safe_int(item.candidate.bedrooms),
+        baths=_safe_int(item.candidate.bathrooms),
+        score=item.similarity_score,
+        rationale=dict(item.rationale),
+    )
+
 class MockSuburbRepository:
     last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
     last_fallback_reason: Optional[str] = None
@@ -279,6 +458,47 @@ class MockComparableRepository:
             source = [item for item in source if item.distance_km <= criteria.max_distance_km]
 
         return source[: criteria.max_items]
+
+    def get_latest_set(self, criteria: ComparableQuery) -> Optional[ComparableSetResult]:
+        _ = criteria
+        return None
+
+    def generate_comparable_set(self, criteria: ComparableQuery) -> ComparableSetResult:
+        items = self.list_by_subject(criteria)
+        quality_score, quality_label = _build_set_quality(
+            [
+                ScoredComparableCandidate(
+                    candidate=ComparableCandidate(
+                        property_id=item.property_id or item.address,
+                        address=item.address,
+                        suburb_name="",
+                        suburb_slug="",
+                        property_type=None,
+                        sale_price=item.price,
+                        sale_date=item.sold_date,
+                        bedrooms=item.beds,
+                        bathrooms=item.baths,
+                        metadata=item.rationale,
+                    ),
+                    rank_order=index,
+                    similarity_score=float(item.score or 0.5),
+                    distance_km=item.distance_km,
+                    price_delta_pct=_safe_float(item.rationale.get("price_delta_pct") if item.rationale else 0.0),
+                    rationale=dict(item.rationale),
+                    match_reason=item.match_reason,
+                    feature_summary=f"{item.beds} bed/{item.baths} bath",
+                )
+                for index, item in enumerate(items, start=1)
+            ]
+        )
+        return ComparableSetResult(
+            set_id=None,
+            algorithm_version="mock-v0",
+            generated_at=None,
+            quality_score=quality_score,
+            quality_label=quality_label,
+            items=items,
+        )
 
 
 class MockWatchlistRepository:
@@ -485,6 +705,10 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
 
 
 class PostgresComparableRepository(MockComparableRepository):
+    algorithm_version = "phase2.round2.v1"
+    purpose = "buy_eval"
+    basis = "sales"
+
     def __init__(self, session_factory: DatabaseSessionFactory):
         self.session_factory = session_factory
 
@@ -586,7 +810,239 @@ class PostgresComparableRepository(MockComparableRepository):
             for row in rows
         ]
 
+    def _build_result_from_scored(
+        self,
+        scored: List[ScoredComparableCandidate],
+        set_id: Optional[str],
+        generated_at: Optional[str],
+    ) -> ComparableSetResult:
+        quality_score, quality_label = _build_set_quality(scored)
+        return ComparableSetResult(
+            set_id=set_id,
+            algorithm_version=self.algorithm_version,
+            generated_at=generated_at,
+            quality_score=quality_score,
+            quality_label=quality_label,
+            items=[_scored_to_item(item) for item in scored],
+        )
+
+    def _generate_scored_candidates(self, cur, criteria: ComparableQuery) -> Optional[ComparableSetResult]:
+        subject = self._load_subject(cur, criteria)
+        candidate_rows = self._load_candidate_rows(cur)
+        if subject is None:
+            return None
+        scored_rows = score_comparable_candidates(subject, candidate_rows, max_items=criteria.max_items)
+        filtered: List[ScoredComparableCandidate] = []
+        for item in scored_rows:
+            price = _safe_int(item.candidate.sale_price)
+            if criteria.min_price is not None and price < criteria.min_price:
+                continue
+            if criteria.max_price is not None and price > criteria.max_price:
+                continue
+            if criteria.max_distance_km is not None and item.distance_km > criteria.max_distance_km:
+                continue
+            filtered.append(item)
+        return self._build_result_from_scored(filtered, set_id=None, generated_at=None)
+
+    def get_latest_set(self, criteria: ComparableQuery) -> Optional[ComparableSetResult]:
+        if not self.session_factory.config.url:
+            return None
+        try:
+            with psycopg.connect(self.session_factory.config.url) as conn:
+                with conn.cursor() as cur:
+                    subject = self._load_subject(cur, criteria)
+                    if subject is None:
+                        return None
+                    cur.execute(
+                        """
+                        select
+                          cs.id,
+                          cs.algorithm_version,
+                          cs.generated_at,
+                          coalesce(cs.quality_score, 0),
+                          coalesce(cs.notes, ''),
+                          cm.comparable_property_id,
+                          p.address_line_1,
+                          p.suburb_name,
+                          p.state_code,
+                          p.postcode,
+                          se.sale_price,
+                          cm.distance_km,
+                          cm.rationale,
+                          cm.feature_summary,
+                          cm.similarity_score,
+                          se.sale_date,
+                          p.bedrooms,
+                          p.bathrooms
+                        from comparable_sets cs
+                        join comparable_members cm on cm.comparable_set_id = cs.id
+                        join properties p on p.id = cm.comparable_property_id
+                        left join sales_events se on se.id = cm.sale_event_id
+                        where cs.target_property_id = %s
+                          and cs.purpose = %s
+                          and cs.basis = %s
+                          and cs.algorithm_version = %s
+                          and cs.status = 'complete'
+                        order by cs.generated_at desc, cm.rank_order asc
+                        """,
+                        (subject.property_id, self.purpose, self.basis, self.algorithm_version),
+                    )
+                    rows = cur.fetchall()
+        except psycopg.Error:
+            return None
+        if not rows:
+            return None
+        if len(rows[0]) < 18:
+            return None
+        first = rows[0]
+        items: List[ComparableItem] = []
+        for row in rows:
+            rationale_payload = row[12]
+            if isinstance(rationale_payload, str):
+                try:
+                    rationale = json.loads(rationale_payload)
+                except json.JSONDecodeError:
+                    rationale = {"summary": rationale_payload}
+            else:
+                rationale = rationale_payload or {}
+            items.append(
+                ComparableItem(
+                    property_id=str(row[5]),
+                    address=_format_property_address(row[6], row[7], row[8], row[9]),
+                    price=_safe_int(row[10]),
+                    distance_km=_safe_float(row[11]),
+                    match_reason=str(row[13] or "persisted comparable member"),
+                    sold_date=_coerce_sale_date(row[15]),
+                    beds=_safe_int(row[16]),
+                    baths=_safe_int(row[17]),
+                    score=round(_safe_float(row[14]), 3),
+                    rationale=dict(rationale),
+                )
+            )
+        notes_text = str(first[4] or "")
+        quality_label = "persisted"
+        if notes_text:
+            try:
+                quality_label = json.loads(notes_text).get("quality_label", quality_label)
+            except json.JSONDecodeError:
+                pass
+        self.last_source = "postgres"
+        self.last_fallback_reason = None
+        return ComparableSetResult(
+            set_id=str(first[0]),
+            algorithm_version=str(first[1] or self.algorithm_version),
+            generated_at=_coerce_sale_date(first[2]) if first[2] else None,
+            quality_score=round(_safe_float(first[3]), 3),
+            quality_label=quality_label,
+            items=items[: criteria.max_items],
+        )
+
+    def generate_comparable_set(self, criteria: ComparableQuery) -> ComparableSetResult:
+        if not self.session_factory.config.url:
+            return super().generate_comparable_set(criteria)
+        try:
+            with psycopg.connect(self.session_factory.config.url) as conn:
+                with conn.cursor() as cur:
+                    subject = self._load_subject(cur, criteria)
+                    if subject is None:
+                        raise ValueError("missing_subject")
+                    generated = self._generate_scored_candidates(cur, criteria)
+                    if generated is None:
+                        raise ValueError("missing_subject")
+                    now = datetime.now(timezone.utc).isoformat()
+                    notes = json.dumps(
+                        {
+                            "query": criteria.query,
+                            "quality_label": generated.quality_label,
+                            "max_items": criteria.max_items,
+                        },
+                        sort_keys=True,
+                    )
+                    cur.execute(
+                        """
+                        select id
+                        from comparable_sets
+                        where target_property_id = %s
+                          and purpose = %s
+                          and basis = %s
+                          and algorithm_version = %s
+                        order by generated_at desc
+                        limit 1
+                        """,
+                        (subject.property_id, self.purpose, self.basis, self.algorithm_version),
+                    )
+                    if hasattr(cur, "fetchone"):
+                        existing = cur.fetchone()
+                    else:
+                        existing_rows = cur.fetchall()
+                        existing = existing_rows[0] if existing_rows else None
+                    set_id = str(existing[0]) if existing else f"{subject.property_id}-{self.algorithm_version}"
+                    if existing:
+                        cur.execute("delete from comparable_members where comparable_set_id = %s", (set_id,))
+                        cur.execute(
+                            """
+                            update comparable_sets
+                            set generated_at = %s, quality_score = %s, notes = %s, status = 'complete'
+                            where id = %s
+                            """,
+                            (now, generated.quality_score, notes, set_id),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            insert into comparable_sets (
+                              id, target_property_id, purpose, basis, status, generated_at, algorithm_version, quality_score, notes
+                            ) values (%s, %s, %s, %s, 'complete', %s, %s, %s, %s)
+                            """,
+                            (
+                                set_id,
+                                subject.property_id,
+                                self.purpose,
+                                self.basis,
+                                now,
+                                self.algorithm_version,
+                                generated.quality_score,
+                                notes,
+                            ),
+                        )
+                    for item in generated.items:
+                        rationale_json = json.dumps(item.rationale, sort_keys=True)
+                        cur.execute(
+                            """
+                            insert into comparable_members (
+                              comparable_set_id, comparable_property_id, rank_order, similarity_score, distance_km, price_delta_pct, feature_summary, rationale
+                            ) values (%s, %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                set_id,
+                                item.property_id,
+                                generated.items.index(item) + 1,
+                                item.score,
+                                item.distance_km,
+                                _safe_float(item.rationale.get("price_delta_pct")) if item.rationale else 0.0,
+                                item.match_reason,
+                                rationale_json,
+                            ),
+                        )
+            self.last_source = "postgres"
+            self.last_fallback_reason = None
+            return ComparableSetResult(
+                set_id=set_id,
+                algorithm_version=self.algorithm_version,
+                generated_at=now,
+                quality_score=generated.quality_score,
+                quality_label=generated.quality_label,
+                items=generated.items,
+            )
+        except (psycopg.Error, ValueError):
+            self.last_source = "fallback_mock"
+            self.last_fallback_reason = "Comparable set generation fell back to mock candidates."
+            return super().generate_comparable_set(criteria)
+
     def list_by_subject(self, criteria: ComparableQuery) -> List[ComparableItem]:
+        latest = self.get_latest_set(criteria)
+        if latest is not None:
+            return latest.items[: criteria.max_items]
         if not self.session_factory.config.url:
             items = super().list_by_subject(criteria)
             self.last_source = "fallback_mock"
@@ -607,40 +1063,14 @@ class PostgresComparableRepository(MockComparableRepository):
             self.last_source = "fallback_mock"
             self.last_fallback_reason = "No persisted subject property matched comparables query."
             return items
-        selected_rows = select_comparable_candidates(subject, candidate_rows, max_items=criteria.max_items)
-        items: List[ComparableItem] = []
-        for candidate in selected_rows:
-            meta = candidate.metadata or {}
-            price = int(candidate.sale_price or 0)
-            distance_km = float(meta.get('distance_km', 0.0))
-            if criteria.min_price is not None and price < criteria.min_price:
-                continue
-            if criteria.max_price is not None and price > criteria.max_price:
-                continue
-            if criteria.max_distance_km is not None and distance_km > criteria.max_distance_km:
-                continue
-            same_suburb = _normalize_query(candidate.suburb_name) == _normalize_query(subject.suburb_name)
-            same_type = _normalize_property_type(candidate.property_type) == _normalize_property_type(subject.property_type)
-            feature_text = f"{candidate.bedrooms or 'unknown'} bed/{candidate.bathrooms or 'unknown'} bath band"
-            match_reason = meta.get(
-                "match_reason",
-                (
-                    "same suburb, same property type, recent sale"
-                    if same_suburb and same_type
-                    else "recent persisted sale candidate"
-                ),
-            )
-            items.append(
-                ComparableItem(
-                    address=candidate.address,
-                    price=price,
-                    distance_km=distance_km,
-                    match_reason=f"{match_reason}; {feature_text}",
-                    sold_date=_coerce_sale_date(candidate.sale_date),
-                    beds=int(candidate.bedrooms or 0),
-                    baths=int(candidate.bathrooms or 0),
-                )
-            )
+        scored_rows = score_comparable_candidates(subject, candidate_rows, max_items=criteria.max_items)
+        items = [
+            _scored_to_item(item)
+            for item in scored_rows
+            if (criteria.min_price is None or _safe_int(item.candidate.sale_price) >= criteria.min_price)
+            and (criteria.max_price is None or _safe_int(item.candidate.sale_price) <= criteria.max_price)
+            and (criteria.max_distance_km is None or item.distance_km <= criteria.max_distance_km)
+        ]
         if items:
             self.last_source = "postgres"
             self.last_fallback_reason = None
