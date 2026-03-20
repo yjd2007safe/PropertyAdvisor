@@ -969,8 +969,15 @@ def test_postgres_property_advice_read_prefers_latest_persisted_snapshot(monkeyp
                         "rationale_bullets": ["Persisted comp depth is acceptable."],
                         "warnings": ["Listing facts are one cycle old."],
                         "fallback_notes": [],
+                        "confidence_reasons": ["Comparable set quality is strong."],
+                        "fallback_state": "none",
+                        "fallback_reasons": [],
+                        "limitations": [],
+                        "freshness": "fresh",
+                        "sample_depth": "moderate",
+                        "evidence_agreement": "aligned",
                         "evidence_summary": {
-                            "contract_version": "phase2.round3",
+                            "contract_version": "phase2.round4",
                             "algorithm_version": "phase2.round3.v1",
                             "freshness_status": "fresh",
                             "required_inputs": {"property_facts": True},
@@ -978,6 +985,13 @@ def test_postgres_property_advice_read_prefers_latest_persisted_snapshot(monkeyp
                             "sections": [],
                             "warnings": ["Listing facts are one cycle old."],
                             "fallback_notes": [],
+                            "limitations": [],
+                            "confidence_reasons": ["Comparable set quality is strong."],
+                            "fallback_state": "none",
+                            "fallback_reasons": [],
+                            "sample_depth": "moderate",
+                            "evidence_agreement": "aligned",
+                            "evidence_strength": "strong",
                         },
                     },
                     "phase2.round3.v1",
@@ -1006,6 +1020,9 @@ def test_postgres_property_advice_read_prefers_latest_persisted_snapshot(monkeyp
     assert response.advice.evidence_summary is not None
     assert response.advice.evidence_summary.algorithm_version == "phase2.round3.v1"
     assert response.decision_summary == "Persisted snapshot summary"
+    assert response.advice.fallback_state == "none"
+    assert response.advice.sample_depth == "moderate"
+    assert response.advice.evidence_agreement == "aligned"
 
 
 def test_postgres_property_advice_snapshot_generation_marks_low_evidence_and_missing_data(monkeypatch) -> None:
@@ -1065,3 +1082,198 @@ def test_postgres_property_advice_snapshot_generation_marks_low_evidence_and_mis
     assert any("Comparable evidence is weak" in item for item in response.advice.warnings)
     assert any("Listing facts are missing" in item for item in response.advice.warnings)
     assert any("Key property attributes" in item for item in response.advice.warnings)
+    assert response.advice.fallback_state == "low_sample"
+    assert "Comparable sample depth is below the minimum preferred threshold." in response.advice.fallback_reasons
+    assert response.advice.freshness == "stale"
+
+
+def test_postgres_property_advice_snapshot_generation_high_confidence_on_strong_evidence(monkeypatch) -> None:
+    repo = PostgresPropertyAdviceRepository(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    class _Cursor:
+        def __init__(self):
+            self.rows = []
+            self.query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            self.query = " ".join(query.split()).lower()
+            if "from properties p" in self.query:
+                self.rows = [("prop-9", "9 Strong Ave", "Southport", "QLD", "4215", "house", 4, 2, "sub-1")]
+            elif "from listings l" in self.query:
+                self.rows = [("listing-9", "active", 880000, None, "2026-03-18T00:00:00+00:00", "active", 880000, 12)]
+            elif "from market_metrics" in self.query:
+                self.rows = [("metric-9", 920000, 760, 24, 70.0, 44.0, "warm", "2026-03-15")]
+            elif "from comparable_sets cs" in self.query and "left join comparable_members" in self.query:
+                self.rows = [
+                    ("set-9", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.86, '{"quality_label": "high"}', "comp-1"),
+                    ("set-9", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.86, '{"quality_label": "high"}', "comp-2"),
+                    ("set-9", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.86, '{"quality_label": "high"}', "comp-3"),
+                    ("set-9", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.86, '{"quality_label": "high"}', "comp-4"),
+                    ("set-9", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.86, '{"quality_label": "high"}', "comp-5"),
+                ]
+            elif "from property_advice_snapshots" in self.query and "select id" in self.query:
+                self.rows = []
+            else:
+                self.rows = []
+
+        def fetchall(self):
+            return self.rows
+
+        def fetchone(self):
+            return self.rows[0] if self.rows else None
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", lambda *args, **kwargs: _Conn())
+
+    response = repo.generate_snapshot("southport-qld-4215", query_type="slug")
+
+    assert response is not None
+    assert response.advice.recommendation == "consider"
+    assert response.advice.confidence == "high"
+    assert response.advice.fallback_state == "none"
+    assert response.advice.sample_depth == "high"
+    assert response.advice.evidence_agreement == "aligned"
+
+
+def test_postgres_property_advice_snapshot_generation_marks_conflicting_evidence(monkeypatch) -> None:
+    repo = PostgresPropertyAdviceRepository(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    class _Cursor:
+        def __init__(self):
+            self.rows = []
+            self.query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            self.query = " ".join(query.split()).lower()
+            if "from properties p" in self.query:
+                self.rows = [("prop-3", "13 Mixed Ave", "Southport", "QLD", "4215", "house", 4, 2, "sub-1")]
+            elif "from listings l" in self.query:
+                self.rows = [("listing-3", "active", 885000, None, "2026-03-18T00:00:00+00:00", "active", 885000, 19)]
+            elif "from market_metrics" in self.query:
+                self.rows = [("metric-3", 920000, 760, 24, 40.0, 61.0, "balanced", "2026-03-15")]
+            elif "from comparable_sets cs" in self.query and "left join comparable_members" in self.query:
+                self.rows = [
+                    ("set-3", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.83, '{"quality_label": "high"}', "comp-1"),
+                    ("set-3", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.83, '{"quality_label": "high"}', "comp-2"),
+                    ("set-3", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.83, '{"quality_label": "high"}', "comp-3"),
+                    ("set-3", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.83, '{"quality_label": "high"}', "comp-4"),
+                ]
+            elif "from property_advice_snapshots" in self.query and "select id" in self.query:
+                self.rows = []
+            else:
+                self.rows = []
+
+        def fetchall(self):
+            return self.rows
+
+        def fetchone(self):
+            return self.rows[0] if self.rows else None
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", lambda *args, **kwargs: _Conn())
+
+    response = repo.generate_snapshot("southport-qld-4215", query_type="slug")
+
+    assert response is not None
+    assert response.advice.recommendation == "consider"
+    assert response.advice.fallback_state == "conflicting_evidence"
+    assert response.advice.evidence_agreement == "conflicting"
+    assert response.advice.confidence in {"low", "medium"}
+
+
+def test_postgres_property_advice_snapshot_generation_keeps_negative_recommendation_with_strong_evidence(monkeypatch) -> None:
+    repo = PostgresPropertyAdviceRepository(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    class _Cursor:
+        def __init__(self):
+            self.rows = []
+            self.query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            self.query = " ".join(query.split()).lower()
+            if "from properties p" in self.query:
+                self.rows = [("prop-4", "14 Expensive Ave", "Southport", "QLD", "4215", "house", 4, 2, "sub-1")]
+            elif "from listings l" in self.query:
+                self.rows = [("listing-4", "active", 995000, None, "2026-03-18T00:00:00+00:00", "active", 995000, 14)]
+            elif "from market_metrics" in self.query:
+                self.rows = [("metric-4", 920000, 760, 24, 48.0, 49.0, "balanced", "2026-03-15")]
+            elif "from comparable_sets cs" in self.query and "left join comparable_members" in self.query:
+                self.rows = [
+                    ("set-4", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.88, '{"quality_label": "high"}', "comp-1"),
+                    ("set-4", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.88, '{"quality_label": "high"}', "comp-2"),
+                    ("set-4", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.88, '{"quality_label": "high"}', "comp-3"),
+                    ("set-4", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.88, '{"quality_label": "high"}', "comp-4"),
+                    ("set-4", "phase2.round2.v1", "2026-03-17T00:00:00+00:00", 0.88, '{"quality_label": "high"}', "comp-5"),
+                ]
+            elif "from property_advice_snapshots" in self.query and "select id" in self.query:
+                self.rows = []
+            else:
+                self.rows = []
+
+        def fetchall(self):
+            return self.rows
+
+        def fetchone(self):
+            return self.rows[0] if self.rows else None
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", lambda *args, **kwargs: _Conn())
+
+    response = repo.generate_snapshot("southport-qld-4215", query_type="slug")
+
+    assert response is not None
+    assert response.advice.recommendation == "pass"
+    assert response.advice.confidence == "high"
+    assert response.advice.fallback_state == "none"
+    assert response.advice.confidence_reasons

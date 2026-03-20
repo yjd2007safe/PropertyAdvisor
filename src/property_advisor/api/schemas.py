@@ -91,7 +91,7 @@ class AdviceEvidenceSummarySection(BaseModel):
 
 
 class AdviceEvidenceSummary(BaseModel):
-    contract_version: str = "phase2.round3"
+    contract_version: str = "phase2.round4"
     algorithm_version: str
     freshness_status: Literal["fresh", "stale", "unknown"] = "unknown"
     required_inputs: Dict[str, bool] = Field(default_factory=dict)
@@ -99,6 +99,22 @@ class AdviceEvidenceSummary(BaseModel):
     sections: List[AdviceEvidenceSummarySection] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     fallback_notes: List[str] = Field(default_factory=list)
+    limitations: List[str] = Field(default_factory=list)
+    confidence_reasons: List[str] = Field(default_factory=list)
+    fallback_state: Literal[
+        "none",
+        "insufficient_evidence",
+        "stale_evidence",
+        "low_sample",
+        "conflicting_evidence",
+        "missing_subject_attributes",
+        "missing_listing_context",
+        "missing_market_context",
+    ] = "none"
+    fallback_reasons: List[str] = Field(default_factory=list)
+    sample_depth: Literal["none", "low", "moderate", "high"] = "none"
+    evidence_agreement: Literal["aligned", "mixed", "conflicting", "unknown"] = "unknown"
+    evidence_strength: Literal["weak", "moderate", "strong"] = "weak"
 
 
 class PropertyAdvice(BaseModel):
@@ -110,6 +126,22 @@ class PropertyAdvice(BaseModel):
     rationale_bullets: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     fallback_notes: List[str] = Field(default_factory=list)
+    confidence_reasons: List[str] = Field(default_factory=list)
+    fallback_state: Literal[
+        "none",
+        "insufficient_evidence",
+        "stale_evidence",
+        "low_sample",
+        "conflicting_evidence",
+        "missing_subject_attributes",
+        "missing_listing_context",
+        "missing_market_context",
+    ] = "none"
+    fallback_reasons: List[str] = Field(default_factory=list)
+    limitations: List[str] = Field(default_factory=list)
+    freshness: Literal["fresh", "stale", "unknown"] = "unknown"
+    sample_depth: Literal["none", "low", "moderate", "high"] = "none"
+    evidence_agreement: Literal["aligned", "mixed", "conflicting", "unknown"] = "unknown"
     risks: List[str]
     strengths: List[str]
     next_steps: List[str]
@@ -145,7 +177,7 @@ class AdvisoryInputs(BaseModel):
     query: str
     query_type: Literal["address", "slug", "auto"]
     suburb_slug: Optional[str] = None
-    contract_version: str = "phase2.round3"
+    contract_version: str = "phase2.round4"
     required_persisted_inputs: Dict[str, bool] = Field(default_factory=dict)
     optional_persisted_inputs: Dict[str, bool] = Field(default_factory=dict)
     missing_data_behavior: Dict[str, str] = Field(default_factory=dict)
