@@ -58,7 +58,7 @@ def test_service_property_advice_query_flow_supports_slug() -> None:
     assert response.rationale
     assert response.investor_signals
     assert response.data_source.source in {"mock", "postgres", "fallback_mock"}
-    assert response.inputs.contract_version == "phase2.round1"
+    assert response.inputs.contract_version == "phase2.round3"
     assert response.inputs.required_persisted_inputs["subject_property_identity"] is True
     assert "persisted_comparable_sales" in response.inputs.missing_data_behavior
 
