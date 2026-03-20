@@ -18,11 +18,24 @@ from property_advisor.api.mock_fixtures import (
     WATCHLIST_FIXTURE,
 )
 from property_advisor.api.schemas import (
+    AdviceEvidenceSummary,
+    AdviceEvidenceSummarySection,
+    AdvisoryInputs,
+    AdvisoryInvestorSignal,
+    AdvisoryMarketContext,
+    AdvisoryRationaleItem,
     ComparableItem,
+    ComparableSnapshot,
+    DataSourceStatus,
+    PropertyAdvice,
     PropertyAdvisorResponse,
+    SubjectProperty,
     SuburbOverviewItem,
+    SummaryCard,
     WatchlistAlert,
     WatchlistEntry,
+    WorkflowLink,
+    WorkflowSnapshot,
 )
 
 
@@ -101,6 +114,9 @@ class SuburbRepository(Protocol):
 
 class PropertyAdviceRepository(Protocol):
     def get_by_address_or_slug(self, query: str) -> Optional[PropertyAdvisorResponse]:
+        ...
+
+    def generate_snapshot(self, query: str, query_type: str = "auto", focus_strategy: Optional[str] = None) -> Optional[PropertyAdvisorResponse]:
         ...
 
 
@@ -244,6 +260,27 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     except (TypeError, ValueError):
         return default
 
+
+
+def _parse_json_payload(value: Any, default: Any) -> Any:
+    if value is None:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return default
+    return default
+
+
+def _coerce_confidence_band(score: int) -> Literal["low", "medium", "high"]:
+    if score >= 4:
+        return "high"
+    if score >= 2:
+        return "medium"
+    return "low"
 
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
@@ -402,6 +439,10 @@ class MockSuburbRepository:
 class MockPropertyAdviceRepository:
     last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
     last_fallback_reason: Optional[str] = None
+
+    def generate_snapshot(self, query: str, query_type: str = "auto", focus_strategy: Optional[str] = None) -> Optional[PropertyAdvisorResponse]:
+        _ = (query, query_type, focus_strategy)
+        return self.get_by_address_or_slug(query)
 
     def get_by_address_or_slug(self, query: str) -> Optional[PropertyAdvisorResponse]:
         self.last_source = "mock"
@@ -627,8 +668,340 @@ class PostgresSuburbRepository(MockSuburbRepository):
 
 
 class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
+    algorithm_version = "phase2.round3.v1"
+    advisory_context = "buyer"
+
     def __init__(self, session_factory: DatabaseSessionFactory):
         self.session_factory = session_factory
+
+    def _load_subject(self, cur, query: str):
+        normalized = _normalize_query(query)
+        cur.execute(
+            """
+            select
+              p.id,
+              p.address_line_1,
+              p.suburb_name,
+              p.state_code,
+              p.postcode,
+              p.property_type,
+              p.bedrooms,
+              p.bathrooms,
+              p.suburb_id
+            from properties p
+            where lower(coalesce(p.address_line_1, '') || ', ' || coalesce(p.suburb_name, '') || ' ' || coalesce(p.state_code, '') || ' ' || coalesce(p.postcode::text, '')) like %s
+               or lower(coalesce(p.suburb_name, '')) = %s
+               or lower(replace(coalesce(p.suburb_name, ''), ' ', '-') || '-' || lower(coalesce(p.state_code, '')) || '-' || coalesce(p.postcode::text, '')) = %s
+            order by
+              case
+                when lower(replace(coalesce(p.suburb_name, ''), ' ', '-') || '-' || lower(coalesce(p.state_code, '')) || '-' || coalesce(p.postcode::text, '')) = %s then 0
+                when lower(coalesce(p.address_line_1, '') || ', ' || coalesce(p.suburb_name, '') || ' ' || coalesce(p.state_code, '') || ' ' || coalesce(p.postcode::text, '')) = %s then 1
+                when lower(coalesce(p.suburb_name, '')) = %s then 2
+                else 3
+              end,
+              p.updated_at desc nulls last,
+              p.created_at desc
+            limit 1
+            """,
+            (f"%{normalized}%", normalized, normalized, normalized, normalized, normalized),
+        )
+        row = cur.fetchone() if hasattr(cur, "fetchone") else (cur.fetchall() or [None])[0]
+        return row
+
+    def _load_latest_listing(self, cur, property_id: str):
+        cur.execute(
+            """
+            select l.id, l.status, l.asking_price, l.rent_price_weekly, ls.observed_at, ls.status, ls.asking_price, ls.days_on_market
+            from listings l
+            left join lateral (
+              select observed_at, status, asking_price, days_on_market
+              from listing_snapshots ls
+              where ls.listing_id = l.id
+              order by ls.observed_at desc, ls.created_at desc
+              limit 1
+            ) ls on true
+            where l.property_id = %s
+            order by coalesce(ls.observed_at, l.updated_at, l.created_at) desc
+            limit 1
+            """,
+            (property_id,),
+        )
+        return cur.fetchone() if hasattr(cur, "fetchone") else (cur.fetchall() or [None])[0]
+
+    def _load_latest_market_metrics(self, cur, suburb_id: Optional[str], property_type: Optional[str]):
+        if not suburb_id:
+            return None
+        cur.execute(
+            """
+            select id, median_sale_price, median_weekly_rent, avg_days_on_market, demand_score, supply_score, market_temperature, period_end
+            from market_metrics
+            where suburb_id = %s
+              and (property_type = %s or property_type is null)
+            order by case when property_type = %s then 0 else 1 end, period_start desc, created_at desc
+            limit 1
+            """,
+            (suburb_id, property_type, property_type),
+        )
+        return cur.fetchone() if hasattr(cur, "fetchone") else (cur.fetchall() or [None])[0]
+
+    def _load_latest_comparable_set(self, cur, property_id: str):
+        cur.execute(
+            """
+            select cs.id, cs.algorithm_version, cs.generated_at, cs.quality_score, cs.notes, cm.comparable_property_id
+            from comparable_sets cs
+            left join comparable_members cm on cm.comparable_set_id = cs.id
+            where cs.target_property_id = %s
+              and cs.purpose = 'buy_eval'
+              and cs.basis = 'sales'
+              and cs.status = 'complete'
+            order by cs.generated_at desc, cm.rank_order asc
+            """,
+            (property_id,),
+        )
+        rows = cur.fetchall()
+        return rows
+
+    def _build_snapshot_payload(self, query: str, query_type: str, focus_strategy: Optional[str], evidence: dict[str, Any]) -> PropertyAdvisorResponse:
+        subject = evidence["subject"]
+        listing = evidence.get("listing")
+        metrics = evidence.get("market_metrics")
+        comparable_rows = evidence.get("comparables") or []
+        fixture = PROPERTY_ADVISOR_FIXTURE
+        comparable_count = len({str(row[5]) for row in comparable_rows if len(row) > 5 and row[5] is not None})
+        quality_score = round(_safe_float(comparable_rows[0][3]), 3) if comparable_rows else 0.0
+        notes = _parse_json_payload(comparable_rows[0][4], {}) if comparable_rows else {}
+        listing_price = _safe_int((listing[6] if listing and len(listing) > 6 and listing[6] is not None else (listing[2] if listing and len(listing) > 2 else 0)))
+        market_price = _safe_int(metrics[1]) if metrics else 0
+        missing_key_attributes = any(subject[index] is None for index in (5, 6, 7))
+        warnings: List[str] = []
+        fallback_notes: List[str] = []
+        rationale_bullets: List[str] = []
+        if comparable_count < 3:
+            warnings.append("Comparable evidence is weak; fewer than 3 persisted members are available.")
+            fallback_notes.append("Confidence is capped until a denser comparable set is generated.")
+        if not listing:
+            warnings.append("Listing facts are missing; recommendation is based on property, suburb, and comparable evidence only.")
+        if missing_key_attributes:
+            warnings.append("Key property attributes are incomplete; similarity scoring and stance confidence are degraded.")
+        evidence_dates = [
+            _coerce_to_date(listing[4]) if listing and len(listing) > 4 else None,
+            _coerce_to_date(comparable_rows[0][2]) if comparable_rows else None,
+            _coerce_to_date(metrics[7]) if metrics else None,
+        ]
+        freshness_anchor = max((d for d in evidence_dates if d is not None), default=None)
+        stale_evidence = freshness_anchor is None or (date.today() - freshness_anchor).days > 90
+        if stale_evidence:
+            warnings.append("Persisted evidence is stale or insufficiently fresh for a stronger recommendation.")
+            fallback_notes.append("Treat the snapshot as directional until newer listing, comp, or suburb inputs land.")
+        score = 3
+        if comparable_count < 3:
+            score -= 2
+        elif quality_score >= 0.75:
+            score += 1
+        if not listing:
+            score -= 1
+        if missing_key_attributes:
+            score -= 1
+        if stale_evidence:
+            score -= 1
+        if listing_price and market_price and comparable_count >= 3 and not stale_evidence:
+            ratio = listing_price / market_price if market_price else 1
+            if ratio <= 0.98:
+                recommendation = "consider"
+                rationale_bullets.append("Latest asking price sits at or below suburb sale median while evidence depth is usable.")
+            elif ratio >= 1.05:
+                recommendation = "pass"
+                rationale_bullets.append("Latest asking price is stretched against suburb pricing anchors.")
+            else:
+                recommendation = "watch"
+                rationale_bullets.append("Pricing is broadly aligned, but not discounted enough to force action.")
+        elif comparable_count == 0 or missing_key_attributes or stale_evidence:
+            recommendation = "watch"
+            rationale_bullets.append("Evidence quality does not support a stronger buy/pass stance.")
+        else:
+            recommendation = "watch"
+            rationale_bullets.append("Comparable and market evidence is only partially complete, so stance remains conservative.")
+        confidence = _coerce_confidence_band(score)
+        summary = {
+            "consider": "Persisted evidence supports progressing with cautious underwriting.",
+            "watch": "Persisted evidence supports monitoring until conviction improves.",
+            "pass": "Persisted evidence suggests avoiding the opportunity at the current setup.",
+        }[recommendation]
+        rationale_bullets.append(f"Comparable set quality is {notes.get('quality_label', 'unknown')} with {comparable_count} persisted members.")
+        if metrics:
+            rationale_bullets.append(f"Suburb market temperature is {metrics[6] or 'unknown'} with median sale price anchor ${market_price:,}." if market_price else "Suburb metrics are available but price anchors are incomplete.")
+        evidence_summary = AdviceEvidenceSummary(
+            contract_version="phase2.round3",
+            algorithm_version=self.algorithm_version,
+            freshness_status=("stale" if stale_evidence else "fresh"),
+            required_inputs={
+                "property_facts": True,
+                "evidence_freshness": True,
+                "algorithm_version": True,
+            },
+            optional_inputs={
+                "listing_facts": bool(listing),
+                "suburb_metrics": bool(metrics),
+                "comparable_set": bool(comparable_rows),
+            },
+            sections=[
+                AdviceEvidenceSummarySection(name="property_facts", status="available", summary="Persisted property facts loaded from properties table."),
+                AdviceEvidenceSummarySection(name="listing_facts", status=("available" if listing else "missing"), summary=(f"Latest listing status {(listing[5] or listing[1] or 'unknown')} with asking price ${listing_price:,}." if listing and listing_price else "No current listing facts were available.")),
+                AdviceEvidenceSummarySection(name="suburb_metrics", status=("available" if metrics else "missing"), summary=(f"Latest suburb metrics temperature {(metrics[6] or 'unknown')} and median sale price ${market_price:,}." if metrics and market_price else "No suburb metrics row was available.")),
+                AdviceEvidenceSummarySection(name="comparable_set", status=("available" if comparable_rows else "missing"), summary=(f"Latest comparable set {comparable_rows[0][0]} produced {comparable_count} member(s)." if comparable_rows else "No persisted comparable set was available.")),
+            ],
+            warnings=warnings,
+            fallback_notes=fallback_notes,
+        )
+        return PropertyAdvisorResponse(
+            data_source=DataSourceStatus(mode="postgres", source="postgres", is_fallback=False, message="Property advice snapshot loaded from PostgreSQL."),
+            property=SubjectProperty(
+                address=_format_property_address(subject[1], subject[2], subject[3], subject[4]),
+                property_type=subject[5] or fixture.property.property_type,
+                beds=int(subject[6]) if subject[6] is not None else 0,
+                baths=int(subject[7]) if subject[7] is not None else 0,
+            ),
+            advice=PropertyAdvice(
+                recommendation=recommendation,
+                confidence=confidence,
+                headline=summary,
+                summary=summary,
+                stance=recommendation,
+                rationale_bullets=rationale_bullets,
+                warnings=warnings,
+                fallback_notes=fallback_notes,
+                risks=warnings,
+                strengths=[bullet for bullet in rationale_bullets if "not" not in bullet.lower()][:3],
+                next_steps=[
+                    "Review the latest comparable members before pricing an offer.",
+                    "Confirm fresh listing facts and suburb metrics on the next ingest cycle.",
+                ],
+                evidence_summary=evidence_summary,
+            ),
+            market_context=AdvisoryMarketContext(
+                suburb=subject[2] or fixture.market_context.suburb,
+                strategy_focus=focus_strategy or "balanced",
+                demand_signal=(f"Demand score {metrics[4]} from latest suburb metrics." if metrics and metrics[4] is not None else "Demand signal unavailable; use balanced default wording."),
+                supply_signal=(f"Supply score {metrics[5]} from latest suburb metrics." if metrics and metrics[5] is not None else "Supply signal unavailable; use balanced default wording."),
+            ),
+            comparable_snapshot=ComparableSnapshot(
+                sample_size=comparable_count,
+                price_position=("insufficient_data" if comparable_count == 0 or not listing_price or not market_price else ("below_range" if listing_price < market_price else "above_range" if listing_price > market_price else "in_range")),
+                summary=("No persisted comparable members available." if comparable_count == 0 else f"Using {comparable_count} member(s) from the latest persisted comparable set."),
+            ),
+            decision_summary=summary,
+            rationale=[AdvisoryRationaleItem(signal=f"Reason {index+1}", stance=("caution" if "stale" in bullet.lower() or "weak" in bullet.lower() else "neutral"), evidence=bullet) for index, bullet in enumerate(rationale_bullets[:3])],
+            investor_signals=[AdvisoryInvestorSignal(title="Evidence freshness", status=("risk" if stale_evidence else "neutral"), detail=("Evidence is stale." if stale_evidence else "Evidence freshness is acceptable."))],
+            summary_cards=[SummaryCard(title="Recommendation", value=recommendation, detail=f"Confidence: {confidence}")],
+            workflow_links=[WorkflowLink(label="Open comparables", href=f"/comparables?query={query}", context="Validate the persisted comparable set.")],
+            workflow_snapshot=WorkflowSnapshot(stage="property_advisor", primary_suburb_slug=_slugify_suburb(subject[2] or '', subject[3], subject[4]), next_step="Validate persisted comparable evidence before taking action.", next_href=f"/comparables?query={query}", investor_message="Persisted advice snapshots should be reviewed alongside comps and watchlist context."),
+            inputs=AdvisoryInputs(
+                query=query,
+                query_type=("slug" if query_type == "auto" and "-" in query and "," not in query else query_type),
+                suburb_slug=_slugify_suburb(subject[2] or '', subject[3], subject[4]),
+                contract_version="phase2.round3",
+                required_persisted_inputs={"property_facts": True, "evidence_freshness": True, "algorithm_version": True},
+                optional_persisted_inputs={"listing_facts": bool(listing), "suburb_metrics": bool(metrics), "comparable_set": bool(comparable_rows)},
+                missing_data_behavior={
+                    "weak_comparable_evidence": "Downgrade confidence to low and keep recommendation at watch unless pricing is clearly stretched.",
+                    "missing_listing_facts": "Retain advice using comparables and suburb metrics, and emit explicit warnings.",
+                    "missing_key_property_attributes": "Keep watch stance and note degraded similarity quality.",
+                    "stale_or_insufficient_evidence": "Treat snapshot as directional and surface fallback notes.",
+                },
+            ),
+        )
+
+    def _persist_snapshot(self, cur, property_id: str, payload: PropertyAdvisorResponse, evidence: dict[str, Any], query: str):
+        comparable_rows = evidence.get("comparables") or []
+        metrics = evidence.get("market_metrics")
+        cur.execute(
+            """
+            select id
+            from property_advice_snapshots
+            where property_id = %s and advisory_context = %s and algorithm_version = %s
+            order by generated_at desc, created_at desc
+            limit 1
+            """,
+            (property_id, self.advisory_context, self.algorithm_version),
+        )
+        existing = cur.fetchone() if hasattr(cur, "fetchone") else (cur.fetchall() or [None])[0]
+        metrics_payload = {
+            "decision_summary": payload.decision_summary,
+            "summary": payload.advice.summary,
+            "stance": payload.advice.stance,
+            "rationale_bullets": payload.advice.rationale_bullets,
+            "warnings": payload.advice.warnings,
+            "fallback_notes": payload.advice.fallback_notes,
+            "evidence_summary": payload.advice.evidence_summary.model_dump(),
+            "query": query,
+        }
+        params = (
+            evidence["subject"][0],
+            str(comparable_rows[0][0]) if comparable_rows else None,
+            str(metrics[0]) if metrics else None,
+            datetime.now(timezone.utc).isoformat(),
+            self.advisory_context,
+            payload.advice.recommendation,
+            payload.advice.confidence,
+            None,
+            None,
+            None,
+            payload.advice.summary,
+            json.dumps(payload.advice.rationale_bullets, sort_keys=True),
+            json.dumps(payload.advice.warnings, sort_keys=True),
+            json.dumps(metrics_payload, sort_keys=True),
+            self.algorithm_version,
+        )
+        if existing:
+            cur.execute(
+                """
+                update property_advice_snapshots
+                set comparable_set_id = %s, market_metrics_id = %s, generated_at = %s, advisory_context = %s, recommendation = %s,
+                    confidence = %s, target_value_low = %s, target_value_high = %s, estimated_rent_weekly = %s, headline_summary = %s,
+                    rationale = %s::jsonb, risks = %s::jsonb, metrics = %s::jsonb, algorithm_version = %s
+                where id = %s
+                """,
+                params[1:] + (existing[0],),
+            )
+        else:
+            cur.execute(
+                """
+                insert into property_advice_snapshots (
+                  property_id, comparable_set_id, market_metrics_id, generated_at, advisory_context, recommendation, confidence,
+                  target_value_low, target_value_high, estimated_rent_weekly, headline_summary, rationale, risks, metrics, algorithm_version
+                ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s)
+                """,
+                params,
+            )
+
+    def generate_snapshot(self, query: str, query_type: str = "auto", focus_strategy: Optional[str] = None) -> Optional[PropertyAdvisorResponse]:
+        if not self.session_factory.config.url:
+            self.last_source = "fallback_mock"
+            self.last_fallback_reason = "No database URL configured for advice snapshot generation."
+            return super().generate_snapshot(query, query_type=query_type, focus_strategy=focus_strategy)
+        try:
+            with psycopg.connect(self.session_factory.config.url) as conn:
+                with conn.cursor() as cur:
+                    subject = self._load_subject(cur, query)
+                    if not subject:
+                        self.last_source = "fallback_mock"
+                        self.last_fallback_reason = "No persisted property matched for advice snapshot generation."
+                        return None
+                    evidence = {
+                        "subject": subject,
+                        "listing": self._load_latest_listing(cur, str(subject[0])),
+                        "market_metrics": self._load_latest_market_metrics(cur, subject[8], subject[5]),
+                        "comparables": self._load_latest_comparable_set(cur, str(subject[0])),
+                    }
+                    payload = self._build_snapshot_payload(query, query_type, focus_strategy, evidence)
+                    self._persist_snapshot(cur, str(subject[0]), payload, evidence, query)
+                    self.last_source = "postgres"
+                    self.last_fallback_reason = None
+                    return payload
+        except psycopg.Error as exc:
+            self.last_source = "fallback_mock"
+            self.last_fallback_reason = f"Advice snapshot generation failed: {exc.__class__.__name__}"
+            return super().generate_snapshot(query, query_type=query_type, focus_strategy=focus_strategy)
 
     def get_by_address_or_slug(self, query: str) -> Optional[PropertyAdvisorResponse]:
         if not self.session_factory.config.url:
@@ -643,65 +1016,54 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
                     cur.execute(
                         """
                         select
-                          p.address_line_1,
-                          p.suburb_name,
-                          p.state_code,
-                          p.postcode,
-                          p.property_type,
-                          p.bedrooms,
-                          p.bathrooms,
-                          pas.recommendation,
-                          pas.confidence,
-                          pas.target_value_low,
-                          pas.target_value_high,
-                          pas.estimated_rent_weekly,
-                          pas.headline_summary,
-                          pas.metrics
+                          p.address_line_1, p.suburb_name, p.state_code, p.postcode, p.property_type, p.bedrooms, p.bathrooms,
+                          pas.recommendation, pas.confidence, pas.headline_summary, pas.metrics, pas.algorithm_version
                         from property_advice_snapshots pas
                         join properties p on p.id = pas.property_id
+                        where lower(coalesce(p.address_line_1, '') || ', ' || coalesce(p.suburb_name, '') || ' ' || coalesce(p.state_code, '') || ' ' || coalesce(p.postcode::text, '')) like %s
+                           or lower(replace(coalesce(p.suburb_name, ''), ' ', '-') || '-' || lower(coalesce(p.state_code, '')) || '-' || coalesce(p.postcode::text, '')) = %s
                         order by pas.generated_at desc, pas.created_at desc
-                        limit 20
-                        """
+                        limit 1
+                        """,
+                        (f"%{normalized}%", normalized),
                     )
-                    rows = cur.fetchall()
+                    row = cur.fetchone() if hasattr(cur, "fetchone") else (cur.fetchall() or [None])[0]
         except psycopg.Error as exc:
             item = super().get_by_address_or_slug(query)
             self.last_source = "fallback_mock"
             self.last_fallback_reason = f"Property advice query failed: {exc.__class__.__name__}"
             return item
-        for row in rows:
-            address = _format_property_address(row[0], row[1], row[2], row[3])
-            slug = _slugify_suburb(row[1], row[2], row[3])
-            if normalized and normalized not in address.lower() and normalized != slug:
-                continue
-            fixture = PROPERTY_ADVISOR_FIXTURE
-            metrics = row[13] or {}
-            self.last_source = "postgres"
-            self.last_fallback_reason = None
-            return fixture.model_copy(
-                update={
-                    'property': fixture.property.model_copy(
-                        update={
-                            'address': address,
-                            'property_type': row[4] or fixture.property.property_type,
-                            'beds': int(row[5] or fixture.property.beds),
-                            'baths': int(row[6] or fixture.property.baths),
-                        }
-                    ),
-                    'advice': fixture.advice.model_copy(
-                        update={
-                            'recommendation': row[7] or fixture.advice.recommendation,
-                            'confidence': row[8] or fixture.advice.confidence,
-                            'headline': row[11] or fixture.advice.headline,
-                        }
-                    ),
-                    'decision_summary': metrics.get('decision_summary', fixture.decision_summary),
-                }
-            )
-        item = super().get_by_address_or_slug(query)
-        self.last_source = "fallback_mock"
-        self.last_fallback_reason = "No property advice row matched query; served mock guidance."
-        return item
+        if not row:
+            self.last_source = "fallback_mock"
+            self.last_fallback_reason = "No persisted advice snapshot exists for query; using fallback guidance."
+            return super().get_by_address_or_slug(query)
+        metrics = _parse_json_payload(row[10], {})
+        evidence_summary = AdviceEvidenceSummary.model_validate(metrics.get("evidence_summary") or {
+            "contract_version": "phase2.round3",
+            "algorithm_version": row[11] or self.algorithm_version,
+            "freshness_status": "unknown",
+            "required_inputs": {"property_facts": True, "evidence_freshness": True, "algorithm_version": True},
+            "optional_inputs": {},
+            "sections": [],
+            "warnings": metrics.get("warnings", []),
+            "fallback_notes": metrics.get("fallback_notes", []),
+        })
+        self.last_source = "postgres"
+        self.last_fallback_reason = None
+        return PROPERTY_ADVISOR_FIXTURE.model_copy(update={
+            "property": SubjectProperty(address=_format_property_address(row[0], row[1], row[2], row[3]), property_type=row[4] or PROPERTY_ADVISOR_FIXTURE.property.property_type, beds=int(row[5] or 0), baths=int(row[6] or 0)),
+            "advice": PropertyAdvice(
+                recommendation=row[7] or "watch", confidence=row[8] or "low", headline=row[9] or PROPERTY_ADVISOR_FIXTURE.advice.headline,
+                summary=metrics.get("summary") or row[9] or PROPERTY_ADVISOR_FIXTURE.advice.headline,
+                stance=metrics.get("stance") or row[7] or "watch",
+                rationale_bullets=list(metrics.get("rationale_bullets") or []),
+                warnings=list(metrics.get("warnings") or []),
+                fallback_notes=list(metrics.get("fallback_notes") or []),
+                risks=list(metrics.get("warnings") or []), strengths=list(metrics.get("rationale_bullets") or [])[:3], next_steps=list(PROPERTY_ADVISOR_FIXTURE.advice.next_steps), evidence_summary=evidence_summary,
+            ),
+            "decision_summary": metrics.get("decision_summary") or row[9] or PROPERTY_ADVISOR_FIXTURE.decision_summary,
+            "inputs": PROPERTY_ADVISOR_FIXTURE.inputs.model_copy(update={"contract_version": "phase2.round3"}),
+        })
 
 
 class PostgresComparableRepository(MockComparableRepository):
