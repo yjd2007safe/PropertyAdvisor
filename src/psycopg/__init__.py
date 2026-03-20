@@ -1,13 +1,20 @@
-"""Minimal psycopg stub for local test execution in this repository."""
+"""Minimal local psycopg compatibility shim for offline test environments.
+
+This project monkeypatches ``psycopg.connect`` extensively in unit tests. The
+real dependency is optional in this repository snapshot, so provide the minimum
+surface required for imports and monkeypatching when the wheel is unavailable.
+"""
+
+from __future__ import annotations
 
 
 class Error(Exception):
-    """Base psycopg error."""
+    """Base psycopg-compatible error."""
 
 
 class OperationalError(Error):
-    """Operational connection/query error."""
+    """Operational psycopg-compatible error."""
 
 
-def connect(*args, **kwargs):  # pragma: no cover - exercised via monkeypatch in tests
-    raise OperationalError("psycopg is not installed in this environment")
+def connect(*args, **kwargs):
+    raise OperationalError("psycopg is not installed in this environment.")

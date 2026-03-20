@@ -98,6 +98,13 @@ PROPERTY_ADVISOR_FIXTURE = PropertyAdvisorResponse(
         recommendation="watch",
         confidence="low",
         headline="Price looks broadly in range, but comparable confidence is still limited.",
+        confidence_reasons=["Mock fixture keeps confidence low until persisted evidence is loaded."],
+        fallback_state="low_sample",
+        fallback_reasons=["Mock advisory sample only includes three comparable points."],
+        limitations=["Mock mode should be treated as directional guidance only."],
+        freshness="unknown",
+        sample_depth="low",
+        evidence_agreement="mixed",
         risks=[
             "Recent suburb stock increase can pressure short-term prices.",
             "Comparable set contains a wider spread than preferred.",

@@ -97,6 +97,28 @@ class ComparableSetResult:
 
 
 @dataclass(frozen=True)
+class AdviceConfidenceSemantics:
+    confidence: Literal["low", "medium", "high"]
+    confidence_reasons: List[str]
+    fallback_state: Literal[
+        "none",
+        "insufficient_evidence",
+        "stale_evidence",
+        "low_sample",
+        "conflicting_evidence",
+        "missing_subject_attributes",
+        "missing_listing_context",
+        "missing_market_context",
+    ]
+    fallback_reasons: List[str]
+    limitations: List[str]
+    freshness: Literal["fresh", "stale", "unknown"]
+    sample_depth: Literal["none", "low", "moderate", "high"]
+    evidence_agreement: Literal["aligned", "mixed", "conflicting", "unknown"]
+    evidence_strength: Literal["weak", "moderate", "strong"]
+
+
+@dataclass(frozen=True)
 class WatchlistQuery:
     suburb_slug: Optional[str] = None
     strategy: Optional[str] = None
@@ -281,6 +303,178 @@ def _coerce_confidence_band(score: int) -> Literal["low", "medium", "high"]:
     if score >= 2:
         return "medium"
     return "low"
+
+
+def _sample_depth_band(sample_size: int) -> Literal["none", "low", "moderate", "high"]:
+    if sample_size <= 0:
+        return "none"
+    if sample_size < 3:
+        return "low"
+    if sample_size < 5:
+        return "moderate"
+    return "high"
+
+
+def _derive_evidence_agreement(
+    recommendation: Literal["watch", "consider", "pass"],
+    listing_price: int,
+    market_price: int,
+    demand_score: Optional[float],
+    supply_score: Optional[float],
+) -> Literal["aligned", "mixed", "conflicting", "unknown"]:
+    signals: List[int] = []
+    if listing_price and market_price:
+        ratio = listing_price / market_price if market_price else 1.0
+        if ratio <= 0.98:
+            signals.append(1)
+        elif ratio >= 1.05:
+            signals.append(-1)
+        else:
+            signals.append(0)
+    if demand_score is not None and supply_score is not None:
+        delta = demand_score - supply_score
+        if delta >= 8:
+            signals.append(1)
+        elif delta <= -8:
+            signals.append(-1)
+        else:
+            signals.append(0)
+    directional = [signal for signal in signals if signal != 0]
+    if not directional:
+        return "unknown" if not signals else "mixed"
+    if 1 in directional and -1 in directional:
+        return "conflicting"
+    if len(directional) == len(signals):
+        return "aligned"
+    expected = 1 if recommendation == "consider" else -1 if recommendation == "pass" else 0
+    if expected == 0:
+        return "mixed"
+    return "aligned" if all(signal == expected for signal in directional) else "mixed"
+
+
+def _derive_confidence_semantics(
+    *,
+    comparable_count: int,
+    quality_score: float,
+    quality_label: str,
+    freshness: Literal["fresh", "stale", "unknown"],
+    missing_key_attributes: bool,
+    has_listing: bool,
+    has_market_metrics: bool,
+    evidence_agreement: Literal["aligned", "mixed", "conflicting", "unknown"],
+) -> AdviceConfidenceSemantics:
+    sample_depth = _sample_depth_band(comparable_count)
+    confidence_score = 0
+    confidence_reasons: List[str] = []
+    fallback_reasons: List[str] = []
+    limitations: List[str] = []
+    fallback_state: AdviceConfidenceSemantics.__annotations__["fallback_state"] = "none"
+
+    if sample_depth == "high":
+        confidence_score += 2
+        confidence_reasons.append(f"Comparable sample depth is high with {comparable_count} persisted members.")
+    elif sample_depth == "moderate":
+        confidence_score += 1
+        confidence_reasons.append(f"Comparable sample depth is usable with {comparable_count} persisted members.")
+    elif sample_depth == "low":
+        confidence_score -= 2
+        confidence_reasons.append(f"Comparable sample depth is thin with only {comparable_count} persisted members.")
+        fallback_state = "low_sample"
+        fallback_reasons.append("Comparable sample depth is below the minimum preferred threshold.")
+        limitations.append("Comparable depth is too thin for a strong conviction call.")
+    else:
+        confidence_score -= 3
+        confidence_reasons.append("No persisted comparable sample is available.")
+        fallback_state = "insufficient_evidence"
+        fallback_reasons.append("No comparable evidence is available.")
+        limitations.append("Recommendation relies on partial context without comparable anchors.")
+
+    if quality_score >= 0.78:
+        confidence_score += 2
+        confidence_reasons.append(f"Comparable set quality is strong at {quality_score:.3f}.")
+    elif quality_score >= 0.62:
+        confidence_score += 1
+        confidence_reasons.append(f"Comparable set quality is moderate at {quality_score:.3f}.")
+    else:
+        confidence_score -= 1
+        confidence_reasons.append(f"Comparable set quality is weak ({quality_label or 'unknown'}, {quality_score:.3f}).")
+        limitations.append("Comparable quality is weak, so pricing precision is reduced.")
+
+    if freshness == "fresh":
+        confidence_score += 1
+        confidence_reasons.append("Evidence freshness is within the supported window.")
+    else:
+        confidence_score -= 2
+        confidence_reasons.append("Evidence freshness is stale or unknown.")
+        if fallback_state == "none":
+            fallback_state = "stale_evidence"
+        fallback_reasons.append("Evidence is outside the freshness window for a stable recommendation.")
+        limitations.append("Snapshot should be treated as directional until fresher evidence lands.")
+
+    if missing_key_attributes:
+        confidence_score -= 2
+        confidence_reasons.append("Subject property facts are incomplete.")
+        if fallback_state == "none":
+            fallback_state = "missing_subject_attributes"
+        fallback_reasons.append("Critical subject attributes required for comparable matching are missing.")
+        limitations.append("Similarity scoring is degraded because subject property facts are incomplete.")
+    else:
+        confidence_score += 1
+        confidence_reasons.append("Subject property facts are complete enough for rule-based matching.")
+
+    if not has_listing:
+        confidence_score -= 1
+        confidence_reasons.append("Current listing context is missing.")
+        if fallback_state == "none":
+            fallback_state = "missing_listing_context"
+        fallback_reasons.append("Latest listing status and asking context are unavailable.")
+        limitations.append("Recommendation cannot fully validate current pricing without listing context.")
+    else:
+        confidence_score += 1
+        confidence_reasons.append("Listing-state context is available.")
+
+    if not has_market_metrics:
+        confidence_score -= 1
+        confidence_reasons.append("Suburb market metrics are missing.")
+        if fallback_state == "none":
+            fallback_state = "missing_market_context"
+        fallback_reasons.append("Suburb market metrics are unavailable.")
+        limitations.append("Market context is incomplete because suburb metrics are missing.")
+    else:
+        confidence_score += 1
+        confidence_reasons.append("Suburb market metrics are available.")
+
+    if evidence_agreement == "aligned":
+        confidence_score += 1
+        confidence_reasons.append("Pricing and market signals broadly agree.")
+    elif evidence_agreement == "mixed":
+        confidence_reasons.append("Evidence is mixed across pricing and market signals.")
+        limitations.append("Signals are mixed, so position sizing should stay cautious.")
+    elif evidence_agreement == "conflicting":
+        confidence_score -= 2
+        confidence_reasons.append("Evidence conflicts across pricing and market signals.")
+        fallback_state = "conflicting_evidence"
+        fallback_reasons.append("Material evidence disagreement was detected.")
+        limitations.append("Conflicting signals limit how confidently the snapshot can separate watch vs action.")
+    else:
+        confidence_reasons.append("Evidence agreement could not be fully assessed.")
+
+    if evidence_agreement == "conflicting":
+        confidence_score = min(confidence_score, 3)
+
+    confidence = _coerce_confidence_band(confidence_score)
+    evidence_strength = "strong" if confidence_score >= 4 else "moderate" if confidence_score >= 1 else "weak"
+    return AdviceConfidenceSemantics(
+        confidence=confidence,
+        confidence_reasons=confidence_reasons,
+        fallback_state=fallback_state,
+        fallback_reasons=fallback_reasons,
+        limitations=limitations,
+        freshness=freshness,
+        sample_depth=sample_depth,
+        evidence_agreement=evidence_agreement,
+        evidence_strength=evidence_strength,
+    )
 
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
@@ -776,6 +970,7 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
         warnings: List[str] = []
         fallback_notes: List[str] = []
         rationale_bullets: List[str] = []
+        freshness: Literal["fresh", "stale", "unknown"] = "unknown"
         if comparable_count < 3:
             warnings.append("Comparable evidence is weak; fewer than 3 persisted members are available.")
             fallback_notes.append("Confidence is capped until a denser comparable set is generated.")
@@ -790,20 +985,12 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
         ]
         freshness_anchor = max((d for d in evidence_dates if d is not None), default=None)
         stale_evidence = freshness_anchor is None or (date.today() - freshness_anchor).days > 90
+        freshness = "stale" if stale_evidence else "fresh"
         if stale_evidence:
             warnings.append("Persisted evidence is stale or insufficiently fresh for a stronger recommendation.")
             fallback_notes.append("Treat the snapshot as directional until newer listing, comp, or suburb inputs land.")
-        score = 3
-        if comparable_count < 3:
-            score -= 2
-        elif quality_score >= 0.75:
-            score += 1
-        if not listing:
-            score -= 1
-        if missing_key_attributes:
-            score -= 1
-        if stale_evidence:
-            score -= 1
+        demand_score = _safe_float(metrics[4]) if metrics and len(metrics) > 4 and metrics[4] is not None else None
+        supply_score = _safe_float(metrics[5]) if metrics and len(metrics) > 5 and metrics[5] is not None else None
         if listing_price and market_price and comparable_count >= 3 and not stale_evidence:
             ratio = listing_price / market_price if market_price else 1
             if ratio <= 0.98:
@@ -821,7 +1008,20 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
         else:
             recommendation = "watch"
             rationale_bullets.append("Comparable and market evidence is only partially complete, so stance remains conservative.")
-        confidence = _coerce_confidence_band(score)
+        evidence_agreement = _derive_evidence_agreement(recommendation, listing_price, market_price, demand_score, supply_score)
+        semantics = _derive_confidence_semantics(
+            comparable_count=comparable_count,
+            quality_score=quality_score,
+            quality_label=str(notes.get("quality_label", "unknown")),
+            freshness=freshness,
+            missing_key_attributes=missing_key_attributes,
+            has_listing=bool(listing),
+            has_market_metrics=bool(metrics),
+            evidence_agreement=evidence_agreement,
+        )
+        confidence = semantics.confidence
+        warnings = list(dict.fromkeys(warnings + semantics.fallback_reasons))
+        fallback_notes = list(dict.fromkeys(fallback_notes + semantics.fallback_reasons))
         summary = {
             "consider": "Persisted evidence supports progressing with cautious underwriting.",
             "watch": "Persisted evidence supports monitoring until conviction improves.",
@@ -831,9 +1031,9 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
         if metrics:
             rationale_bullets.append(f"Suburb market temperature is {metrics[6] or 'unknown'} with median sale price anchor ${market_price:,}." if market_price else "Suburb metrics are available but price anchors are incomplete.")
         evidence_summary = AdviceEvidenceSummary(
-            contract_version="phase2.round3",
+            contract_version="phase2.round4",
             algorithm_version=self.algorithm_version,
-            freshness_status=("stale" if stale_evidence else "fresh"),
+            freshness_status=semantics.freshness,
             required_inputs={
                 "property_facts": True,
                 "evidence_freshness": True,
@@ -852,6 +1052,13 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
             ],
             warnings=warnings,
             fallback_notes=fallback_notes,
+            limitations=semantics.limitations,
+            confidence_reasons=semantics.confidence_reasons,
+            fallback_state=semantics.fallback_state,
+            fallback_reasons=semantics.fallback_reasons,
+            sample_depth=semantics.sample_depth,
+            evidence_agreement=semantics.evidence_agreement,
+            evidence_strength=semantics.evidence_strength,
         )
         return PropertyAdvisorResponse(
             data_source=DataSourceStatus(mode="postgres", source="postgres", is_fallback=False, message="Property advice snapshot loaded from PostgreSQL."),
@@ -870,6 +1077,13 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
                 rationale_bullets=rationale_bullets,
                 warnings=warnings,
                 fallback_notes=fallback_notes,
+                confidence_reasons=semantics.confidence_reasons,
+                fallback_state=semantics.fallback_state,
+                fallback_reasons=semantics.fallback_reasons,
+                limitations=semantics.limitations,
+                freshness=semantics.freshness,
+                sample_depth=semantics.sample_depth,
+                evidence_agreement=semantics.evidence_agreement,
                 risks=warnings,
                 strengths=[bullet for bullet in rationale_bullets if "not" not in bullet.lower()][:3],
                 next_steps=[
@@ -890,8 +1104,11 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
                 summary=("No persisted comparable members available." if comparable_count == 0 else f"Using {comparable_count} member(s) from the latest persisted comparable set."),
             ),
             decision_summary=summary,
-            rationale=[AdvisoryRationaleItem(signal=f"Reason {index+1}", stance=("caution" if "stale" in bullet.lower() or "weak" in bullet.lower() else "neutral"), evidence=bullet) for index, bullet in enumerate(rationale_bullets[:3])],
-            investor_signals=[AdvisoryInvestorSignal(title="Evidence freshness", status=("risk" if stale_evidence else "neutral"), detail=("Evidence is stale." if stale_evidence else "Evidence freshness is acceptable."))],
+            rationale=[AdvisoryRationaleItem(signal=f"Reason {index+1}", stance=("caution" if "stale" in bullet.lower() or "weak" in bullet.lower() or "stretched" in bullet.lower() else "neutral"), evidence=bullet) for index, bullet in enumerate(rationale_bullets[:3])],
+            investor_signals=[
+                AdvisoryInvestorSignal(title="Evidence freshness", status=("risk" if stale_evidence else "neutral"), detail=("Evidence is stale." if stale_evidence else "Evidence freshness is acceptable.")),
+                AdvisoryInvestorSignal(title="Evidence agreement", status=("risk" if semantics.evidence_agreement == "conflicting" else "positive" if semantics.evidence_agreement == "aligned" else "neutral"), detail=f"Signals are {semantics.evidence_agreement}."),
+            ],
             summary_cards=[SummaryCard(title="Recommendation", value=recommendation, detail=f"Confidence: {confidence}")],
             workflow_links=[WorkflowLink(label="Open comparables", href=f"/comparables?query={query}", context="Validate the persisted comparable set.")],
             workflow_snapshot=WorkflowSnapshot(stage="property_advisor", primary_suburb_slug=_slugify_suburb(subject[2] or '', subject[3], subject[4]), next_step="Validate persisted comparable evidence before taking action.", next_href=f"/comparables?query={query}", investor_message="Persisted advice snapshots should be reviewed alongside comps and watchlist context."),
@@ -899,14 +1116,14 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
                 query=query,
                 query_type=("slug" if query_type == "auto" and "-" in query and "," not in query else query_type),
                 suburb_slug=_slugify_suburb(subject[2] or '', subject[3], subject[4]),
-                contract_version="phase2.round3",
+                contract_version="phase2.round4",
                 required_persisted_inputs={"property_facts": True, "evidence_freshness": True, "algorithm_version": True},
                 optional_persisted_inputs={"listing_facts": bool(listing), "suburb_metrics": bool(metrics), "comparable_set": bool(comparable_rows)},
                 missing_data_behavior={
-                    "weak_comparable_evidence": "Downgrade confidence to low and keep recommendation at watch unless pricing is clearly stretched.",
+                    "weak_comparable_evidence": "Lower confidence explicitly while keeping recommendation polarity separate from evidence strength.",
                     "missing_listing_facts": "Retain advice using comparables and suburb metrics, and emit explicit warnings.",
                     "missing_key_property_attributes": "Keep watch stance and note degraded similarity quality.",
-                    "stale_or_insufficient_evidence": "Treat snapshot as directional and surface fallback notes.",
+                    "stale_or_insufficient_evidence": "Treat snapshot as directional and surface explicit fallback state and limitations.",
                 },
             ),
         )
@@ -932,6 +1149,13 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
             "rationale_bullets": payload.advice.rationale_bullets,
             "warnings": payload.advice.warnings,
             "fallback_notes": payload.advice.fallback_notes,
+            "confidence_reasons": payload.advice.confidence_reasons,
+            "fallback_state": payload.advice.fallback_state,
+            "fallback_reasons": payload.advice.fallback_reasons,
+            "limitations": payload.advice.limitations,
+            "freshness": payload.advice.freshness,
+            "sample_depth": payload.advice.sample_depth,
+            "evidence_agreement": payload.advice.evidence_agreement,
             "evidence_summary": payload.advice.evidence_summary.model_dump(),
             "query": query,
         }
@@ -1039,7 +1263,7 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
             return super().get_by_address_or_slug(query)
         metrics = _parse_json_payload(row[10], {})
         evidence_summary = AdviceEvidenceSummary.model_validate(metrics.get("evidence_summary") or {
-            "contract_version": "phase2.round3",
+            "contract_version": "phase2.round4",
             "algorithm_version": row[11] or self.algorithm_version,
             "freshness_status": "unknown",
             "required_inputs": {"property_facts": True, "evidence_freshness": True, "algorithm_version": True},
@@ -1047,6 +1271,13 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
             "sections": [],
             "warnings": metrics.get("warnings", []),
             "fallback_notes": metrics.get("fallback_notes", []),
+            "limitations": metrics.get("limitations", []),
+            "confidence_reasons": metrics.get("confidence_reasons", []),
+            "fallback_state": metrics.get("fallback_state", "none"),
+            "fallback_reasons": metrics.get("fallback_reasons", []),
+            "sample_depth": metrics.get("sample_depth", "none"),
+            "evidence_agreement": metrics.get("evidence_agreement", "unknown"),
+            "evidence_strength": metrics.get("evidence_strength", "weak"),
         })
         self.last_source = "postgres"
         self.last_fallback_reason = None
@@ -1059,10 +1290,17 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
                 rationale_bullets=list(metrics.get("rationale_bullets") or []),
                 warnings=list(metrics.get("warnings") or []),
                 fallback_notes=list(metrics.get("fallback_notes") or []),
+                confidence_reasons=list(metrics.get("confidence_reasons") or []),
+                fallback_state=metrics.get("fallback_state") or "none",
+                fallback_reasons=list(metrics.get("fallback_reasons") or []),
+                limitations=list(metrics.get("limitations") or []),
+                freshness=metrics.get("freshness") or evidence_summary.freshness_status,
+                sample_depth=metrics.get("sample_depth") or "none",
+                evidence_agreement=metrics.get("evidence_agreement") or "unknown",
                 risks=list(metrics.get("warnings") or []), strengths=list(metrics.get("rationale_bullets") or [])[:3], next_steps=list(PROPERTY_ADVISOR_FIXTURE.advice.next_steps), evidence_summary=evidence_summary,
             ),
             "decision_summary": metrics.get("decision_summary") or row[9] or PROPERTY_ADVISOR_FIXTURE.decision_summary,
-            "inputs": PROPERTY_ADVISOR_FIXTURE.inputs.model_copy(update={"contract_version": "phase2.round3"}),
+            "inputs": PROPERTY_ADVISOR_FIXTURE.inputs.model_copy(update={"contract_version": "phase2.round4"}),
         })
 
 
