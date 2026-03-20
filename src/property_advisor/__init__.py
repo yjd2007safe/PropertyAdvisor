@@ -7,4 +7,6 @@ __all__ = [
     "ingest",
     "market_metrics",
     "normalize",
+    "notifications",
+    "pipeline",
 ]
