@@ -9,6 +9,7 @@ from property_advisor.api.repositories import (
     WatchlistQuery,
     ComparableCandidate,
     ComparableSubject,
+    score_comparable_candidates,
     select_comparable_candidates,
 )
 from property_advisor.api.services import (
@@ -197,6 +198,53 @@ def test_select_comparable_candidates_applies_feature_bands_and_recency() -> Non
 
     selected = select_comparable_candidates(subject, candidates, max_items=5)
     assert [candidate.property_id for candidate in selected] == ["keep"]
+
+
+def test_score_comparable_candidates_exposes_rationale_and_orders_by_similarity() -> None:
+    subject = ComparableSubject(
+        property_id="subject-1",
+        address="1 Subject St, Southport QLD 4215",
+        suburb_name="Southport",
+        state_code="QLD",
+        postcode="4215",
+        property_type="house",
+        bedrooms=3,
+        bathrooms=2,
+    )
+    candidates = [
+        ComparableCandidate(
+            property_id="near-best",
+            address="2 Near St, Southport QLD 4215",
+            suburb_name="Southport",
+            suburb_slug="southport-qld-4215",
+            property_type="house",
+            sale_price=905000,
+            sale_date="2026-03-10",
+            bedrooms=3,
+            bathrooms=2,
+            metadata={"distance_km": 0.4, "subject_price": 900000},
+        ),
+        ComparableCandidate(
+            property_id="far-weaker",
+            address="9 Far St, Labrador QLD 4215",
+            suburb_name="Labrador",
+            suburb_slug="labrador-qld-4215",
+            property_type="unit",
+            sale_price=980000,
+            sale_date="2025-05-10",
+            bedrooms=4,
+            bathrooms=3,
+            metadata={"distance_km": 7.2, "subject_price": 900000},
+        ),
+    ]
+
+    scored = score_comparable_candidates(subject, candidates, max_items=5)
+
+    assert [item.candidate.property_id for item in scored] == ["near-best", "far-weaker"]
+    assert scored[0].similarity_score > scored[1].similarity_score
+    assert scored[0].rationale["same_suburb"] is True
+    assert "price_relevance_score" in scored[0].rationale
+    assert scored[1].rationale["same_property_type"] is False
 
 
 def test_watchlist_grouping_and_alert_count_summary() -> None:
@@ -683,3 +731,137 @@ def test_postgres_comparables_keeps_db_source_when_seeded_rows_exist_but_query_h
     assert response.items
     assert response.data_source.source == "fallback_mock"
     assert response.data_source.is_fallback is True
+
+
+def test_postgres_comparable_generation_is_idempotent_for_same_version(monkeypatch) -> None:
+    dal = DataAccessLayer.create(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+    state = {"set_id": None, "member_inserts": 0, "member_deletes": 0}
+
+    class _Cursor:
+        def __init__(self):
+            self.query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            self.query = " ".join(query.split()).lower()
+            self.params = params
+            if self.query.startswith("delete from comparable_members"):
+                state["member_deletes"] += 1
+            elif self.query.startswith("insert into comparable_members"):
+                state["member_inserts"] += 1
+            elif self.query.startswith("insert into comparable_sets"):
+                state["set_id"] = params[0]
+
+        def fetchone(self):
+            if "from properties p" in self.query:
+                return ("subject-1", "10 Sample Ave", "Southport", "QLD", "4215", "house", 3, 2)
+            if "from comparable_sets" in self.query:
+                return (state["set_id"],) if state["set_id"] else None
+            return None
+
+        def fetchall(self):
+            if "from sales_events se" in self.query:
+                return [
+                    ("comp-1", "12 Nerang St", "Southport", "QLD", "4215", "house", 910000, "2026-03-10", 3, 2, {"distance_km": 0.42, "subject_price": 900000}),
+                    ("comp-2", "14 Queen St", "Southport", "QLD", "4215", "house", 895000, "2026-03-03", 3, 2, {"distance_km": 0.66, "subject_price": 900000}),
+                ]
+            if "join comparable_members cm" in self.query:
+                return []
+            return []
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", lambda *args, **kwargs: _Conn())
+
+    first = dal.comparables.generate_comparable_set(ComparableQuery(query="southport-qld-4215", max_items=5))
+    second = dal.comparables.generate_comparable_set(ComparableQuery(query="southport-qld-4215", max_items=5))
+
+    assert first.set_id == second.set_id
+    assert first.algorithm_version == "phase2.round2.v1"
+    assert state["member_deletes"] == 1
+    assert state["member_inserts"] == 4
+
+
+def test_service_comparables_prefers_latest_persisted_set_when_available(monkeypatch) -> None:
+    dal = DataAccessLayer.create(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    class _Cursor:
+        def __init__(self):
+            self.query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            self.query = " ".join(query.split()).lower()
+
+        def fetchone(self):
+            if "from properties p" in self.query:
+                return ("subject-1", "10 Sample Ave", "Southport", "QLD", "4215", "house", 3, 2)
+            return None
+
+        def fetchall(self):
+            if "join comparable_members cm" in self.query:
+                return [
+                    (
+                        "set-1",
+                        "phase2.round2.v1",
+                        "2026-03-19T00:00:00+00:00",
+                        0.812,
+                        '{"quality_label": "high"}',
+                        "comp-1",
+                        "12 Nerang St",
+                        "Southport",
+                        "QLD",
+                        "4215",
+                        910000,
+                        0.42,
+                        '{"same_suburb": true, "price_delta_pct": 1.1}',
+                        "persisted high-confidence comparable",
+                        0.88,
+                        "2026-03-10",
+                        3,
+                        2,
+                    )
+                ]
+            return []
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", lambda *args, **kwargs: _Conn())
+
+    response = get_comparables(query="southport-qld-4215", max_items=5, dal=dal)
+
+    assert response.set_quality == "persisted-high"
+    assert response.summary.algorithm_version == "phase2.round2.v1"
+    assert response.summary.quality_score == 0.812
+    assert response.items[0].score == 0.88
+    assert response.items[0].rationale["same_suburb"] is True
