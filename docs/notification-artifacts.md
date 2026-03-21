@@ -1,15 +1,17 @@
 # Notification Artifacts
 
-`PropertyAdvisor` now persists local pipeline notification artifacts under `.dev_pipeline/notifications/`.
+The shared notification runtime persists local pipeline notification artifacts under `.dev_pipeline/notifications/`.
 
-This slice is intentionally narrow:
+This runtime is intentionally narrow and app-agnostic:
 
 - notification artifacts are plain JSON files and the local filesystem is the stable source of truth
-- the schema is versioned in `src/shared_notifications/artifact_schema.py` (with a PropertyAdvisor adapter)
+- the schema is versioned in `src/shared_notifications/artifact_schema.py`
 - the writer persists before any external delivery attempt
 - external delivery failures are recorded in the artifact and do not block persistence
 - the consumer tracks processed `event_id` values in `.dev_pipeline/notifications/.consumer_state.json`
 - the relay/replay path renders a durable local delivery log at `.dev_pipeline/notifications/delivery_log.jsonl`
+
+`PropertyAdvisor` is an integration example via a thin adapter layer, not the owner of the shared runtime.
 
 ## Artifact contract
 
@@ -56,7 +58,7 @@ Supported `event_type` values in this round:
 ## Minimal usage
 
 ```python
-from property_advisor.pipeline.notification_hooks import PipelineNotificationHooks
+from shared_notifications.hooks import PipelineNotificationHooks
 
 hooks = PipelineNotificationHooks(
     project="PropertyAdvisor",
@@ -72,14 +74,40 @@ hooks.ready_for_evaluation(summary="Ready for evaluation")
 hooks.completed(summary="Round completed")
 ```
 
-For existing local Southport pipeline entry points, `run_southport_refresh()` now emits `round_started`, `blocked`, `completed`, and `interrupted` artifacts, while `verify_southport_demo_slice()` emits `ready_for_evaluation`, `evaluated`, and `evaluation_failed`.
+PropertyAdvisor exposes the shared runtime through `property_advisor.notifications` and uses it in its pipeline hooks, but the runtime is designed to stand alone.
+
+## CLI usage
+
+The shared runtime ships with a shell-friendly CLI entrypoint for pipeline automation.
+On success it prints machine-friendly JSON with the artifact or replay summary.
+
+Emit a notification artifact:
+
+```bash
+python -m shared_notifications.cli emit \\
+  --project PropertyAdvisor \\
+  --phase phase2 \\
+  --round round5 \\
+  --slice-id phase2-round5-notification-artifact-foundation \\
+  --event-type round_started \\
+  --status started \\
+  --summary \"Round started\" \\
+  --details-json '{\"notes\": \"hello\"}'
+```
+
+Replay pending artifacts and update the local delivery log:
+
+```bash
+python -m shared_notifications.cli replay \\
+  --artifact-path .dev_pipeline/notifications
+```
 
 ## Relay / replay
 
 `NotificationRelay` replays pending notification artifacts and writes a durable local delivery log. It is idempotent by `event_id` and safe to rerun for backfills.
 
 ```python
-from property_advisor.notifications.relay import NotificationRelay
+from shared_notifications.relay import NotificationRelay
 
 relay = NotificationRelay(artifact_path=".dev_pipeline/notifications")
 delivered = relay.replay_pending()
