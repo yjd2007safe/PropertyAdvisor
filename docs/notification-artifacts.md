@@ -9,6 +9,7 @@ This slice is intentionally narrow:
 - the writer persists before any external delivery attempt
 - external delivery failures are recorded in the artifact and do not block persistence
 - the consumer tracks processed `event_id` values in `.dev_pipeline/notifications/.consumer_state.json`
+- the relay/replay path renders a durable local delivery log at `.dev_pipeline/notifications/delivery_log.jsonl`
 
 ## Artifact contract
 
@@ -72,3 +73,16 @@ hooks.completed(summary="Round completed")
 ```
 
 For existing local Southport pipeline entry points, `run_southport_refresh()` now emits `round_started`, `blocked`, `completed`, and `interrupted` artifacts, while `verify_southport_demo_slice()` emits `ready_for_evaluation`, `evaluated`, and `evaluation_failed`.
+
+## Relay / replay
+
+`NotificationRelay` replays pending notification artifacts and writes a durable local delivery log. It is idempotent by `event_id` and safe to rerun for backfills.
+
+```python
+from property_advisor.notifications.relay import NotificationRelay
+
+relay = NotificationRelay(artifact_path=".dev_pipeline/notifications")
+delivered = relay.replay_pending()
+```
+
+Each line in `delivery_log.jsonl` is a JSON record containing `event_id`, `event_type`, `created_at`, `delivered_at`, `rendered_text`, and the rendered `payload`.
