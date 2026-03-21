@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from property_advisor.notifications.artifact_writer import NotificationArtifactWriter
+from shared_notifications.artifact_writer import NotificationArtifactWriter
 
 
 def test_writer_persists_notification_artifact(tmp_path) -> None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from property_advisor.notifications.artifact_consumer import NotificationArtifactConsumer
-from property_advisor.notifications.artifact_writer import NotificationArtifactWriter
+from shared_notifications.artifact_consumer import NotificationArtifactConsumer
+from shared_notifications.artifact_writer import NotificationArtifactWriter
 
 
 def test_consumer_reads_and_processes_each_event_id_once(tmp_path) -> None:

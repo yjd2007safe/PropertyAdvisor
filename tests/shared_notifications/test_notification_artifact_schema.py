@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from property_advisor.notifications.artifact_schema import (
+from shared_notifications.artifact_schema import (
     NOTIFICATION_SCHEMA_VERSION,
     build_notification_artifact,
     validate_notification_artifact,

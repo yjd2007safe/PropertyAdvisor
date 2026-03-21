@@ -5,7 +5,7 @@
 This slice is intentionally narrow:
 
 - notification artifacts are plain JSON files and the local filesystem is the stable source of truth
-- the schema is versioned in `src/property_advisor/notifications/artifact_schema.py`
+- the schema is versioned in `src/shared_notifications/artifact_schema.py` (with a PropertyAdvisor adapter)
 - the writer persists before any external delivery attempt
 - external delivery failures are recorded in the artifact and do not block persistence
 - the consumer tracks processed `event_id` values in `.dev_pipeline/notifications/.consumer_state.json`

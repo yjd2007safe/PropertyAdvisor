@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from property_advisor.notifications.artifact_writer import NotificationArtifactWriter
-from property_advisor.notifications.relay import NotificationRelay
+from shared_notifications.artifact_writer import NotificationArtifactWriter
+from shared_notifications.relay import NotificationRelay
 
 
 def _read_jsonl(path):
