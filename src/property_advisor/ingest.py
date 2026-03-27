@@ -10,10 +10,14 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
+import os
+
 from property_advisor.market_metrics import generate_suburb_market_metrics
 from property_advisor.pipeline.notification_hooks import PipelineNotificationHooks
 
 import psycopg
+
+from shared_notifications.openclaw_delivery import deliver_to_openclaw_session, resolve_session_key
 
 
 @dataclass
@@ -894,16 +898,37 @@ SOUTHPORT_SAFE_RERUN_STEPS = [
 
 
 def _build_southport_notification_hooks() -> PipelineNotificationHooks:
+    session_key = resolve_session_key()
+    delivery_targets = []
+    origin = {
+        "channel": "local_pipeline",
+        "session_key": session_key or "southport-demo-pipeline",
+        "reply_mode": "reply" if session_key else "artifact_only",
+    }
+    delivery_handler = None
+    if session_key:
+        delivery_targets.append(
+            {
+                "channel": "openclaw-session",
+                "session_key": session_key,
+                "reply_mode": "reply",
+            }
+        )
+        timeout_seconds = int(os.environ.get("OPENCLAW_NOTIFICATION_TIMEOUT_SECONDS", "0") or "0")
+        delivery_handler = lambda artifact: deliver_to_openclaw_session(
+            artifact,
+            session_key=session_key,
+            timeout_seconds=timeout_seconds,
+        )
+
     return PipelineNotificationHooks(
         project="PropertyAdvisor",
         phase="phase1",
         round="round6",
         slice_id=SOUTHPORT_SLICE_ID,
-        origin={
-            "channel": "local_pipeline",
-            "session_key": "southport-demo-pipeline",
-            "reply_mode": "artifact_only",
-        },
+        origin=origin,
+        delivery_targets=delivery_targets,
+        delivery_handler=delivery_handler,
     )
 
 

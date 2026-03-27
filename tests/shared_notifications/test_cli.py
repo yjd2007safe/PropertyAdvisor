@@ -103,3 +103,46 @@ def test_cli_replay_idempotent(tmp_path, capsys):
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["replayed_count"] == 0
+
+
+def test_cli_replay_can_forward_to_openclaw_session(tmp_path, capsys, monkeypatch):
+    artifact_dir = tmp_path / ".dev_pipeline" / "notifications"
+    writer = NotificationArtifactWriter(artifact_dir)
+    writer.write_event(
+        event_type="completed",
+        project="PropertyAdvisor",
+        phase="phase1",
+        round="round1",
+        slice_id="slice1",
+        status="completed",
+        summary="Done",
+        event_id="event-3",
+    )
+
+    captured = {}
+
+    def fake_deliver(artifact, *, session_key=None, timeout_seconds=0):
+        captured["event_id"] = artifact["event_id"]
+        captured["session_key"] = session_key
+        captured["timeout_seconds"] = timeout_seconds
+        return {"status": "sent"}
+
+    monkeypatch.setattr(cli, "deliver_to_openclaw_session", fake_deliver)
+
+    exit_code = cli.main(
+        [
+            "replay",
+            "--artifact-path",
+            str(artifact_dir),
+            "--openclaw-session-key",
+            "agent:main:test",
+        ]
+    )
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["replayed_count"] == 1
+    assert captured == {
+        "event_id": "event-3",
+        "session_key": "agent:main:test",
+        "timeout_seconds": 0,
+    }

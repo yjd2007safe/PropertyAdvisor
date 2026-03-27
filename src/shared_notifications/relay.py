@@ -19,6 +19,7 @@ class NotificationRelay:
         delivery_log_path: Path | None = None,
         state_path: Path | None = None,
         renderer: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+        delivery_handler: Callable[[dict[str, Any]], Mapping[str, Any]] | None = None,
     ) -> None:
         self.artifact_path = Path(artifact_path)
         self.delivery_log_path = (
@@ -31,6 +32,7 @@ class NotificationRelay:
             state_path=state_path,
         )
         self.renderer = renderer or render_notification_payload
+        self.delivery_handler = delivery_handler
 
     def replay_pending(self) -> list[dict[str, Any]]:
         delivered: list[dict[str, Any]] = []
@@ -38,6 +40,9 @@ class NotificationRelay:
         def handle(artifact: dict[str, Any]) -> None:
             validate_notification_artifact(artifact)
             payload = dict(self.renderer(artifact))
+            delivery_result = None
+            if self.delivery_handler is not None:
+                delivery_result = dict(self.delivery_handler(dict(artifact)))
             record = {
                 "event_id": artifact["event_id"],
                 "event_type": artifact["event_type"],
@@ -46,6 +51,8 @@ class NotificationRelay:
                 "payload": payload,
                 "rendered_text": render_notification_text(artifact),
             }
+            if delivery_result is not None:
+                record["delivery_result"] = delivery_result
             self._append_delivery(record)
             delivered.append(record)
 

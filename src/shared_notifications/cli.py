@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .artifact_writer import NotificationArtifactWriter
+from .openclaw_delivery import deliver_to_openclaw_session
 from .relay import NotificationRelay
 
 DEFAULT_ARTIFACT_PATH = Path(".dev_pipeline/notifications")
@@ -60,6 +61,16 @@ def _build_parser() -> argparse.ArgumentParser:
     replay_parser.add_argument("--artifact-path", default=str(DEFAULT_ARTIFACT_PATH))
     replay_parser.add_argument("--delivery-log-path")
     replay_parser.add_argument("--state-path")
+    replay_parser.add_argument(
+        "--openclaw-session-key",
+        help="Deliver replayed notifications into the specified OpenClaw session.",
+    )
+    replay_parser.add_argument(
+        "--openclaw-timeout-seconds",
+        type=int,
+        default=0,
+        help="sessions.send timeoutSeconds value for OpenClaw delivery (default: 0 fire-and-forget).",
+    )
     replay_parser.set_defaults(func=_handle_replay)
 
     return parser
@@ -98,10 +109,19 @@ def _handle_replay(args: argparse.Namespace) -> int:
     delivery_log_path = Path(args.delivery_log_path) if args.delivery_log_path else None
     state_path = Path(args.state_path) if args.state_path else None
 
+    delivery_handler = None
+    if args.openclaw_session_key:
+        delivery_handler = lambda artifact: deliver_to_openclaw_session(
+            artifact,
+            session_key=args.openclaw_session_key,
+            timeout_seconds=args.openclaw_timeout_seconds,
+        )
+
     relay = NotificationRelay(
         artifact_path=artifact_path,
         delivery_log_path=delivery_log_path,
         state_path=state_path,
+        delivery_handler=delivery_handler,
     )
     delivered = relay.replay_pending()
     resolved_delivery_log_path = delivery_log_path or artifact_path / "delivery_log.jsonl"

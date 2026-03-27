@@ -57,3 +57,28 @@ def test_relay_replays_pending_artifacts_once(tmp_path) -> None:
     assert [record["event_id"] for record in lines] == ["evt-1", "evt-2"]
     assert all("rendered_text" in record for record in lines)
     assert all("payload" in record for record in lines)
+
+
+def test_relay_can_forward_to_delivery_handler(tmp_path) -> None:
+    base_path = tmp_path / ".dev_pipeline" / "notifications"
+    writer = NotificationArtifactWriter(base_path)
+    delivered = []
+    relay = NotificationRelay(
+        artifact_path=base_path,
+        delivery_handler=lambda artifact: delivered.append(artifact["event_id"]) or {"status": "sent"},
+    )
+
+    writer.write_event(
+        event_type="completed",
+        project="PropertyAdvisor",
+        phase="phase2",
+        round="round5",
+        slice_id="phase2-round5-notification-artifact-foundation",
+        status="completed",
+        summary="done",
+        event_id="evt-forward-1",
+    )
+
+    replayed = relay.replay_pending()
+    assert delivered == ["evt-forward-1"]
+    assert replayed[0]["delivery_result"]["status"] == "sent"

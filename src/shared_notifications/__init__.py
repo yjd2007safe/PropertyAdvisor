@@ -10,8 +10,9 @@ from .artifact_schema import (
 )
 from .artifact_writer import NotificationArtifactWriter
 from .hooks import PipelineNotificationHooks
+from .openclaw_delivery import build_sessions_send_params, deliver_to_openclaw_session, resolve_session_key
 from .relay import NotificationRelay
-from .render import render_notification_payload, render_notification_text
+from .render import render_notification_payload, render_notification_text, render_openclaw_message
 
 __all__ = [
     "NOTIFICATION_EVENT_TYPES",
@@ -21,8 +22,12 @@ __all__ = [
     "NotificationRelay",
     "PipelineNotificationHooks",
     "build_notification_artifact",
+    "build_sessions_send_params",
+    "deliver_to_openclaw_session",
     "render_notification_payload",
     "render_notification_text",
+    "render_openclaw_message",
+    "resolve_session_key",
     "utc_now_iso",
     "validate_notification_artifact",
 ]
