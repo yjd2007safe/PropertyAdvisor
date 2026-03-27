@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Protocol
+from typing import Any, Iterable, Mapping, Protocol
 
 from shared_notifications.artifact_consumer import NotificationArtifactConsumer
 from shared_notifications.artifact_schema import utc_now_iso, validate_notification_artifact
@@ -96,23 +96,79 @@ class OpenClawNotificationBridge:
                 break
         return pending
 
+    def build_pending_records(self, *, limit: int | None = None) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for artifact in self.collect_pending(limit=limit):
+            records.append(
+                {
+                    "event_id": artifact["event_id"],
+                    "event_type": artifact["event_type"],
+                    "session_key": self.session_key,
+                    "message": render_openclaw_message(artifact),
+                    "created_at": artifact["created_at"],
+                    "artifact": artifact,
+                }
+            )
+        return records
+
+    def mark_delivered(
+        self,
+        *,
+        artifact: Mapping[str, Any],
+        session_key: str | None,
+        delivery_result: Mapping[str, Any] | None = None,
+        status: str = "sent",
+    ) -> dict[str, Any]:
+        attempted_at = utc_now_iso()
+        record = {
+            "event_id": artifact["event_id"],
+            "event_type": artifact["event_type"],
+            "session_key": session_key,
+            "message": render_openclaw_message(artifact),
+            "created_at": artifact["created_at"],
+            "attempted_at": attempted_at,
+            "status": status,
+        }
+        if delivery_result is not None:
+            record["delivery_result"] = dict(delivery_result)
+        state = self._load_state()
+        state[artifact["event_id"]] = attempted_at
+        self._store_state(state)
+        self._append_delivery_log(record)
+        return record
+
+    def mark_failed(
+        self,
+        *,
+        artifact: Mapping[str, Any],
+        session_key: str | None,
+        error: str,
+    ) -> dict[str, Any]:
+        record = {
+            "event_id": artifact["event_id"],
+            "event_type": artifact["event_type"],
+            "session_key": session_key,
+            "message": render_openclaw_message(artifact),
+            "created_at": artifact["created_at"],
+            "attempted_at": utc_now_iso(),
+            "status": "failed",
+            "error": error,
+        }
+        self._append_delivery_log(record)
+        return record
+
     def replay_pending(self, *, limit: int | None = None, dry_run: bool = False) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
-        state = self._load_state()
-        pending = self.collect_pending(limit=limit)
-        for artifact in pending:
-            message = render_openclaw_message(artifact)
-            record = {
-                "event_id": artifact["event_id"],
-                "event_type": artifact["event_type"],
-                "session_key": self.session_key,
-                "message": message,
-                "created_at": artifact["created_at"],
-                "attempted_at": utc_now_iso(),
-            }
+        for pending in self.build_pending_records(limit=limit):
+            artifact = pending["artifact"]
             try:
                 if dry_run:
-                    delivery_result: Mapping[str, Any] = {"status": "dry-run"}
+                    record = self.mark_delivered(
+                        artifact=artifact,
+                        session_key=self.session_key,
+                        delivery_result={"status": "dry-run"},
+                        status="dry-run",
+                    )
                 else:
                     if not self.session_key:
                         raise RuntimeError(
@@ -120,17 +176,21 @@ class OpenClawNotificationBridge:
                         )
                     delivery_result = self.sender.send(
                         session_key=self.session_key,
-                        message=message,
+                        message=pending["message"],
                         artifact=artifact,
                     )
-                record["status"] = "sent" if not dry_run else "dry-run"
-                record["delivery_result"] = dict(delivery_result)
-                state[artifact["event_id"]] = record["attempted_at"]
-                self._store_state(state)
+                    record = self.mark_delivered(
+                        artifact=artifact,
+                        session_key=self.session_key,
+                        delivery_result=delivery_result,
+                        status="sent",
+                    )
             except Exception as exc:  # noqa: BLE001
-                record["status"] = "failed"
-                record["error"] = str(exc)
-            self._append_delivery_log(record)
+                record = self.mark_failed(
+                    artifact=artifact,
+                    session_key=self.session_key,
+                    error=str(exc),
+                )
             records.append(record)
         return records
 

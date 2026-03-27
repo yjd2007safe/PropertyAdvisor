@@ -143,3 +143,32 @@ def test_bridge_dry_run_records_without_sender(tmp_path) -> None:
     assert lines[0]["status"] == "dry-run"
     state = json.loads(bridge.state_path.read_text())
     assert "evt-bridge-4" in state["delivered_event_ids"]
+
+
+def test_bridge_can_collect_and_ack_without_sender(tmp_path) -> None:
+    artifact_dir = tmp_path / ".dev_pipeline" / "notifications"
+    writer = NotificationArtifactWriter(artifact_dir)
+    bridge = OpenClawNotificationBridge(artifact_path=artifact_dir, session_key="agent:main:test")
+
+    writer.write_event(
+        event_type="completed",
+        project="PropertyAdvisor",
+        phase="phase1",
+        round="round6",
+        slice_id="southport-qld-4215",
+        status="completed",
+        summary="Refresh done",
+        event_id="evt-bridge-5",
+    )
+
+    pending = bridge.build_pending_records()
+    assert pending[0]["event_id"] == "evt-bridge-5"
+    assert "PropertyAdvisor notification: Refresh done" in pending[0]["message"]
+
+    record = bridge.mark_delivered(
+        artifact=pending[0]["artifact"],
+        session_key="agent:main:test",
+        delivery_result={"status": "sent"},
+    )
+    assert record["status"] == "sent"
+    assert bridge.build_pending_records() == []
