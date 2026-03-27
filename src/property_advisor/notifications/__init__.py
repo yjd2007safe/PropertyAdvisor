@@ -20,6 +20,7 @@ from .openclaw_bridge import (
     DEFAULT_DELIVERY_LOG_FILENAME,
     DEFAULT_EVENT_TYPES,
     DEFAULT_STATE_FILENAME,
+    NotificationSender,
     OpenClawNotificationBridge,
     OpenClawSessionSender,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "DEFAULT_EVENT_TYPES",
     "DEFAULT_STATE_FILENAME",
     "NotificationRelay",
+    "NotificationSender",
     "OpenClawNotificationBridge",
     "OpenClawSessionSender",
     "PipelineNotificationHooks",
