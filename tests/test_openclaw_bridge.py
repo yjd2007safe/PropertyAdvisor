@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from property_advisor.notifications.openclaw_bridge import OpenClawNotificationBridge
 from shared_notifications.artifact_writer import NotificationArtifactWriter
+from shared_notifications.openclaw_bridge import OpenClawNotificationBridge
 
 
 class RecordingSender:

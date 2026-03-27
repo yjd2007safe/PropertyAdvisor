@@ -10,6 +10,14 @@ from .artifact_schema import (
 )
 from .artifact_writer import NotificationArtifactWriter
 from .hooks import PipelineNotificationHooks
+from .openclaw_bridge import (
+    DEFAULT_ARTIFACT_PATH,
+    DEFAULT_DELIVERY_LOG_FILENAME,
+    DEFAULT_EVENT_TYPES,
+    DEFAULT_STATE_FILENAME,
+    OpenClawNotificationBridge,
+    OpenClawSessionSender,
+)
 from .openclaw_delivery import build_sessions_send_params, deliver_to_openclaw_session, resolve_session_key
 from .relay import NotificationRelay
 from .render import render_notification_payload, render_notification_text, render_openclaw_message
@@ -19,7 +27,13 @@ __all__ = [
     "NOTIFICATION_SCHEMA_VERSION",
     "NotificationArtifactConsumer",
     "NotificationArtifactWriter",
+    "DEFAULT_ARTIFACT_PATH",
+    "DEFAULT_DELIVERY_LOG_FILENAME",
+    "DEFAULT_EVENT_TYPES",
+    "DEFAULT_STATE_FILENAME",
     "NotificationRelay",
+    "OpenClawNotificationBridge",
+    "OpenClawSessionSender",
     "PipelineNotificationHooks",
     "build_notification_artifact",
     "build_sessions_send_params",

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from property_advisor.notifications.openclaw_bridge_cli import main
 from shared_notifications.artifact_writer import NotificationArtifactWriter
+from shared_notifications.openclaw_bridge_cli import main
 
 
 def test_bridge_cli_dry_run(tmp_path, capsys) -> None:
