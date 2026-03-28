@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from .render import render_openclaw_message
 
 DEFAULT_TIMEOUT_SECONDS = 15
+_GATEWAY_TOKEN_ENV_VAR = "OPENCLAW_GATEWAY_TOKEN"
 _SESSION_KEY_ENV_VARS = (
     "OPENCLAW_NOTIFICATION_SESSION_KEY",
     "PROPERTY_ADVISOR_NOTIFICATION_SESSION_KEY",
@@ -32,6 +34,40 @@ def build_sessions_send_params(*, artifact: Mapping[str, Any], session_key: str,
     }
 
 
+def _resolve_gateway_token() -> Optional[str]:
+    env_token = os.environ.get(_GATEWAY_TOKEN_ENV_VAR)
+    if env_token and env_token.strip():
+        return env_token.strip()
+
+    config_path = Path.home() / ".openclaw" / "openclaw.json"
+    if not config_path.exists():
+        return None
+
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    token = payload.get("gateway", {}).get("auth", {}).get("token")
+    if isinstance(token, str) and token.strip():
+        return token.strip()
+    return None
+
+
+def _build_agent_command(*, artifact: Mapping[str, Any], session_key: str, timeout_seconds: int) -> list[str]:
+    return [
+        "openclaw",
+        "agent",
+        "--to",
+        session_key,
+        "--message",
+        render_openclaw_message(artifact),
+        "--timeout",
+        str(timeout_seconds),
+        "--json",
+    ]
+
+
 def deliver_to_openclaw_session(
     artifact: Mapping[str, Any],
     *,
@@ -51,20 +87,23 @@ def deliver_to_openclaw_session(
         session_key=resolved_session_key,
         timeout_seconds=timeout_seconds,
     )
+    command = _build_agent_command(
+        artifact=artifact,
+        session_key=resolved_session_key,
+        timeout_seconds=timeout_seconds,
+    )
+    env = os.environ.copy()
+    gateway_token = _resolve_gateway_token()
+    if gateway_token:
+        env.setdefault(_GATEWAY_TOKEN_ENV_VAR, gateway_token)
+
     result = subprocess.run(
-        [
-            "openclaw",
-            "gateway",
-            "call",
-            "sessions.send",
-            "--params",
-            json.dumps(params, ensure_ascii=False),
-            "--json",
-        ],
+        command,
         capture_output=True,
         text=True,
         timeout=cli_timeout_seconds,
         check=True,
+        env=env,
     )
 
     payload: dict[str, Any]
