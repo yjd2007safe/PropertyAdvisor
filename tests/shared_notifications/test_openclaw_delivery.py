@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from shared_notifications.openclaw_delivery import (
+    _DEFAULT_GATEWAY_URL,
     _GATEWAY_TOKEN_ENV_VAR,
     build_sessions_send_params,
     deliver_to_openclaw_session,
@@ -44,19 +45,16 @@ def test_build_sessions_send_params_renders_message() -> None:
 def test_deliver_to_openclaw_session_calls_gateway(monkeypatch) -> None:
     captured = {}
 
-    class Result:
-        stdout = json.dumps({"status": "accepted", "runId": "run-123"})
+    def fake_gateway_request(*, method, params, gateway_url, gateway_token, timeout_seconds):
+        captured["method"] = method
+        captured["params"] = params
+        captured["gateway_url"] = gateway_url
+        captured["gateway_token"] = gateway_token
+        captured["timeout_seconds"] = timeout_seconds
+        return {"status": "accepted", "runId": "run-123"}
 
-    def fake_run(cmd, capture_output, text, timeout, check, env):
-        captured["cmd"] = cmd
-        captured["capture_output"] = capture_output
-        captured["text"] = text
-        captured["timeout"] = timeout
-        captured["check"] = check
-        captured["env"] = env
-        return Result()
-
-    monkeypatch.setattr("shared_notifications.openclaw_delivery.subprocess.run", fake_run)
+    monkeypatch.setenv(_GATEWAY_TOKEN_ENV_VAR, "token-123")
+    monkeypatch.setattr("shared_notifications.openclaw_delivery._gateway_rpc_request", fake_gateway_request)
 
     result = deliver_to_openclaw_session(
         SAMPLE_ARTIFACT,
@@ -68,8 +66,10 @@ def test_deliver_to_openclaw_session_calls_gateway(monkeypatch) -> None:
     assert result["status"] == "sent"
     assert result["session_key"] == "agent:main:test"
     assert result["response"]["status"] == "accepted"
-    assert captured["cmd"][:5] == ["openclaw", "agent", "--to", "agent:main:test", "--message"]
-    assert "PropertyAdvisor notification: Southport refresh completed" in captured["cmd"][5]
-    assert captured["cmd"][-3:] == ["--timeout", "0", "--json"]
-    assert captured["timeout"] == 9
-    assert _GATEWAY_TOKEN_ENV_VAR in captured["env"]
+    assert captured["method"] == "sessions.send"
+    assert captured["gateway_url"] == _DEFAULT_GATEWAY_URL
+    assert captured["gateway_token"] == "token-123"
+    assert captured["timeout_seconds"] == 9
+    assert captured["params"]["sessionKey"] == "agent:main:test"
+    assert captured["params"]["timeoutSeconds"] == 0
+    assert "PropertyAdvisor notification: Southport refresh completed" in captured["params"]["message"]
