@@ -27,6 +27,7 @@ def test_bridge_cli_dry_run(tmp_path, capsys) -> None:
     assert payload["record_count"] == 1
     assert payload["dry_run_count"] == 1
     assert payload["failed_count"] == 0
+    assert payload["queued_count"] == 0
     assert payload["event_ids"] == ["evt-cli-1"]
 
 
@@ -49,6 +50,7 @@ def test_bridge_cli_collect_and_ack(tmp_path, capsys) -> None:
     collected = json.loads(capsys.readouterr().out.strip())
     assert collected["record_count"] == 1
     assert collected["records"][0]["event_id"] == "evt-cli-2"
+    assert collected["records"][0]["queued_at"] is None
 
     exit_code = main(
         [
@@ -71,3 +73,39 @@ def test_bridge_cli_collect_and_ack(tmp_path, capsys) -> None:
     assert exit_code == 0
     collected_again = json.loads(capsys.readouterr().out.strip())
     assert collected_again["record_count"] == 0
+
+
+def test_bridge_cli_replay_queues_failures_into_inbox(tmp_path, capsys, monkeypatch) -> None:
+    artifact_dir = tmp_path / ".dev_pipeline" / "notifications"
+    writer = NotificationArtifactWriter(artifact_dir)
+    writer.write_event(
+        event_type="completed",
+        project="PropertyAdvisor",
+        phase="phase1",
+        round="round6",
+        slice_id="southport-qld-4215",
+        status="completed",
+        summary="Refresh done",
+        event_id="evt-cli-3",
+    )
+
+    def fake_deliver(*args, **kwargs):
+        raise RuntimeError("bridge-delivery-down")
+
+    monkeypatch.setattr("shared_notifications.openclaw_bridge.deliver_to_openclaw_session", fake_deliver)
+
+    exit_code = main([
+        "replay",
+        "--artifact-path",
+        str(artifact_dir),
+        "--session-key",
+        "agent:main:test",
+    ])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["queued_count"] == 1
+    inbox_path = artifact_dir / "bridge_inbox.jsonl"
+    inbox = [json.loads(line) for line in inbox_path.read_text().splitlines() if line.strip()]
+    assert inbox[0]["event_id"] == "evt-cli-3"
+    assert inbox[0]["status"] == "queued"

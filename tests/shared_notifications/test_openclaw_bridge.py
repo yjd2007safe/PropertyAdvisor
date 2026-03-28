@@ -85,7 +85,7 @@ def test_bridge_skips_non_high_value_events_by_default(tmp_path) -> None:
     assert not bridge.state_path.exists()
 
 
-def test_bridge_logs_failures_without_marking_state(tmp_path) -> None:
+def test_bridge_queues_failures_into_inbox_without_marking_delivered(tmp_path) -> None:
     artifact_dir = tmp_path / ".dev_pipeline" / "notifications"
     writer = NotificationArtifactWriter(artifact_dir)
 
@@ -111,11 +111,15 @@ def test_bridge_logs_failures_without_marking_state(tmp_path) -> None:
     )
 
     records = bridge.replay_pending()
-    assert records[0]["status"] == "failed"
+    assert records[0]["status"] == "queued"
     assert records[0]["error"] == "boom"
-    assert not bridge.state_path.exists()
+    state = json.loads(bridge.state_path.read_text())
+    assert state["queued_event_ids"]["evt-bridge-3"]
+    assert "evt-bridge-3" not in state["delivered_event_ids"]
     lines = _read_jsonl(bridge.delivery_log_path)
-    assert lines[0]["status"] == "failed"
+    assert lines[0]["status"] == "queued"
+    inbox = _read_jsonl(bridge.inbox_path)
+    assert inbox[0]["status"] == "queued"
 
 
 def test_bridge_dry_run_records_without_sender(tmp_path) -> None:
@@ -172,3 +176,37 @@ def test_bridge_can_collect_and_ack_without_sender(tmp_path) -> None:
     )
     assert record["status"] == "sent"
     assert bridge.build_pending_records() == []
+
+
+def test_bridge_does_not_duplicate_inbox_entries_for_already_queued_event(tmp_path) -> None:
+    artifact_dir = tmp_path / ".dev_pipeline" / "notifications"
+    writer = NotificationArtifactWriter(artifact_dir)
+
+    class FailingSender:
+        def send(self, *, session_key: str, message: str, artifact: dict) -> dict[str, str]:
+            raise RuntimeError("still-broken")
+
+    bridge = OpenClawNotificationBridge(
+        artifact_path=artifact_dir,
+        session_key="agent:main:test",
+        sender=FailingSender(),
+    )
+
+    writer.write_event(
+        event_type="completed",
+        project="PropertyAdvisor",
+        phase="phase1",
+        round="round6",
+        slice_id="southport-qld-4215",
+        status="completed",
+        summary="Refresh done",
+        event_id="evt-bridge-6",
+    )
+
+    first = bridge.replay_pending()
+    second = bridge.replay_pending()
+
+    assert first[0]["status"] == "queued"
+    assert second[0]["status"] == "queued"
+    inbox = _read_jsonl(bridge.inbox_path)
+    assert [entry["event_id"] for entry in inbox] == ["evt-bridge-6"]

@@ -12,6 +12,7 @@ def _common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--artifact-path", default=".dev_pipeline/notifications")
     parser.add_argument("--state-path")
     parser.add_argument("--delivery-log-path")
+    parser.add_argument("--inbox-path")
     parser.add_argument("--session-key")
     parser.add_argument("--limit", type=int)
     parser.add_argument(
@@ -64,6 +65,7 @@ def _build_bridge(args: argparse.Namespace) -> OpenClawNotificationBridge:
         artifact_path=Path(args.artifact_path),
         state_path=Path(args.state_path) if args.state_path else None,
         delivery_log_path=Path(args.delivery_log_path) if args.delivery_log_path else None,
+        inbox_path=Path(args.inbox_path) if args.inbox_path else None,
         session_key=args.session_key,
         event_types=_parse_event_types(args.event_types),
     )
@@ -88,6 +90,7 @@ def _handle_collect(args: argparse.Namespace) -> int:
         "artifact_path": str(bridge.artifact_path),
         "state_path": str(bridge.state_path),
         "delivery_log_path": str(bridge.delivery_log_path),
+        "inbox_path": str(bridge.inbox_path),
         "session_key": bridge.session_key,
         "record_count": len(records),
         "records": [
@@ -97,6 +100,7 @@ def _handle_collect(args: argparse.Namespace) -> int:
                 "session_key": record["session_key"],
                 "message": record["message"],
                 "created_at": record["created_at"],
+                "queued_at": record.get("queued_at"),
             }
             for record in records
         ],
@@ -139,10 +143,12 @@ def _handle_replay(args: argparse.Namespace) -> int:
         "artifact_path": str(bridge.artifact_path),
         "state_path": str(bridge.state_path),
         "delivery_log_path": str(bridge.delivery_log_path),
+        "inbox_path": str(bridge.inbox_path),
         "session_key": bridge.session_key,
         "record_count": len(records),
         "sent_count": sum(1 for record in records if record["status"] == "sent"),
         "dry_run_count": sum(1 for record in records if record["status"] == "dry-run"),
+        "queued_count": sum(1 for record in records if record["status"] == "queued"),
         "failed_count": sum(1 for record in records if record["status"] == "failed"),
         "event_ids": [record["event_id"] for record in records],
     }
