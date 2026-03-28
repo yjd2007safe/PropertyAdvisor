@@ -51,6 +51,7 @@ def test_bridge_cli_collect_and_ack(tmp_path, capsys) -> None:
     assert collected["record_count"] == 1
     assert collected["records"][0]["event_id"] == "evt-cli-2"
     assert collected["records"][0]["queued_at"] is None
+    assert collected["records"][0]["ack"]["command"] == "ack"
 
     exit_code = main(
         [
@@ -109,3 +110,48 @@ def test_bridge_cli_replay_queues_failures_into_inbox(tmp_path, capsys, monkeypa
     inbox = [json.loads(line) for line in inbox_path.read_text().splitlines() if line.strip()]
     assert inbox[0]["event_id"] == "evt-cli-3"
     assert inbox[0]["status"] == "queued"
+
+    exit_code = main([
+        "consume",
+        "--artifact-path",
+        str(artifact_dir),
+        "--session-key",
+        "agent:main:test",
+    ])
+    assert exit_code == 0
+    consume_payload = json.loads(capsys.readouterr().out.strip())
+    assert consume_payload["record_count"] == 1
+    assert consume_payload["queued_count"] == 1
+    assert consume_payload["records"][0]["event_id"] == "evt-cli-3"
+    assert consume_payload["records"][0]["queued_at"] is not None
+    assert consume_payload["records"][0]["ack"]["event_id"] == "evt-cli-3"
+
+    exit_code = main(
+        [
+            "ack",
+            "--artifact-path",
+            str(artifact_dir),
+            "--session-key",
+            "agent:main:test",
+            "--event-id",
+            "evt-cli-3",
+            "--status",
+            "consumed",
+            "--delivery-result-json",
+            '{"status":"consumed-by-session"}',
+        ]
+    )
+    assert exit_code == 0
+    ack_payload = json.loads(capsys.readouterr().out.strip())
+    assert ack_payload["record"]["status"] == "consumed"
+
+    exit_code = main([
+        "consume",
+        "--artifact-path",
+        str(artifact_dir),
+        "--session-key",
+        "agent:main:test",
+    ])
+    assert exit_code == 0
+    consume_again = json.loads(capsys.readouterr().out.strip())
+    assert consume_again["record_count"] == 0

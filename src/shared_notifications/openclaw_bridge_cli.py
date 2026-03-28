@@ -32,6 +32,18 @@ def _build_parser() -> argparse.ArgumentParser:
     _common_args(collect_parser)
     collect_parser.set_defaults(func=_handle_collect)
 
+    consume_parser = subparsers.add_parser(
+        "consume",
+        help="Return session-side consumption records, preferring queued inbox items.",
+    )
+    _common_args(consume_parser)
+    consume_parser.add_argument(
+        "--include-unqueued",
+        action="store_true",
+        help="Include pending records that were not previously queued into the inbox.",
+    )
+    consume_parser.set_defaults(func=_handle_consume)
+
     ack_parser = subparsers.add_parser("ack", help="Mark a pending notification as delivered.")
     _common_args(ack_parser)
     ack_parser.add_argument("--event-id", required=True)
@@ -82,6 +94,27 @@ def _find_pending_artifact(bridge: OpenClawNotificationBridge, event_id: str) ->
     raise SystemExit(f"pending event_id not found: {event_id}")
 
 
+def _serialize_records(bridge: OpenClawNotificationBridge, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "event_id": record["event_id"],
+            "event_type": record["event_type"],
+            "session_key": record["session_key"],
+            "message": record["message"],
+            "created_at": record["created_at"],
+            "queued_at": record.get("queued_at"),
+            "ack": {
+                "command": "ack",
+                "artifact_path": str(bridge.artifact_path),
+                "event_id": record["event_id"],
+                "session_key": record["session_key"],
+            },
+        }
+        for record in records
+    ]
+
+
+
 def _handle_collect(args: argparse.Namespace) -> int:
     bridge = _build_bridge(args)
     records = bridge.build_pending_records(limit=args.limit)
@@ -93,17 +126,33 @@ def _handle_collect(args: argparse.Namespace) -> int:
         "inbox_path": str(bridge.inbox_path),
         "session_key": bridge.session_key,
         "record_count": len(records),
-        "records": [
-            {
-                "event_id": record["event_id"],
-                "event_type": record["event_type"],
-                "session_key": record["session_key"],
-                "message": record["message"],
-                "created_at": record["created_at"],
-                "queued_at": record.get("queued_at"),
-            }
-            for record in records
-        ],
+        "records": _serialize_records(bridge, records),
+    }
+    _print_json(payload)
+    return 0
+
+
+
+def _handle_consume(args: argparse.Namespace) -> int:
+    bridge = _build_bridge(args)
+    records = bridge.build_pending_records(limit=None)
+    queued = [record for record in records if record.get("queued_at")]
+    unqueued = [record for record in records if not record.get("queued_at")]
+    queued.sort(key=lambda record: (record.get("queued_at") or "", record["created_at"], record["event_id"]))
+    unqueued.sort(key=lambda record: (record["created_at"], record["event_id"]))
+    selected = queued + (unqueued if args.include_unqueued else [])
+    if args.limit is not None:
+        selected = selected[: args.limit]
+    payload = {
+        "status": "ok",
+        "artifact_path": str(bridge.artifact_path),
+        "state_path": str(bridge.state_path),
+        "delivery_log_path": str(bridge.delivery_log_path),
+        "inbox_path": str(bridge.inbox_path),
+        "session_key": bridge.session_key,
+        "record_count": len(selected),
+        "queued_count": len([record for record in selected if record.get("queued_at")]),
+        "records": _serialize_records(bridge, selected),
     }
     _print_json(payload)
     return 0
