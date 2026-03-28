@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+from .dev_orchestrator import build_dev_orchestration_queue
 from .openclaw_bridge import OpenClawNotificationBridge
 
 
@@ -43,6 +44,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Include pending records that were not previously queued into the inbox.",
     )
     consume_parser.set_defaults(func=_handle_consume)
+
+    orchestrate_parser = subparsers.add_parser(
+        "orchestrate",
+        help="Build a development-stage orchestration queue from pending notifications.",
+    )
+    _common_args(orchestrate_parser)
+    orchestrate_parser.add_argument(
+        "--include-unqueued",
+        action="store_true",
+        help="Include pending records that were not previously queued into the inbox.",
+    )
+    orchestrate_parser.set_defaults(func=_handle_orchestrate)
 
     ack_parser = subparsers.add_parser("ack", help="Mark a pending notification as delivered.")
     _common_args(ack_parser)
@@ -134,15 +147,7 @@ def _handle_collect(args: argparse.Namespace) -> int:
 
 
 def _handle_consume(args: argparse.Namespace) -> int:
-    bridge = _build_bridge(args)
-    records = bridge.build_pending_records(limit=None)
-    queued = [record for record in records if record.get("queued_at")]
-    unqueued = [record for record in records if not record.get("queued_at")]
-    queued.sort(key=lambda record: (record.get("queued_at") or "", record["created_at"], record["event_id"]))
-    unqueued.sort(key=lambda record: (record["created_at"], record["event_id"]))
-    selected = queued + (unqueued if args.include_unqueued else [])
-    if args.limit is not None:
-        selected = selected[: args.limit]
+    bridge, selected = _select_consume_records(args)
     payload = {
         "status": "ok",
         "artifact_path": str(bridge.artifact_path),
@@ -156,6 +161,41 @@ def _handle_consume(args: argparse.Namespace) -> int:
     }
     _print_json(payload)
     return 0
+
+
+def _select_consume_records(args: argparse.Namespace) -> tuple[OpenClawNotificationBridge, list[dict[str, Any]]]:
+    bridge = _build_bridge(args)
+    records = bridge.build_pending_records(limit=None)
+    queued = [record for record in records if record.get("queued_at")]
+    unqueued = [record for record in records if not record.get("queued_at")]
+    queued.sort(key=lambda record: (record.get("queued_at") or "", record["created_at"], record["event_id"]))
+    unqueued.sort(key=lambda record: (record["created_at"], record["event_id"]))
+    selected = queued + (unqueued if getattr(args, "include_unqueued", False) else [])
+    if args.limit is not None:
+        selected = selected[: args.limit]
+    return bridge, selected
+
+
+
+def _handle_orchestrate(args: argparse.Namespace) -> int:
+    bridge, selected = _select_consume_records(args)
+    plans = build_dev_orchestration_queue(_serialize_records(bridge, selected))
+    payload = {
+        "status": "ok",
+        "artifact_path": str(bridge.artifact_path),
+        "state_path": str(bridge.state_path),
+        "delivery_log_path": str(bridge.delivery_log_path),
+        "inbox_path": str(bridge.inbox_path),
+        "session_key": bridge.session_key,
+        "record_count": len(plans),
+        "queued_count": len([plan for plan in plans if plan.get("queued_at")]),
+        "auto_continue_count": len([plan for plan in plans if plan.get("auto_continue")]),
+        "review_required_count": len([plan for plan in plans if plan.get("requires_human_review")]),
+        "plans": plans,
+    }
+    _print_json(payload)
+    return 0
+
 
 
 def _handle_ack(args: argparse.Namespace) -> int:

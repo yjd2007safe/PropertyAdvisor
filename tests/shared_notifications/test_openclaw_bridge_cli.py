@@ -155,3 +155,58 @@ def test_bridge_cli_replay_queues_failures_into_inbox(tmp_path, capsys, monkeypa
     assert exit_code == 0
     consume_again = json.loads(capsys.readouterr().out.strip())
     assert consume_again["record_count"] == 0
+
+
+def test_bridge_cli_orchestrate_prioritizes_review_and_auto_continue(tmp_path, capsys, monkeypatch) -> None:
+    artifact_dir = tmp_path / ".dev_pipeline" / "notifications"
+    writer = NotificationArtifactWriter(artifact_dir)
+    writer.write_event(
+        event_type="completed",
+        project="PropertyAdvisor",
+        phase="phase1",
+        round="round6",
+        slice_id="slice-completed",
+        status="completed",
+        summary="Completed slice",
+        event_id="evt-cli-4",
+    )
+    writer.write_event(
+        event_type="ready_for_evaluation",
+        project="PropertyAdvisor",
+        phase="phase1",
+        round="round6",
+        slice_id="slice-review",
+        status="ready_for_evaluation",
+        summary="Needs review",
+        event_id="evt-cli-5",
+    )
+
+    def fake_deliver(*args, **kwargs):
+        raise RuntimeError("bridge-delivery-down")
+
+    monkeypatch.setattr("shared_notifications.openclaw_bridge.deliver_to_openclaw_session", fake_deliver)
+
+    exit_code = main([
+        "replay",
+        "--artifact-path",
+        str(artifact_dir),
+        "--session-key",
+        "agent:main:test",
+    ])
+    assert exit_code == 0
+    _ = capsys.readouterr().out
+
+    exit_code = main([
+        "orchestrate",
+        "--artifact-path",
+        str(artifact_dir),
+        "--session-key",
+        "agent:main:test",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["record_count"] == 2
+    assert payload["plans"][0]["event_id"] == "evt-cli-5"
+    assert payload["plans"][0]["requires_human_review"] is True
+    assert payload["plans"][1]["event_id"] == "evt-cli-4"
+    assert payload["plans"][1]["auto_continue"] is True
