@@ -11,7 +11,7 @@ from typing import Dict, List, Literal, Optional
 from property_advisor.api.data_access import DataAccessLayer
 from property_advisor.api.db import create_session_factory
 from property_advisor.api.mock_fixtures import PROPERTY_ADVISOR_FIXTURE
-from property_advisor.api.repositories import ComparableQuery, WatchlistQuery
+from property_advisor.api.repositories import ComparableQuery, WatchlistQuery, WatchlistUpsertRequest
 from property_advisor.api.schemas import (
     OrchestrationPlanItem,
     OrchestrationReviewResponse,
@@ -31,6 +31,9 @@ from property_advisor.api.schemas import (
     SuburbsOverviewResponse,
     SummaryCard,
     WatchlistAlertsResponse,
+    WatchlistActionRequest,
+    WatchlistActionResponse,
+    WatchlistContextSummary,
     WatchlistDetailResponse,
     WatchlistEntry,
     WatchlistGroup,
@@ -176,13 +179,17 @@ def get_health_status() -> HealthResponse:
     )
 
 
-def _product_workflow_links(suburb_slug: Optional[str] = None) -> List[WorkflowLink]:
+def _product_workflow_links(suburb_slug: Optional[str] = None, source_surface: Optional[str] = None) -> List[WorkflowLink]:
     suffix = f"?detail_slug={suburb_slug}" if suburb_slug else ""
+    save_href = "/watchlist"
+    if suburb_slug and source_surface:
+        save_href = f"/watchlist/actions?suburb_slug={suburb_slug}&source_surface={source_surface}"
     return [
         WorkflowLink(label="Suburb dashboard", href="/suburbs", context="Re-check suburb-level momentum and liquidity."),
         WorkflowLink(label="Property advisor", href="/advisor", context="Convert evidence into a decision recommendation."),
         WorkflowLink(label="Comparables", href="/comparables", context="Validate pricing fit and comp confidence."),
         WorkflowLink(label="Watchlist", href=f"/watchlist{suffix}", context="Track strategy alerts and action queue."),
+        WorkflowLink(label="Save to watchlist", href=save_href, context="Capture this suburb into watchlist action review."),
         WorkflowLink(label="Orchestration review", href="/orchestration", context="Check runtime review blockers, freshness, and operator actions."),
     ]
 
@@ -237,7 +244,7 @@ def get_suburbs_overview(dal: DataAccessLayer = _DAL) -> SuburbsOverviewResponse
                 detail="Lower days-on-market can reduce negotiation windows.",
             ),
         ],
-        workflow_links=_product_workflow_links(),
+        workflow_links=_product_workflow_links(source_surface="suburbs"),
         workflow_snapshot=_workflow_snapshot(
             stage="suburb_dashboard",
             primary_suburb_slug=(items[0].slug if items else None),
@@ -431,7 +438,7 @@ def get_property_advice(
                     detail="Decision framing aligned to selected strategy.",
                 ),
             ],
-            "workflow_links": _product_workflow_links(suburb_slug=suburb.slug if suburb else advice.inputs.suburb_slug),
+            "workflow_links": _product_workflow_links(suburb_slug=suburb.slug if suburb else advice.inputs.suburb_slug, source_surface="advisor"),
             "workflow_snapshot": _workflow_snapshot(
                 stage="property_advisor",
                 primary_suburb_slug=(suburb.slug if suburb else advice.inputs.suburb_slug),
@@ -546,7 +553,7 @@ def get_comparables(
             summary=empty_summary,
             narrative=narrative,
             summary_cards=_build_comparable_summary_cards(empty_summary, narrative),
-            workflow_links=_product_workflow_links(),
+            workflow_links=_product_workflow_links(suburb_slug=query, source_surface="comparables"),
             workflow_snapshot=_workflow_snapshot(
                 stage="comparables",
                 next_step="Return to advisor and apply this pricing evidence to recommendation confidence.",
@@ -593,7 +600,7 @@ def get_comparables(
         summary=summary,
         narrative=narrative,
         summary_cards=_build_comparable_summary_cards(summary, narrative),
-        workflow_links=_product_workflow_links(),
+        workflow_links=_product_workflow_links(suburb_slug=query, source_surface="comparables"),
         workflow_snapshot=_workflow_snapshot(
             stage="comparables",
             next_step="Push this comp evidence into advisor and then confirm watchlist action status.",
@@ -660,8 +667,10 @@ def get_watchlist(
         for alert in item.alerts:
             alert_counts[alert.severity] += 1
 
+    enriched_items = [_enrich_watchlist_entry_context(item, dal=dal) for item in items]
+
     summary = WatchlistSummary(
-        total_entries=len(items),
+        total_entries=len(enriched_items),
         active_entries=by_status["active"],
         grouped_view=group_by,
         alert_counts=alert_counts,
@@ -679,19 +688,19 @@ def get_watchlist(
         mode=dal.mode,
         data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist", upstream_repositories={"suburbs": dal.suburbs}),
         summary=summary,
-        items=items,
-        groups=_build_watchlist_groups(group_by, items),
+        items=enriched_items,
+        groups=_build_watchlist_groups(group_by, enriched_items),
         summary_cards=[
             SummaryCard(title="Action queue", value=str(action_counts["needs_review"]), detail="Suburbs needing manual review now."),
             SummaryCard(title="High-severity alerts", value=str(alert_counts["high"]), detail="Potential stop/go blockers."),
             SummaryCard(title="Ready to progress", value=str(action_counts["ready_to_progress"]), detail="Candidates for deeper due diligence."),
         ],
-        workflow_links=_product_workflow_links(suburb_slug=suburb_slug),
+        workflow_links=_product_workflow_links(suburb_slug=suburb_slug, source_surface="watchlist"),
         workflow_snapshot=_workflow_snapshot(
             stage="watchlist",
-            primary_suburb_slug=(suburb_slug if suburb_slug else (items[0].suburb_slug if items else None)),
+            primary_suburb_slug=(suburb_slug if suburb_slug else (enriched_items[0].suburb_slug if enriched_items else None)),
             next_step="Open advisor for a review-status suburb and confirm whether it can progress this week.",
-            next_href=(f"/advisor?query={suburb_slug or items[0].suburb_slug}&query_type=slug" if (suburb_slug or items) else "/advisor"),
+            next_href=(f"/advisor?query={suburb_slug or enriched_items[0].suburb_slug}&query_type=slug" if (suburb_slug or enriched_items) else "/advisor"),
             investor_message="Watchlist converts insights into weekly action: review, progress, or hold.",
         ),
     )
@@ -705,7 +714,42 @@ def get_watchlist_detail(suburb_slug: str, dal: DataAccessLayer = _DAL) -> Optio
         generated_at=datetime.now(timezone.utc),
         mode=dal.mode,
         data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist detail", upstream_repositories={"suburbs": dal.suburbs}),
-        item=item,
+        item=_enrich_watchlist_entry_context(item, dal=dal),
+    )
+
+
+def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer = _DAL) -> WatchlistEntry:
+    advice = get_property_advice(query=item.suburb_slug, query_type="slug", dal=dal)
+    comparables = get_comparables(query=item.suburb_slug, max_items=5, dal=dal)
+    orchestration = get_orchestration_review_status(limit=3)
+    return item.model_copy(
+        update={
+            "latest_context": WatchlistContextSummary(
+                advisory=f"{advice.advice.recommendation} ({advice.advice.confidence}) — {advice.advice.headline}",
+                comparables=f"{comparables.summary.count} comps, avg ${comparables.summary.average_price:,}, state={comparables.summary.sample_state}",
+                orchestration=f"{orchestration.summary.current_state}; review_required={orchestration.summary.review_required_count}",
+                updated_at=datetime.now(timezone.utc),
+            )
+        }
+    )
+
+
+def upsert_watchlist_action(payload: WatchlistActionRequest, dal: DataAccessLayer = _DAL) -> WatchlistActionResponse:
+    action, item = dal.watchlist.upsert_entry(
+        WatchlistUpsertRequest(
+            suburb_slug=payload.suburb_slug,
+            source_surface=payload.source_surface,
+            strategy=payload.strategy,
+            watch_status=payload.watch_status,
+            notes=payload.notes,
+        )
+    )
+    return WatchlistActionResponse(
+        generated_at=datetime.now(timezone.utc),
+        mode=dal.mode,
+        data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist action", upstream_repositories={"suburbs": dal.suburbs}),
+        action=action,
+        item=_enrich_watchlist_entry_context(item, dal=dal),
     )
 
 

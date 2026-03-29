@@ -250,6 +250,13 @@ class WatchlistAlert(BaseModel):
     observed_at: str
 
 
+class WatchlistContextSummary(BaseModel):
+    advisory: str
+    comparables: str
+    orchestration: str
+    updated_at: datetime
+
+
 class WatchlistEntry(BaseModel):
     suburb_slug: str
     suburb_name: str
@@ -260,6 +267,7 @@ class WatchlistEntry(BaseModel):
     target_buy_range_min: int
     target_buy_range_max: int
     alerts: List[WatchlistAlert]
+    latest_context: Optional[WatchlistContextSummary] = None
 
 
 class WatchlistSummary(BaseModel):
@@ -297,6 +305,22 @@ class WatchlistDetailResponse(BaseModel):
     generated_at: datetime
     mode: Literal["mock", "postgres"]
     data_source: DataSourceStatus
+    item: WatchlistEntry
+
+
+class WatchlistActionRequest(BaseModel):
+    suburb_slug: str
+    source_surface: Literal["advisor", "comparables", "watchlist"]
+    strategy: Optional[Literal["yield", "owner-occupier", "balanced"]] = None
+    watch_status: Optional[Literal["active", "review", "paused"]] = None
+    notes: Optional[str] = None
+
+
+class WatchlistActionResponse(BaseModel):
+    generated_at: datetime
+    mode: Literal["mock", "postgres"]
+    data_source: DataSourceStatus
+    action: Literal["created", "updated"]
     item: WatchlistEntry
 
 
