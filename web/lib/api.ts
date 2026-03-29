@@ -164,6 +164,36 @@ export type ComparablesResponse = {
   }[];
 };
 
+
+export type OrchestrationPlanItem = {
+  event_id: string;
+  event_type: string;
+  bucket: string;
+  action: string;
+  requires_human_review: boolean;
+  auto_continue: boolean;
+  created_at?: string | null;
+  queued_at?: string | null;
+  strategy_summary: string;
+  message?: string | null;
+};
+
+export type OrchestrationReviewResponse = {
+  summary: {
+    current_state: "awaiting_review" | "auto_progressing" | "idle";
+    latest_event_at?: string | null;
+    generated_at: string;
+    freshness: "fresh" | "stale" | "empty";
+    review_needed: boolean;
+    review_required_count: number;
+    auto_continue_count: number;
+    queued_count: number;
+    pending_count: number;
+    next_action: string;
+  };
+  plans: OrchestrationPlanItem[];
+};
+
 export type WatchlistAlert = { severity: "info" | "watch" | "high"; title: string; detail: string; metric: string; observed_at: string };
 
 export type WatchlistEntry = {
@@ -228,3 +258,5 @@ export function formatCurrency(value: number): string {
     maximumFractionDigits: 0
   }).format(value);
 }
+
+export const getOrchestrationReview = () => getJson<OrchestrationReviewResponse>("/api/orchestration/review");

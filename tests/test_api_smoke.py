@@ -1,6 +1,15 @@
 import pytest
 
-from property_advisor.api.routes import comparables, health, property_advisor, suburbs_overview, watchlist, watchlist_alerts, watchlist_detail
+from property_advisor.api.routes import (
+    comparables,
+    health,
+    orchestration_review,
+    property_advisor,
+    suburbs_overview,
+    watchlist,
+    watchlist_alerts,
+    watchlist_detail,
+)
 
 
 def test_health_endpoint() -> None:
@@ -81,3 +90,12 @@ def test_watchlist_detail_not_found() -> None:
     with pytest.raises(Exception) as exc_info:
         watchlist_detail(suburb_slug="unknown")
     assert "404" in str(exc_info.value)
+
+
+def test_orchestration_review_shape() -> None:
+    payload = orchestration_review().model_dump(mode="json")
+    assert payload["summary"]["current_state"] in {"awaiting_review", "auto_progressing", "idle"}
+    assert payload["summary"]["freshness"] in {"fresh", "stale", "empty"}
+    assert isinstance(payload["summary"]["review_needed"], bool)
+    assert payload["summary"]["generated_at"]
+    assert isinstance(payload["plans"], list)

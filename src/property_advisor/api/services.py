@@ -2,8 +2,10 @@ from __future__ import annotations
 
 """Internal MVP service layer used by HTTP routes."""
 
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timedelta, timezone
 from statistics import mean
+from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
 from property_advisor.api.data_access import DataAccessLayer
@@ -11,6 +13,9 @@ from property_advisor.api.db import create_session_factory
 from property_advisor.api.mock_fixtures import PROPERTY_ADVISOR_FIXTURE
 from property_advisor.api.repositories import ComparableQuery, WatchlistQuery
 from property_advisor.api.schemas import (
+    OrchestrationPlanItem,
+    OrchestrationReviewResponse,
+    OrchestrationReviewSummary,
     AdvisoryInputs,
     AdvisoryInvestorSignal,
     AdvisoryMarketContext,
@@ -35,7 +40,68 @@ from property_advisor.api.schemas import (
     WorkflowSnapshot,
 )
 
+
+
 _DAL = DataAccessLayer.create(create_session_factory())
+
+_ORCHESTRATION_EVENT_TYPES = {
+    "completed",
+    "blocked",
+    "interrupted",
+    "ready_for_evaluation",
+    "evaluation_failed",
+    "delivered",
+    "evaluated",
+}
+
+_ORCHESTRATION_POLICY: dict[str, dict[str, object]] = {
+    "ready_for_evaluation": {"priority": 100, "action": "notify_and_pause_for_review", "auto_continue": False, "requires_human_review": True, "bucket": "review"},
+    "evaluation_failed": {"priority": 90, "action": "notify_and_resume_fix", "auto_continue": True, "requires_human_review": False, "bucket": "recovery"},
+    "blocked": {"priority": 80, "action": "notify_and_wait_on_blocker", "auto_continue": False, "requires_human_review": False, "bucket": "blocked"},
+    "interrupted": {"priority": 70, "action": "notify_and_resume", "auto_continue": True, "requires_human_review": False, "bucket": "recovery"},
+    "completed": {"priority": 60, "action": "notify_progress_and_continue", "auto_continue": True, "requires_human_review": False, "bucket": "progress"},
+    "evaluated": {"priority": 50, "action": "notify_progress_and_continue", "auto_continue": True, "requires_human_review": False, "bucket": "progress"},
+    "delivered": {"priority": 40, "action": "notify_closure", "auto_continue": False, "requires_human_review": False, "bucket": "closure"},
+}
+
+_DEFAULT_ORCHESTRATION_POLICY = {"priority": 10, "action": "notify_only", "auto_continue": False, "requires_human_review": False, "bucket": "other"}
+
+_ORCHESTRATION_STRATEGY_SUMMARY = {
+    "notify_and_pause_for_review": "通知关键进展，并暂停等待人工复核。",
+    "notify_and_resume_fix": "通知失败原因，并自动继续修复链路。",
+    "notify_and_wait_on_blocker": "通知阻塞点，等待外部条件解除。",
+    "notify_and_resume": "通知中断原因，并尝试自动恢复执行。",
+    "notify_progress_and_continue": "反馈阶段性进展，并在已授权前提下继续推进下一步。",
+    "notify_closure": "通知该轮结果已正式交付闭环。",
+    "notify_only": "仅通知，不自动推进。",
+}
+
+
+def _build_orchestration_plan(record: dict[str, object]) -> dict[str, object]:
+    event_type = str(record.get("event_type") or "")
+    policy = dict(_DEFAULT_ORCHESTRATION_POLICY)
+    policy.update(_ORCHESTRATION_POLICY.get(event_type, {}))
+    action = str(policy["action"])
+    return {
+        "event_id": record.get("event_id"),
+        "event_type": event_type,
+        "queued_at": record.get("queued_at"),
+        "created_at": record.get("created_at"),
+        "session_key": record.get("session_key"),
+        "message": record.get("message"),
+        "priority": int(policy["priority"]),
+        "bucket": str(policy["bucket"]),
+        "action": action,
+        "auto_continue": bool(policy["auto_continue"]),
+        "requires_human_review": bool(policy["requires_human_review"]),
+        "strategy_summary": _ORCHESTRATION_STRATEGY_SUMMARY[action],
+    }
+
+
+def _build_orchestration_queue(records: list[dict[str, object]]) -> list[dict[str, object]]:
+    plans = [_build_orchestration_plan(record) for record in records]
+    plans.sort(key=lambda plan: (-int(plan["priority"]), str(plan.get("queued_at") or ""), str(plan.get("created_at") or ""), str(plan.get("event_id") or "")))
+    return plans
 
 
 def _read_source(repository: object) -> Literal["mock", "postgres", "fallback_mock"]:
@@ -117,6 +183,7 @@ def _product_workflow_links(suburb_slug: Optional[str] = None) -> List[WorkflowL
         WorkflowLink(label="Property advisor", href="/advisor", context="Convert evidence into a decision recommendation."),
         WorkflowLink(label="Comparables", href="/comparables", context="Validate pricing fit and comp confidence."),
         WorkflowLink(label="Watchlist", href=f"/watchlist{suffix}", context="Track strategy alerts and action queue."),
+        WorkflowLink(label="Orchestration review", href="/orchestration", context="Check runtime review blockers, freshness, and operator actions."),
     ]
 
 
@@ -650,4 +717,121 @@ def get_watchlist_alerts(severity: Optional[str] = None, dal: DataAccessLayer = 
         data_source=_resolve_data_source(dal, dal.watchlist, "Watchlist alerts", upstream_repositories={"suburbs": dal.suburbs}),
         total=len(items),
         items=items,
+    )
+
+
+def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def get_orchestration_review_status(
+    *,
+    artifact_path: Path = Path(".dev_pipeline/notifications"),
+    limit: int = 10,
+) -> OrchestrationReviewResponse:
+    state_path = artifact_path / "bridge_state.json"
+    state_payload: dict[str, object] = {}
+    if state_path.exists():
+        loaded = json.loads(state_path.read_text())
+        if isinstance(loaded, dict):
+            state_payload = loaded
+
+    delivered_state = state_payload.get("delivered_event_ids", {})
+    queued_state = state_payload.get("queued_event_ids", {})
+    if not isinstance(delivered_state, dict):
+        delivered_state = {}
+    if not isinstance(queued_state, dict):
+        queued_state = {}
+
+    records: list[dict[str, object]] = []
+    if artifact_path.exists():
+        for path in sorted(artifact_path.glob("*.json")):
+            if path == state_path:
+                continue
+            artifact = json.loads(path.read_text())
+            if not isinstance(artifact, dict):
+                continue
+            event_type = str(artifact.get("event_type") or "")
+            event_id = str(artifact.get("event_id") or "")
+            if not event_id or event_type not in _ORCHESTRATION_EVENT_TYPES or event_id in delivered_state:
+                continue
+            records.append(
+                {
+                    "event_id": event_id,
+                    "event_type": event_type,
+                    "session_key": (artifact.get("origin") or {}).get("session_key") if isinstance(artifact.get("origin"), dict) else None,
+                    "message": str(artifact.get("summary") or ""),
+                    "created_at": artifact.get("created_at"),
+                    "queued_at": queued_state.get(event_id),
+                }
+            )
+
+    plans = _build_orchestration_queue(records)
+    if limit > 0:
+        plans = plans[:limit]
+
+    review_required_count = sum(1 for plan in plans if plan.get("requires_human_review"))
+    auto_continue_count = sum(1 for plan in plans if plan.get("auto_continue"))
+    queued_count = sum(1 for plan in plans if plan.get("queued_at"))
+
+    latest_event_at = max(
+        (
+            ts
+            for ts in (_parse_timestamp(plan.get("queued_at")) or _parse_timestamp(plan.get("created_at")) for plan in plans)
+            if ts is not None
+        ),
+        default=None,
+    )
+
+    now = datetime.now(timezone.utc)
+    if latest_event_at is None:
+        freshness = "empty"
+    elif now - latest_event_at <= timedelta(hours=24):
+        freshness = "fresh"
+    else:
+        freshness = "stale"
+
+    if review_required_count > 0:
+        current_state = "awaiting_review"
+        next_action = "Review the highest-priority orchestration event and acknowledge delivery before continuing."
+    elif plans:
+        current_state = "auto_progressing"
+        next_action = "No manual review blocker is active; monitor auto-progress and queued delivery records."
+    else:
+        current_state = "idle"
+        next_action = "No pending orchestration events. Wait for the next runtime notification cycle."
+
+    return OrchestrationReviewResponse(
+        summary=OrchestrationReviewSummary(
+            current_state=current_state,
+            latest_event_at=(latest_event_at.isoformat() if latest_event_at else None),
+            generated_at=now,
+            freshness=freshness,
+            review_needed=review_required_count > 0,
+            review_required_count=review_required_count,
+            auto_continue_count=auto_continue_count,
+            queued_count=queued_count,
+            pending_count=len(plans),
+            next_action=next_action,
+        ),
+        plans=[
+            OrchestrationPlanItem(
+                event_id=str(plan.get("event_id") or ""),
+                event_type=str(plan.get("event_type") or ""),
+                bucket=str(plan.get("bucket") or "other"),
+                action=str(plan.get("action") or "notify_only"),
+                requires_human_review=bool(plan.get("requires_human_review")),
+                auto_continue=bool(plan.get("auto_continue")),
+                created_at=plan.get("created_at"),
+                queued_at=plan.get("queued_at"),
+                strategy_summary=str(plan.get("strategy_summary") or ""),
+                message=plan.get("message"),
+            )
+            for plan in plans
+        ],
     )

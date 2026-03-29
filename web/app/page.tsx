@@ -18,6 +18,11 @@ const workflowCards = [
     title: "Watchlist",
     description: "Prioritise suburb actions by strategy, status, and alert severity in one triage queue.",
     href: "/watchlist"
+  },
+  {
+    title: "Orchestration Review",
+    description: "See runtime orchestration state, freshness, and whether manual review is required.",
+    href: "/orchestration"
   }
 ];
 

@@ -300,6 +300,39 @@ class WatchlistDetailResponse(BaseModel):
     item: WatchlistEntry
 
 
+
+
+class OrchestrationPlanItem(BaseModel):
+    event_id: str
+    event_type: str
+    bucket: str
+    action: str
+    requires_human_review: bool
+    auto_continue: bool
+    created_at: Optional[str] = None
+    queued_at: Optional[str] = None
+    strategy_summary: str
+    message: Optional[str] = None
+
+
+class OrchestrationReviewSummary(BaseModel):
+    current_state: Literal["awaiting_review", "auto_progressing", "idle"]
+    latest_event_at: Optional[str] = None
+    generated_at: datetime
+    freshness: Literal["fresh", "stale", "empty"]
+    review_needed: bool
+    review_required_count: int
+    auto_continue_count: int
+    queued_count: int
+    pending_count: int
+    next_action: str
+
+
+class OrchestrationReviewResponse(BaseModel):
+    summary: OrchestrationReviewSummary
+    plans: List[OrchestrationPlanItem]
+
+
 class WatchlistAlertsResponse(BaseModel):
     generated_at: datetime
     mode: Literal["mock", "postgres"]
