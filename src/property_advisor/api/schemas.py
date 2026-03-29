@@ -3,7 +3,7 @@ from __future__ import annotations
 """Typed API response models for MVP routes."""
 
 from datetime import datetime
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel
 from pydantic import Field
@@ -306,3 +306,18 @@ class WatchlistAlertsResponse(BaseModel):
     data_source: DataSourceStatus
     total: int
     items: List[WatchlistAlert]
+
+
+class OrchestrationNotificationStateResponse(BaseModel):
+    generated_at: datetime
+    status: Literal["available", "missing", "invalid"]
+    artifact_path: str
+    handoff_path: str
+    runtime: Optional[str] = None
+    contract_version: Optional[str] = None
+    command: Optional[str] = None
+    session_key: Optional[str] = None
+    record_count: int = 0
+    records: List[Dict[str, Any]] = Field(default_factory=list)
+    payload: Optional[Dict[str, Any]] = None
+    message: str

@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from property_advisor.api.schemas import (
     ComparablesResponse,
     HealthResponse,
+    OrchestrationNotificationStateResponse,
     PropertyAdvisorResponse,
     SuburbsOverviewResponse,
     WatchlistAlertsResponse,
@@ -18,6 +19,7 @@ from property_advisor.api.schemas import (
 from property_advisor.api.services import (
     get_comparables,
     get_health_status,
+    get_orchestration_notification_state,
     get_property_advice,
     get_suburbs_overview,
     get_watchlist,
@@ -31,6 +33,11 @@ router = APIRouter(prefix="/api")
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return get_health_status()
+
+
+@router.get("/orchestration/notifications/current", response_model=OrchestrationNotificationStateResponse)
+def orchestration_notifications_current() -> OrchestrationNotificationStateResponse:
+    return get_orchestration_notification_state()
 
 
 @router.get("/suburbs/overview", response_model=SuburbsOverviewResponse)

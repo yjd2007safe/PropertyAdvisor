@@ -2,7 +2,10 @@ from __future__ import annotations
 
 """Internal MVP service layer used by HTTP routes."""
 
+import json
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from statistics import mean
 from typing import Dict, List, Literal, Optional
 
@@ -21,6 +24,7 @@ from property_advisor.api.schemas import (
     ComparablesResponse,
     DataSourceStatus,
     HealthResponse,
+    OrchestrationNotificationStateResponse,
     PropertyAdvisorResponse,
     SuburbOverviewSummary,
     SuburbsOverviewResponse,
@@ -36,6 +40,8 @@ from property_advisor.api.schemas import (
 )
 
 _DAL = DataAccessLayer.create(create_session_factory())
+_DEFAULT_NOTIFICATION_ARTIFACT_PATH = Path(".dev_pipeline/notifications")
+_DEFAULT_BRIDGE_HANDOFF_FILENAME = "bridge_handoff.json"
 
 
 def _read_source(repository: object) -> Literal["mock", "postgres", "fallback_mock"]:
@@ -107,6 +113,52 @@ def get_health_status() -> HealthResponse:
         status="ok",
         service="propertyadvisor-api",
         timestamp=datetime.now(timezone.utc),
+    )
+
+
+def get_orchestration_notification_state() -> OrchestrationNotificationStateResponse:
+    artifact_path = Path(os.getenv("PROPERTY_ADVISOR_NOTIFICATION_ARTIFACT_PATH", str(_DEFAULT_NOTIFICATION_ARTIFACT_PATH)))
+    handoff_path = artifact_path / _DEFAULT_BRIDGE_HANDOFF_FILENAME
+    generated_at = datetime.now(timezone.utc)
+
+    if not handoff_path.exists():
+        return OrchestrationNotificationStateResponse(
+            generated_at=generated_at,
+            status="missing",
+            artifact_path=str(artifact_path),
+            handoff_path=str(handoff_path),
+            message="No bridge handoff artifact found yet. Run the bridge collect workflow to generate one.",
+        )
+
+    try:
+        payload = json.loads(handoff_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return OrchestrationNotificationStateResponse(
+            generated_at=generated_at,
+            status="invalid",
+            artifact_path=str(artifact_path),
+            handoff_path=str(handoff_path),
+            message=f"Bridge handoff artifact could not be parsed: {exc}",
+        )
+
+    records = payload.get("records", [])
+    normalized_records = [record for record in records if isinstance(record, dict)] if isinstance(records, list) else []
+    record_count = payload.get("record_count")
+    normalized_count = record_count if isinstance(record_count, int) else len(normalized_records)
+
+    return OrchestrationNotificationStateResponse(
+        generated_at=generated_at,
+        status="available",
+        artifact_path=str(artifact_path),
+        handoff_path=str(handoff_path),
+        runtime=(payload.get("runtime") if isinstance(payload.get("runtime"), str) else None),
+        contract_version=(payload.get("contract_version") if isinstance(payload.get("contract_version"), str) else None),
+        command=(payload.get("command") if isinstance(payload.get("command"), str) else None),
+        session_key=(payload.get("session_key") if isinstance(payload.get("session_key"), str) else None),
+        record_count=normalized_count,
+        records=normalized_records,
+        payload=(payload if isinstance(payload, dict) else None),
+        message="Current bridge handoff artifact loaded from canonical notification runtime output.",
     )
 
 

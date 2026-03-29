@@ -1,6 +1,17 @@
+import json
+
 import pytest
 
-from property_advisor.api.routes import comparables, health, property_advisor, suburbs_overview, watchlist, watchlist_alerts, watchlist_detail
+from property_advisor.api.routes import (
+    comparables,
+    health,
+    orchestration_notifications_current,
+    property_advisor,
+    suburbs_overview,
+    watchlist,
+    watchlist_alerts,
+    watchlist_detail,
+)
 
 
 def test_health_endpoint() -> None:
@@ -81,3 +92,47 @@ def test_watchlist_detail_not_found() -> None:
     with pytest.raises(Exception) as exc_info:
         watchlist_detail(suburb_slug="unknown")
     assert "404" in str(exc_info.value)
+
+
+def test_orchestration_notifications_current_missing(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    artifact_dir = tmp_path / "notifications"
+    monkeypatch.setenv("PROPERTY_ADVISOR_NOTIFICATION_ARTIFACT_PATH", str(artifact_dir))
+
+    payload = orchestration_notifications_current().model_dump(mode="json")
+    assert payload["status"] == "missing"
+    assert payload["record_count"] == 0
+    assert payload["records"] == []
+    assert payload["handoff_path"].endswith("bridge_handoff.json")
+
+
+def test_orchestration_notifications_current_available(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    artifact_dir = tmp_path / "notifications"
+    artifact_dir.mkdir(parents=True)
+    handoff_path = artifact_dir / "bridge_handoff.json"
+    handoff_path.write_text(
+        json.dumps(
+            {
+                "runtime": "auto-dev-orchestrator",
+                "contract_version": "v1",
+                "command": "collect",
+                "session_key": "session-123",
+                "record_count": 1,
+                "records": [
+                    {
+                        "event_id": "evt-1",
+                        "event_type": "completed",
+                        "message": "slice complete",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTY_ADVISOR_NOTIFICATION_ARTIFACT_PATH", str(artifact_dir))
+
+    payload = orchestration_notifications_current().model_dump(mode="json")
+    assert payload["status"] == "available"
+    assert payload["runtime"] == "auto-dev-orchestrator"
+    assert payload["contract_version"] == "v1"
+    assert payload["record_count"] == 1
+    assert payload["records"][0]["event_id"] == "evt-1"

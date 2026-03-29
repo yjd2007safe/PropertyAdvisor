@@ -70,6 +70,7 @@ Useful endpoints:
 - `GET /api/suburbs/overview`
 - `GET /api/advisor/property`
 - `GET /api/comparables`
+- `GET /api/orchestration/notifications/current`
 
 ### 4. Run the web app
 
@@ -145,6 +146,7 @@ Safe rerun flow for operators:
 - The frontend focuses on product information architecture first: Home, Suburb Dashboard, Property Advisor, and Comparables.
 - Existing architecture and scope documentation remain under `docs/` and should continue guiding deeper implementation passes.
 - Notification artifacts under `.dev_pipeline/notifications/` are now wired as a validation target for the canonical `auto-dev-orchestrator` runtime contract, including bridge handoff output at `.dev_pipeline/notifications/bridge_handoff.json`.
+- A minimal orchestration review surface is available at `GET /api/orchestration/notifications/current`, which returns the latest bridge handoff payload (or a missing/invalid status). Override the notifications directory via `PROPERTY_ADVISOR_NOTIFICATION_ARTIFACT_PATH` when needed.
 
 
 ### Repository and DB mode toggles
