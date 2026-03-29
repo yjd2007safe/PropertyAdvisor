@@ -55,6 +55,10 @@ Supported `event_type` values in this round:
 - `user_id`
 - `reply_mode`
 
+`session_key` should prefer a real OpenClaw session key when available.
+If only a chat-address alias is known at emit time (for example `telegram:8590579872`), delivery may map it via environment aliases such as:
+- `OPENCLAW_NOTIFICATION_SESSION_ALIAS_TELEGRAM_8590579872=<real-session-key>`
+
 `delivery_targets` is reserved for future relay routing, including Telegram and session-based delivery.
 
 ## Minimal usage

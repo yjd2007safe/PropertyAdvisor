@@ -30,6 +30,11 @@ def test_resolve_session_key_prefers_explicit(monkeypatch) -> None:
     assert resolve_session_key("explicit-session") == "explicit-session"
 
 
+def test_resolve_session_key_supports_alias_mapping(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCLAW_NOTIFICATION_SESSION_ALIAS_TELEGRAM_8590579872", "agent:main:telegram-session")
+    assert resolve_session_key("telegram:8590579872") == "agent:main:telegram-session"
+
+
 def test_build_sessions_send_params_renders_message() -> None:
     params = build_sessions_send_params(
         artifact=SAMPLE_ARTIFACT,

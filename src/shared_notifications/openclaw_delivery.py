@@ -25,11 +25,22 @@ _SESSION_KEY_ENV_VARS = (
     "OPENCLAW_NOTIFICATION_SESSION_KEY",
     "PROPERTY_ADVISOR_NOTIFICATION_SESSION_KEY",
 )
+_SESSION_ALIAS_ENV_PREFIX = "OPENCLAW_NOTIFICATION_SESSION_ALIAS_"
+
+
+def _normalize_alias_key(value: str) -> str:
+    return ''.join(ch if ch.isalnum() else '_' for ch in value.strip()).upper()
 
 
 def resolve_session_key(explicit_session_key: Optional[str] = None) -> Optional[str]:
     if explicit_session_key:
-        return explicit_session_key.strip() or None
+        explicit = explicit_session_key.strip()
+        if explicit:
+            alias_name = f"{_SESSION_ALIAS_ENV_PREFIX}{_normalize_alias_key(explicit)}"
+            alias_value = os.environ.get(alias_name)
+            if alias_value and alias_value.strip():
+                return alias_value.strip()
+            return explicit
     for name in _SESSION_KEY_ENV_VARS:
         value = os.environ.get(name)
         if value and value.strip():
