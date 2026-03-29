@@ -7,12 +7,17 @@ import json
 import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
-
-from property_advisor.market_metrics import generate_suburb_market_metrics
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
+import os
+
+from property_advisor.market_metrics import generate_suburb_market_metrics
+from property_advisor.pipeline.notification_hooks import PipelineNotificationHooks
+
 import psycopg
+
+from shared_notifications.openclaw_delivery import deliver_to_openclaw_session, resolve_session_key
 
 
 @dataclass
@@ -892,6 +897,41 @@ SOUTHPORT_SAFE_RERUN_STEPS = [
 ]
 
 
+def _build_southport_notification_hooks() -> PipelineNotificationHooks:
+    session_key = resolve_session_key()
+    delivery_targets = []
+    origin = {
+        "channel": "local_pipeline",
+        "session_key": session_key or "southport-demo-pipeline",
+        "reply_mode": "reply" if session_key else "artifact_only",
+    }
+    delivery_handler = None
+    if session_key:
+        delivery_targets.append(
+            {
+                "channel": "openclaw-session",
+                "session_key": session_key,
+                "reply_mode": "reply",
+            }
+        )
+        timeout_seconds = int(os.environ.get("OPENCLAW_NOTIFICATION_TIMEOUT_SECONDS", "0") or "0")
+        delivery_handler = lambda artifact: deliver_to_openclaw_session(
+            artifact,
+            session_key=session_key,
+            timeout_seconds=timeout_seconds,
+        )
+
+    return PipelineNotificationHooks(
+        project="PropertyAdvisor",
+        phase="phase1",
+        round="round6",
+        slice_id=SOUTHPORT_SLICE_ID,
+        origin=origin,
+        delivery_targets=delivery_targets,
+        delivery_handler=delivery_handler,
+    )
+
+
 def _isoformat_utc(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
@@ -966,11 +1006,27 @@ def run_southport_refresh(
     metric_period_end: Optional[date] = None,
 ) -> dict[str, Any]:
     started_at = datetime.now(timezone.utc)
+    notification_hooks = _build_southport_notification_hooks()
     if lock_path.exists():
+        notification_hooks.blocked(
+            summary=f"Southport refresh blocked for {SOUTHPORT_SLICE_ID}",
+            details={
+                "lock_path": str(lock_path),
+                "source_name": source_name,
+            },
+        )
         raise RuntimeError(
             f"refresh lock exists at {lock_path}. Remove it if no run is active, then rerun."
         )
 
+    notification_hooks.round_started(
+        summary=f"Southport refresh started for {SOUTHPORT_SLICE_ID}",
+        details={
+            "input_path": str(input_path),
+            "lock_path": str(lock_path),
+            "source_name": source_name,
+        },
+    )
     lock_path.write_text(started_at.isoformat())
     try:
         ingest_result = run_file_ingest(
@@ -1039,7 +1095,30 @@ def run_southport_refresh(
             history.append(summary_dict)
             summary_path.parent.mkdir(parents=True, exist_ok=True)
             summary_path.write_text(json.dumps(history, indent=2))
+        notification_hooks.completed(
+            summary=f"Southport refresh completed for {SOUTHPORT_SLICE_ID}",
+            details={
+                "source_name": source_name,
+                "input_path": str(input_path),
+                "summary_path": str(summary_path) if summary_path is not None else None,
+            },
+            artifacts=[
+                {
+                    "type": "southport_refresh_run_summary",
+                    "path": str(summary_path) if summary_path is not None else None,
+                }
+            ],
+        )
         return summary_dict
+    except KeyboardInterrupt:
+        notification_hooks.interrupted(
+            summary=f"Southport refresh interrupted for {SOUTHPORT_SLICE_ID}",
+            details={
+                "source_name": source_name,
+                "input_path": str(input_path),
+            },
+        )
+        raise
     finally:
         if lock_path.exists():
             lock_path.unlink()
@@ -1099,13 +1178,21 @@ def verify_southport_demo_slice(
 ) -> dict[str, Any]:
     """Verify the demo slice has enough persisted rows to support phase-1 handoff."""
 
+    notification_hooks = _build_southport_notification_hooks()
+    notification_hooks.ready_for_evaluation(
+        summary=f"Southport verification ready for evaluation for {SOUTHPORT_SLICE_ID}",
+        details={
+            "database_url_supplied": bool(database_url),
+            "expected_minimums": expected_minimums or {},
+        },
+    )
     row_counts = collect_southport_row_counts(database_url=database_url)
     minimums = {**DEFAULT_SOUTHPORT_ROW_COUNT_MINIMUMS, **(expected_minimums or {})}
     failures = [table for table, minimum in minimums.items() if row_counts.get(table, 0) < minimum]
     has_outcome_history = row_counts["sales_events"] > 0 or row_counts["rental_events"] > 0
     proof_slice_ready = len(failures) == 0
 
-    return {
+    report = {
         "artifact_type": "southport_verification_report",
         "artifact_contract_version": 2,
         "target_slice": SOUTHPORT_SLICE_ID,
@@ -1129,6 +1216,23 @@ def verify_southport_demo_slice(
             has_outcome_history=has_outcome_history,
         ),
     }
+    if proof_slice_ready:
+        notification_hooks.evaluated(
+            summary=f"Southport verification passed for {SOUTHPORT_SLICE_ID}",
+            details={
+                "minimum_failures": failures,
+                "row_counts": row_counts,
+            },
+        )
+    else:
+        notification_hooks.evaluation_failed(
+            summary=f"Southport verification needs attention for {SOUTHPORT_SLICE_ID}",
+            details={
+                "minimum_failures": failures,
+                "row_counts": row_counts,
+            },
+        )
+    return report
 
 
 def run_southport_backfill_and_verify(
@@ -1142,6 +1246,7 @@ def run_southport_backfill_and_verify(
 ) -> dict[str, Any]:
     """Run the full refresh + metrics + row-count verification pipeline for Southport."""
 
+    notification_hooks = _build_southport_notification_hooks()
     refresh = run_southport_refresh(
         source_name=source_name,
         input_path=input_path,
@@ -1175,6 +1280,19 @@ def run_southport_backfill_and_verify(
     if verification_path is not None:
         verification_path.parent.mkdir(parents=True, exist_ok=True)
         verification_path.write_text(json.dumps(report, indent=2))
+    notification_hooks.completed(
+        summary=f"Southport backfill and verification completed for {SOUTHPORT_SLICE_ID}",
+        details={
+            "source_name": source_name,
+            "verification_path": str(verification_path) if verification_path is not None else None,
+        },
+        artifacts=[
+            {
+                "type": "southport_backfill_verification_report",
+                "path": str(verification_path) if verification_path is not None else None,
+            }
+        ],
+    )
     return report
 
 def run_file_ingest(
