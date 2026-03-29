@@ -5,7 +5,8 @@ const links = [
   { href: "/suburbs", label: "Suburb Dashboard" },
   { href: "/advisor", label: "Property Advisor" },
   { href: "/comparables", label: "Comparables" },
-  { href: "/watchlist", label: "Watchlist & Alerts" }
+  { href: "/watchlist", label: "Watchlist & Alerts" },
+  { href: "/orchestration", label: "Orchestration Review" }
 ];
 
 export function Nav() {
