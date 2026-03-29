@@ -144,6 +144,7 @@ Safe rerun flow for operators:
 - The FastAPI service is intentionally lightweight and placeholder-backed so real data services can plug in later without rewriting the app boundary.
 - The frontend focuses on product information architecture first: Home, Suburb Dashboard, Property Advisor, and Comparables.
 - Existing architecture and scope documentation remain under `docs/` and should continue guiding deeper implementation passes.
+- Orchestration review workflow entry: `/orchestration` (use this path as the starting point for orchestration review runs).
 - Notification artifacts under `.dev_pipeline/notifications/` are now wired as a validation target for the canonical `auto-dev-orchestrator` runtime contract, including bridge handoff output at `.dev_pipeline/notifications/bridge_handoff.json`.
 
 
