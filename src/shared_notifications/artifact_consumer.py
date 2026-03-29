@@ -25,7 +25,12 @@ class NotificationArtifactConsumer:
             if path == self.state_path:
                 continue
             payload = json.loads(path.read_text())
-            validate_notification_artifact(payload)
+            try:
+                validate_notification_artifact(payload)
+            except ValueError:
+                # The canonical runtime may colocate non-artifact JSON files
+                # (for example bridge handoff metadata) in this directory.
+                continue
             artifacts.append(payload)
         return artifacts
 

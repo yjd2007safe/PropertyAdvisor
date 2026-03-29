@@ -10,6 +10,8 @@ This runtime is intentionally narrow and app-agnostic:
 - external delivery failures are recorded in the artifact and do not block persistence
 - the consumer tracks processed `event_id` values in `.dev_pipeline/notifications/.consumer_state.json`
 - the relay/replay path renders a durable local delivery log at `.dev_pipeline/notifications/delivery_log.jsonl`
+- the OpenClaw bridge CLI now emits a canonical handoff artifact at `.dev_pipeline/notifications/bridge_handoff.json` for auto-dev-orchestrator runtime handoff/ack flow
+- consumers now ignore non-artifact JSON metadata files in this directory (for example `bridge_handoff.json`) and only process schema-valid notification artifacts
 
 `PropertyAdvisor` is an integration example via a thin adapter layer, not the owner of the shared runtime.
 
@@ -101,6 +103,15 @@ Replay pending artifacts and update the local delivery log:
 python -m shared_notifications.cli replay \\
   --artifact-path .dev_pipeline/notifications
 ```
+
+Collect pending bridge records and write the canonical bridge handoff artifact:
+
+```bash
+python -m shared_notifications.openclaw_bridge_cli collect \\
+  --artifact-path .dev_pipeline/notifications
+```
+
+The command returns a JSON payload that includes `handoff_path`, and also writes a handoff JSON document used as the integration point for canonical `auto-dev-orchestrator` bridge flows.
 
 ## Relay / replay
 

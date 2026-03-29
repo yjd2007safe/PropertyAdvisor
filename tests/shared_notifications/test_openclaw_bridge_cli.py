@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from shared_notifications.artifact_writer import NotificationArtifactWriter
 from shared_notifications.openclaw_bridge_cli import main
@@ -29,6 +30,13 @@ def test_bridge_cli_dry_run(tmp_path, capsys) -> None:
     assert payload["failed_count"] == 0
     assert payload["queued_count"] == 0
     assert payload["event_ids"] == ["evt-cli-1"]
+    handoff_path = Path(payload["handoff_path"])
+    assert handoff_path.exists()
+    handoff = json.loads(handoff_path.read_text())
+    assert handoff["runtime"] == "auto-dev-orchestrator"
+    assert handoff["command"] == "replay"
+    assert handoff["record_count"] == 1
+    assert handoff["records"][0]["event_id"] == "evt-cli-1"
 
 
 def test_bridge_cli_collect_and_ack(tmp_path, capsys) -> None:
@@ -52,6 +60,10 @@ def test_bridge_cli_collect_and_ack(tmp_path, capsys) -> None:
     assert collected["records"][0]["event_id"] == "evt-cli-2"
     assert collected["records"][0]["queued_at"] is None
     assert collected["records"][0]["ack"]["command"] == "ack"
+    handoff = json.loads(Path(collected["handoff_path"]).read_text())
+    assert handoff["runtime"] == "auto-dev-orchestrator"
+    assert handoff["command"] == "collect"
+    assert handoff["records"][0]["event_id"] == "evt-cli-2"
 
     exit_code = main(
         [
@@ -106,6 +118,8 @@ def test_bridge_cli_replay_queues_failures_into_inbox(tmp_path, capsys, monkeypa
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["queued_count"] == 1
+    handoff_path = Path(payload["handoff_path"])
+    assert handoff_path.exists()
     inbox_path = artifact_dir / "bridge_inbox.jsonl"
     inbox = [json.loads(line) for line in inbox_path.read_text().splitlines() if line.strip()]
     assert inbox[0]["event_id"] == "evt-cli-3"
@@ -210,3 +224,34 @@ def test_bridge_cli_orchestrate_prioritizes_review_and_auto_continue(tmp_path, c
     assert payload["plans"][0]["requires_human_review"] is True
     assert payload["plans"][1]["event_id"] == "evt-cli-4"
     assert payload["plans"][1]["auto_continue"] is True
+
+
+def test_bridge_cli_collect_supports_custom_handoff_path(tmp_path, capsys) -> None:
+    artifact_dir = tmp_path / ".dev_pipeline" / "notifications"
+    writer = NotificationArtifactWriter(artifact_dir)
+    writer.write_event(
+        event_type="completed",
+        project="PropertyAdvisor",
+        phase="phase1",
+        round="round6",
+        slice_id="southport-qld-4215",
+        status="completed",
+        summary="Refresh done",
+        event_id="evt-cli-6",
+    )
+    custom_handoff_path = tmp_path / "handoff" / "bridge_collect.json"
+
+    exit_code = main(
+        [
+            "collect",
+            "--artifact-path",
+            str(artifact_dir),
+            "--handoff-path",
+            str(custom_handoff_path),
+        ]
+    )
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["handoff_path"] == str(custom_handoff_path)
+    handoff = json.loads(custom_handoff_path.read_text())
+    assert handoff["records"][0]["event_id"] == "evt-cli-6"

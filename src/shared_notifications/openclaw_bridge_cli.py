@@ -5,8 +5,13 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+from .artifact_schema import utc_now_iso
 from .dev_orchestrator import build_dev_orchestration_queue
 from .openclaw_bridge import OpenClawNotificationBridge
+
+CANONICAL_BRIDGE_RUNTIME = "auto-dev-orchestrator"
+CANONICAL_BRIDGE_CONTRACT_VERSION = "v1"
+DEFAULT_HANDOFF_FILENAME = "bridge_handoff.json"
 
 
 def _common_args(parser: argparse.ArgumentParser) -> None:
@@ -14,6 +19,13 @@ def _common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--state-path")
     parser.add_argument("--delivery-log-path")
     parser.add_argument("--inbox-path")
+    parser.add_argument(
+        "--handoff-path",
+        help=(
+            "Optional path for writing a canonical bridge handoff JSON artifact. "
+            "Defaults to <artifact-path>/bridge_handoff.json."
+        ),
+    )
     parser.add_argument("--session-key")
     parser.add_argument("--limit", type=int)
     parser.add_argument(
@@ -100,6 +112,47 @@ def _print_json(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, sort_keys=True))
 
 
+def _resolve_handoff_path(args: argparse.Namespace) -> Path:
+    if args.handoff_path:
+        return Path(args.handoff_path)
+    return Path(args.artifact_path) / DEFAULT_HANDOFF_FILENAME
+
+
+def _build_handoff_payload(
+    *,
+    bridge: OpenClawNotificationBridge,
+    command: str,
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    normalized_records = [
+        {
+            "event_id": record["event_id"],
+            "event_type": record["event_type"],
+            "session_key": record.get("session_key"),
+            "message": record.get("message"),
+            "created_at": record.get("created_at"),
+        }
+        for record in records
+    ]
+    return {
+        "runtime": CANONICAL_BRIDGE_RUNTIME,
+        "contract_version": CANONICAL_BRIDGE_CONTRACT_VERSION,
+        "generated_at": utc_now_iso(),
+        "command": command,
+        "artifact_path": str(bridge.artifact_path),
+        "state_path": str(bridge.state_path),
+        "delivery_log_path": str(bridge.delivery_log_path),
+        "session_key": bridge.session_key,
+        "record_count": len(normalized_records),
+        "records": normalized_records,
+    }
+
+
+def _write_handoff(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+
+
 def _find_pending_artifact(bridge: OpenClawNotificationBridge, event_id: str) -> dict[str, Any]:
     for artifact in bridge.collect_pending():
         if artifact["event_id"] == event_id:
@@ -127,37 +180,22 @@ def _serialize_records(bridge: OpenClawNotificationBridge, records: list[dict[st
     ]
 
 
-
 def _handle_collect(args: argparse.Namespace) -> int:
     bridge = _build_bridge(args)
     records = bridge.build_pending_records(limit=args.limit)
+    handoff_path = _resolve_handoff_path(args)
+    handoff_payload = _build_handoff_payload(bridge=bridge, command="collect", records=records)
+    _write_handoff(handoff_path, handoff_payload)
     payload = {
         "status": "ok",
         "artifact_path": str(bridge.artifact_path),
         "state_path": str(bridge.state_path),
         "delivery_log_path": str(bridge.delivery_log_path),
         "inbox_path": str(bridge.inbox_path),
+        "handoff_path": str(handoff_path),
         "session_key": bridge.session_key,
         "record_count": len(records),
         "records": _serialize_records(bridge, records),
-    }
-    _print_json(payload)
-    return 0
-
-
-
-def _handle_consume(args: argparse.Namespace) -> int:
-    bridge, selected = _select_consume_records(args)
-    payload = {
-        "status": "ok",
-        "artifact_path": str(bridge.artifact_path),
-        "state_path": str(bridge.state_path),
-        "delivery_log_path": str(bridge.delivery_log_path),
-        "inbox_path": str(bridge.inbox_path),
-        "session_key": bridge.session_key,
-        "record_count": len(selected),
-        "queued_count": len([record for record in selected if record.get("queued_at")]),
-        "records": _serialize_records(bridge, selected),
     }
     _print_json(payload)
     return 0
@@ -175,6 +213,22 @@ def _select_consume_records(args: argparse.Namespace) -> tuple[OpenClawNotificat
         selected = selected[: args.limit]
     return bridge, selected
 
+
+def _handle_consume(args: argparse.Namespace) -> int:
+    bridge, selected = _select_consume_records(args)
+    payload = {
+        "status": "ok",
+        "artifact_path": str(bridge.artifact_path),
+        "state_path": str(bridge.state_path),
+        "delivery_log_path": str(bridge.delivery_log_path),
+        "inbox_path": str(bridge.inbox_path),
+        "session_key": bridge.session_key,
+        "record_count": len(selected),
+        "queued_count": len([record for record in selected if record.get("queued_at")]),
+        "records": _serialize_records(bridge, selected),
+    }
+    _print_json(payload)
+    return 0
 
 
 def _handle_orchestrate(args: argparse.Namespace) -> int:
@@ -195,7 +249,6 @@ def _handle_orchestrate(args: argparse.Namespace) -> int:
     }
     _print_json(payload)
     return 0
-
 
 
 def _handle_ack(args: argparse.Namespace) -> int:
@@ -227,12 +280,16 @@ def _handle_fail(args: argparse.Namespace) -> int:
 def _handle_replay(args: argparse.Namespace) -> int:
     bridge = _build_bridge(args)
     records = bridge.replay_pending(limit=args.limit, dry_run=args.dry_run)
+    handoff_path = _resolve_handoff_path(args)
+    handoff_payload = _build_handoff_payload(bridge=bridge, command="replay", records=records)
+    _write_handoff(handoff_path, handoff_payload)
     payload = {
         "status": "ok",
         "artifact_path": str(bridge.artifact_path),
         "state_path": str(bridge.state_path),
         "delivery_log_path": str(bridge.delivery_log_path),
         "inbox_path": str(bridge.inbox_path),
+        "handoff_path": str(handoff_path),
         "session_key": bridge.session_key,
         "record_count": len(records),
         "sent_count": sum(1 for record in records if record["status"] == "sent"),
