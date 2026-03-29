@@ -8,8 +8,10 @@ from property_advisor.api.routes import (
     suburbs_overview,
     watchlist,
     watchlist_alerts,
+    watchlist_action,
     watchlist_detail,
 )
+from property_advisor.api.schemas import WatchlistActionRequest
 
 
 def test_health_endpoint() -> None:
@@ -68,6 +70,7 @@ def test_watchlist_shape() -> None:
     assert isinstance(payload["data_source"]["upstream_sources"], dict)
     assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
     assert payload["data_source"]["consistency"] in {"uniform", "mixed"}
+    assert payload["items"][0]["latest_context"]["advisory"]
 
 
 def test_watchlist_group_and_detail_routes() -> None:
@@ -90,6 +93,15 @@ def test_watchlist_detail_not_found() -> None:
     with pytest.raises(Exception) as exc_info:
         watchlist_detail(suburb_slug="unknown")
     assert "404" in str(exc_info.value)
+
+
+def test_watchlist_action_route_creates_entry() -> None:
+    payload = watchlist_action(
+        WatchlistActionRequest(suburb_slug="new-suburb-qld-4300", source_surface="advisor")
+    ).model_dump(mode="json")
+    assert payload["action"] in {"created", "updated"}
+    assert payload["item"]["suburb_slug"] == "new-suburb-qld-4300"
+    assert payload["item"]["latest_context"]["comparables"]
 
 
 def test_orchestration_review_shape() -> None:

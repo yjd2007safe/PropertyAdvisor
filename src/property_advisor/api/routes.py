@@ -13,6 +13,8 @@ from property_advisor.api.schemas import (
     PropertyAdvisorResponse,
     SuburbsOverviewResponse,
     WatchlistAlertsResponse,
+    WatchlistActionRequest,
+    WatchlistActionResponse,
     WatchlistDetailResponse,
     WatchlistResponse,
 )
@@ -25,6 +27,7 @@ from property_advisor.api.services import (
     get_watchlist,
     get_watchlist_alerts,
     get_watchlist_detail,
+    upsert_watchlist_action,
 )
 
 router = APIRouter(prefix="/api")
@@ -93,6 +96,11 @@ def watchlist_alerts(
     severity: Optional[Literal["info", "watch", "high"]] = Query(default=None),
 ) -> WatchlistAlertsResponse:
     return get_watchlist_alerts(severity=severity)
+
+
+@router.post("/watchlist/actions", response_model=WatchlistActionResponse)
+def watchlist_action(payload: WatchlistActionRequest) -> WatchlistActionResponse:
+    return upsert_watchlist_action(payload)
 
 
 @router.get("/watchlist/{suburb_slug}", response_model=WatchlistDetailResponse)

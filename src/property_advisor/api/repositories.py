@@ -126,6 +126,15 @@ class WatchlistQuery:
     watch_status: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class WatchlistUpsertRequest:
+    suburb_slug: str
+    source_surface: Literal["advisor", "comparables", "watchlist"]
+    strategy: Optional[Literal["yield", "owner-occupier", "balanced"]] = None
+    watch_status: Optional[Literal["active", "review", "paused"]] = None
+    notes: Optional[str] = None
+
+
 class SuburbRepository(Protocol):
     def list_overview(self) -> List[SuburbOverviewItem]:
         ...
@@ -161,6 +170,9 @@ class WatchlistRepository(Protocol):
         ...
 
     def list_alerts(self, severity: Optional[str] = None) -> List[WatchlistAlert]:
+        ...
+
+    def upsert_entry(self, request: WatchlistUpsertRequest) -> tuple[Literal["created", "updated"], WatchlistEntry]:
         ...
 
 
@@ -739,11 +751,14 @@ class MockComparableRepository:
 class MockWatchlistRepository:
     last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
     last_fallback_reason: Optional[str] = None
+    
+    def __init__(self):
+        self._entries = {entry.suburb_slug: entry.model_copy(deep=True) for entry in WATCHLIST_FIXTURE}
 
     def list_entries(self, criteria: WatchlistQuery) -> List[WatchlistEntry]:
         self.last_source = "mock"
         self.last_fallback_reason = None
-        items = list(WATCHLIST_FIXTURE)
+        items = list(self._entries.values())
         if criteria.suburb_slug:
             items = [entry for entry in items if entry.suburb_slug == criteria.suburb_slug]
         if criteria.strategy:
@@ -757,7 +772,7 @@ class MockWatchlistRepository:
     def get_entry(self, suburb_slug: str) -> Optional[WatchlistEntry]:
         self.last_source = "mock"
         self.last_fallback_reason = None
-        return next((entry for entry in WATCHLIST_FIXTURE if entry.suburb_slug == suburb_slug), None)
+        return self._entries.get(suburb_slug)
 
     def list_alerts(self, severity: Optional[str] = None) -> List[WatchlistAlert]:
         self.last_source = "mock"
@@ -766,6 +781,34 @@ class MockWatchlistRepository:
         if severity:
             return [alert for alert in alerts if alert.severity == severity]
         return alerts
+
+    def upsert_entry(self, request: WatchlistUpsertRequest) -> tuple[Literal["created", "updated"], WatchlistEntry]:
+        existing = self._entries.get(request.suburb_slug)
+        if existing:
+            updated = existing.model_copy(
+                update={
+                    "strategy": request.strategy or existing.strategy,
+                    "watch_status": request.watch_status or "review",
+                    "notes": request.notes or f"Updated from {request.source_surface} workflow.",
+                }
+            )
+            self._entries[request.suburb_slug] = updated
+            return ("updated", updated)
+
+        fallback_suburb = request.suburb_slug.split("-")[0].replace("-", " ").title() or "Unknown"
+        new_entry = WatchlistEntry(
+            suburb_slug=request.suburb_slug,
+            suburb_name=fallback_suburb,
+            state="QLD",
+            strategy=request.strategy or "balanced",
+            watch_status=request.watch_status or "review",
+            notes=request.notes or f"Saved from {request.source_surface} workflow.",
+            target_buy_range_min=0,
+            target_buy_range_max=0,
+            alerts=[],
+        )
+        self._entries[request.suburb_slug] = new_entry
+        return ("created", new_entry)
 
 
 class PostgresSuburbRepository(MockSuburbRepository):
@@ -1689,7 +1732,9 @@ class PostgresWatchlistRepository(MockWatchlistRepository):
     """Postgres-backed watchlist repository with mock fallback behavior."""
 
     def __init__(self, session_factory: DatabaseSessionFactory):
+        super().__init__()
         self.session_factory = session_factory
+        self._entries = {}
 
     def _map_row_to_entry(self, row: dict) -> WatchlistEntry:
         return WatchlistEntry.model_validate(row)
@@ -1699,7 +1744,7 @@ class PostgresWatchlistRepository(MockWatchlistRepository):
             items = list(WATCHLIST_FIXTURE)
             self.last_source = "fallback_mock"
             self.last_fallback_reason = "No database URL configured for watchlist."
-            return items
+            return self._merge_runtime_entries(items)
         try:
             with psycopg.connect(self.session_factory.config.url) as conn:
                 with conn.cursor() as cur:
@@ -1723,12 +1768,12 @@ class PostgresWatchlistRepository(MockWatchlistRepository):
             items = list(WATCHLIST_FIXTURE)
             self.last_source = "fallback_mock"
             self.last_fallback_reason = f"Watchlist query failed: {exc.__class__.__name__}"
-            return items
+            return self._merge_runtime_entries(items)
         if not rows:
             items = list(WATCHLIST_FIXTURE)
             self.last_source = "fallback_mock"
             self.last_fallback_reason = "Watchlist query returned 0 rows."
-            return items
+            return self._merge_runtime_entries(items)
         self.last_source = "postgres"
         self.last_fallback_reason = None
         entries: List[WatchlistEntry] = []
@@ -1749,7 +1794,13 @@ class PostgresWatchlistRepository(MockWatchlistRepository):
                     alerts=alerts,
                 )
             )
-        return entries
+        return self._merge_runtime_entries(entries)
+
+    def _merge_runtime_entries(self, loaded: List[WatchlistEntry]) -> List[WatchlistEntry]:
+        merged = {entry.suburb_slug: entry for entry in loaded}
+        for slug, entry in self._entries.items():
+            merged[slug] = entry
+        return list(merged.values())
 
     def list_entries(self, criteria: WatchlistQuery) -> List[WatchlistEntry]:
         items = self._load_entries()

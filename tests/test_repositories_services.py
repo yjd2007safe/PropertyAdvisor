@@ -20,7 +20,9 @@ from property_advisor.api.services import (
     get_watchlist,
     get_watchlist_alerts,
     get_watchlist_detail,
+    upsert_watchlist_action,
 )
+from property_advisor.api.schemas import WatchlistActionRequest
 
 
 def test_data_access_layer_uses_postgres_placeholders_when_enabled() -> None:
@@ -74,6 +76,19 @@ def test_watchlist_filter_returns_empty_for_unknown_slug() -> None:
     dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     response = get_watchlist(suburb_slug="unknown-suburb", dal=dal)
     assert response.items == []
+
+
+def test_watchlist_action_upsert_feeds_watchlist_context() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    action = upsert_watchlist_action(
+        WatchlistActionRequest(suburb_slug="new-suburb-qld-4300", source_surface="comparables"),
+        dal=dal,
+    )
+    response = get_watchlist(suburb_slug="new-suburb-qld-4300", dal=dal)
+    assert action.action == "created"
+    assert response.summary.total_entries == 1
+    assert response.items[0].latest_context is not None
+    assert "review_required=" in response.items[0].latest_context.orchestration
 
 
 def test_service_comparables_empty_state() -> None:
