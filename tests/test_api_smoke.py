@@ -48,6 +48,12 @@ def test_property_advisor_shape() -> None:
     assert payload["workflow_snapshot"]["next_href"].startswith("/comparables")
     assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
     assert payload["data_source"]["consistency"] in {"uniform", "mixed"}
+    evidence_summary = payload["advice"]["evidence_summary"]
+    if evidence_summary is not None:
+        assert evidence_summary["freshness_status"] in {"fresh", "stale", "unknown"}
+        assert evidence_summary["evidence_strength"] in {"weak", "moderate", "strong"}
+        assert evidence_summary["sample_depth"] in {"none", "low", "moderate", "high"}
+        assert isinstance(evidence_summary["sections"], list)
 
 
 def test_comparables_shape() -> None:
@@ -59,6 +65,9 @@ def test_comparables_shape() -> None:
     assert payload["workflow_snapshot"]["stage"] == "comparables"
     assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
     assert payload["data_source"]["consistency"] in {"uniform", "mixed"}
+    assert payload["summary"]["sample_state"] in {"empty", "low", "adequate"}
+    if payload["items"]:
+        assert "rationale" in payload["items"][0]
 
 
 def test_watchlist_shape() -> None:
