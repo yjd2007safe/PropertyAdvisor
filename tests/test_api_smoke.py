@@ -10,6 +10,7 @@ from property_advisor.api.routes import (
     watchlist_alerts,
     watchlist_action,
     watchlist_detail,
+    watchlist_events,
 )
 from property_advisor.api.schemas import WatchlistActionRequest
 
@@ -87,6 +88,16 @@ def test_watchlist_alerts_route() -> None:
     assert all(item["severity"] == "high" for item in payload["items"])
     assert payload["data_source"]["source"] in {"mock", "postgres", "fallback_mock"}
     assert payload["data_source"]["consistency"] in {"uniform", "mixed"}
+
+
+def test_watchlist_events_route() -> None:
+    payload = watchlist_events(limit=6).model_dump(mode="json")
+    assert payload["total"] <= 6
+    assert isinstance(payload["items"], list)
+    if payload["items"]:
+        categories = {item["category"] for item in payload["items"]}
+        assert categories <= {"watchlist", "alert", "advisory", "orchestration"}
+        assert payload["items"][0]["follow_up_href"].startswith("/")
 
 
 def test_watchlist_detail_not_found() -> None:

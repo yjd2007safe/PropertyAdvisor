@@ -16,6 +16,7 @@ from property_advisor.api.schemas import (
     WatchlistActionRequest,
     WatchlistActionResponse,
     WatchlistDetailResponse,
+    WatchlistEventsResponse,
     WatchlistResponse,
 )
 from property_advisor.api.services import (
@@ -27,6 +28,7 @@ from property_advisor.api.services import (
     get_watchlist,
     get_watchlist_alerts,
     get_watchlist_detail,
+    get_watchlist_events,
     upsert_watchlist_action,
 )
 
@@ -96,6 +98,13 @@ def watchlist_alerts(
     severity: Optional[Literal["info", "watch", "high"]] = Query(default=None),
 ) -> WatchlistAlertsResponse:
     return get_watchlist_alerts(severity=severity)
+
+
+@router.get("/watchlist/events", response_model=WatchlistEventsResponse)
+def watchlist_events(
+    limit: int = Query(default=12, ge=1, le=50),
+) -> WatchlistEventsResponse:
+    return get_watchlist_events(limit=limit)
 
 
 @router.post("/watchlist/actions", response_model=WatchlistActionResponse)

@@ -20,6 +20,7 @@ from property_advisor.api.services import (
     get_watchlist,
     get_watchlist_alerts,
     get_watchlist_detail,
+    get_watchlist_events,
     upsert_watchlist_action,
 )
 from property_advisor.api.schemas import WatchlistActionRequest
@@ -280,6 +281,17 @@ def test_watchlist_detail_and_alert_filter_flow() -> None:
     assert detail is not None
     assert detail.item.suburb_slug == "southport-qld-4215"
     assert all(alert.severity == "high" for alert in high_alerts.items)
+
+
+def test_watchlist_events_prioritizes_recent_actionable_changes() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    response = get_watchlist_events(limit=8, dal=dal)
+    assert response.total <= 8
+    assert all(item.follow_up_href.startswith("/") for item in response.items)
+    if response.items:
+        categories = {item.category for item in response.items}
+        assert "watchlist" in categories or "alert" in categories
+        assert categories <= {"watchlist", "alert", "advisory", "orchestration"}
 
 
 def test_comparables_filter_supports_price_and_distance() -> None:
