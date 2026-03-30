@@ -17,6 +17,19 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
 
   try {
     const advisor = await getPropertyAdvisor({ query: query || undefined, query_type: queryType, focus_strategy: params.focus_strategy });
+    const evidenceSummary = advisor.advice.evidence_summary;
+    const freshness = evidenceSummary?.freshness_status ?? advisor.advice.freshness ?? "unknown";
+    const evidenceStrength = evidenceSummary?.evidence_strength ?? "weak";
+    const sampleDepth = evidenceSummary?.sample_depth ?? advisor.advice.sample_depth ?? "none";
+    const evidenceAgreement = evidenceSummary?.evidence_agreement ?? advisor.advice.evidence_agreement ?? "unknown";
+    const weakEvidenceSignals = [
+      ...(advisor.advice.warnings ?? []),
+      ...(advisor.advice.fallback_reasons ?? []),
+      ...(advisor.advice.limitations ?? []),
+      ...(evidenceSummary?.warnings ?? []),
+      ...(evidenceSummary?.fallback_reasons ?? []),
+      ...(evidenceSummary?.limitations ?? [])
+    ];
 
     return (
       <main className="section-stack">
@@ -60,6 +73,45 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
           <MetricCard label="Comparable sample" value={advisor.comparable_snapshot.sample_size} />
           <MetricCard label="Price position" value={advisor.comparable_snapshot.price_position} tone="highlight" />
           <MetricCard label="Strategy focus" value={advisor.market_context.strategy_focus} />
+        </section>
+
+        <section className="panel">
+          <SectionTitle eyebrow="Evidence quality" title="Decision confidence at a glance" supportingText="Freshness, strength, and agreement summarize how dependable the current recommendation is." />
+          <ul className="detail-list">
+            <li><strong>Freshness:</strong> {freshness}</li>
+            <li><strong>Strength:</strong> {evidenceStrength}</li>
+            <li><strong>Sample depth:</strong> {sampleDepth}</li>
+            <li><strong>Agreement:</strong> {evidenceAgreement}</li>
+            {evidenceSummary?.algorithm_version ? <li><strong>Model version:</strong> {evidenceSummary.algorithm_version}</li> : null}
+          </ul>
+          {evidenceSummary?.confidence_reasons && evidenceSummary.confidence_reasons.length > 0 ? (
+            <>
+              <p className="meta-label">Why this confidence level</p>
+              <ul className="detail-list">
+                {evidenceSummary.confidence_reasons.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </>
+          ) : null}
+          {evidenceSummary?.sections && evidenceSummary.sections.length > 0 ? (
+            <>
+              <p className="meta-label">Evidence sections</p>
+              <ul className="detail-list">
+                {evidenceSummary.sections.map((section) => (
+                  <li key={section.name}>
+                    <strong>{section.name}</strong> ({section.status}): {section.summary}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {weakEvidenceSignals.length > 0 ? (
+            <>
+              <p className="meta-label">Thin / weak evidence indicators</p>
+              <ul className="detail-list">
+                {[...new Set(weakEvidenceSignals)].map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </>
+          ) : null}
         </section>
 
         <section className="card-grid two-up">

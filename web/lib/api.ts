@@ -105,9 +105,38 @@ export type PropertyAdvisorResponse = {
     recommendation: "watch" | "consider" | "pass";
     confidence: "low" | "medium" | "high";
     headline: string;
+    summary?: string | null;
+    stance?: "watch" | "consider" | "pass" | null;
+    rationale_bullets?: string[];
+    warnings?: string[];
+    fallback_notes?: string[];
+    confidence_reasons?: string[];
+    fallback_state?: "none" | "insufficient_evidence" | "stale_evidence" | "low_sample" | "conflicting_evidence" | "missing_subject_attributes" | "missing_listing_context" | "missing_market_context";
+    fallback_reasons?: string[];
+    limitations?: string[];
+    freshness?: "fresh" | "stale" | "unknown";
+    sample_depth?: "none" | "low" | "moderate" | "high";
+    evidence_agreement?: "aligned" | "mixed" | "conflicting" | "unknown";
     risks: string[];
     strengths: string[];
     next_steps: string[];
+    evidence_summary?: {
+      contract_version: string;
+      algorithm_version: string;
+      freshness_status: "fresh" | "stale" | "unknown";
+      required_inputs: Record<string, boolean>;
+      optional_inputs: Record<string, boolean>;
+      sections: { name: string; status: "available" | "missing" | "stale" | "insufficient"; summary: string }[];
+      warnings: string[];
+      fallback_notes: string[];
+      limitations: string[];
+      confidence_reasons: string[];
+      fallback_state: "none" | "insufficient_evidence" | "stale_evidence" | "low_sample" | "conflicting_evidence" | "missing_subject_attributes" | "missing_listing_context" | "missing_market_context";
+      fallback_reasons: string[];
+      sample_depth: "none" | "low" | "moderate" | "high";
+      evidence_agreement: "aligned" | "mixed" | "conflicting" | "unknown";
+      evidence_strength: "weak" | "moderate" | "strong";
+    } | null;
   };
   market_context: {
     suburb: string;
@@ -143,6 +172,10 @@ export type ComparablesResponse = {
     min_price: number;
     max_price: number;
     average_price: number;
+    sample_state?: "empty" | "low" | "adequate";
+    quality_score?: number | null;
+    quality_label?: string | null;
+    algorithm_version?: string | null;
   };
   narrative: {
     price_position: "discount" | "aligned" | "premium" | "insufficient_data";
@@ -154,6 +187,7 @@ export type ComparablesResponse = {
   workflow_links: WorkflowLink[];
   workflow_snapshot: WorkflowSnapshot;
   items: {
+    property_id?: string | null;
     address: string;
     price: number;
     distance_km: number;
@@ -161,6 +195,8 @@ export type ComparablesResponse = {
     sold_date: string;
     beds: number;
     baths: number;
+    score?: number | null;
+    rationale?: Record<string, unknown>;
   }[];
 };
 

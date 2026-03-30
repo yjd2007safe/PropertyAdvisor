@@ -19,6 +19,13 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
 
   try {
     const comparables = await getComparables({ query: query || undefined, max_items: maxItems, min_price: minPrice, max_price: maxPrice, max_distance_km: maxDistance });
+    const qualitySignals = [
+      comparables.summary.sample_state ? `Sample state: ${comparables.summary.sample_state}` : null,
+      comparables.summary.quality_label ? `Set quality label: ${comparables.summary.quality_label}` : null,
+      comparables.summary.quality_score !== undefined && comparables.summary.quality_score !== null ? `Quality score: ${comparables.summary.quality_score}` : null,
+      comparables.summary.algorithm_version ? `Algorithm: ${comparables.summary.algorithm_version}` : null
+    ].filter((item): item is string => Boolean(item));
+    const hasThinEvidence = comparables.summary.sample_state === "low" || comparables.summary.sample_state === "empty" || comparables.summary.quality_label === "low";
 
     return (
       <main className="section-stack">
@@ -60,22 +67,30 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
               <MetricCard label="Average price" value={formatCurrency(comparables.summary.average_price)} tone="highlight" />
               <MetricCard label="Price range" value={`${formatCurrency(comparables.summary.min_price)} - ${formatCurrency(comparables.summary.max_price)}`} />
             </section>
+            <section className="panel">
+              <SectionTitle eyebrow="Evidence quality" title="Comparable set quality and freshness signals" supportingText="Use these checks before trusting the price narrative." />
+              {qualitySignals.length > 0 ? <ul className="detail-list">{qualitySignals.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="lede compact">No explicit set-quality metadata returned.</p>}
+              {hasThinEvidence ? <p className="lede compact"><strong>Thin evidence warning:</strong> treat this set as directional and widen filters or gather more recent comps.</p> : null}
+            </section>
 
             <section className="panel">
               <SectionTitle eyebrow="Investor prompt" title={comparables.narrative.action_prompt} supportingText={`Then continue in advisor with the same target context.`} />
               <table className="data-table">
                 <thead>
-                  <tr><th>Address</th><th>Price</th><th>Sold</th><th>Config</th><th>Distance</th><th>Why it matters</th></tr>
+                  <tr><th>Rank</th><th>Address</th><th>Price</th><th>Sold</th><th>Config</th><th>Distance</th><th>Score</th><th>Why it matters</th><th>Evidence rationale</th></tr>
                 </thead>
                 <tbody>
-                  {comparables.items.map((item) => (
+                  {comparables.items.map((item, index) => (
                     <tr key={item.address}>
+                      <td>{index + 1}</td>
                       <td>{item.address}</td>
                       <td>{formatCurrency(item.price)}</td>
                       <td>{item.sold_date}</td>
                       <td>{item.beds} bed / {item.baths} bath</td>
                       <td>{item.distance_km} km</td>
+                      <td>{item.score ?? "n/a"}</td>
                       <td>{item.match_reason}</td>
+                      <td>{item.rationale && Object.keys(item.rationale).length > 0 ? Object.entries(item.rationale).map(([key, value]) => `${key}: ${value}`).join(" · ") : "n/a"}</td>
                     </tr>
                   ))}
                 </tbody>
