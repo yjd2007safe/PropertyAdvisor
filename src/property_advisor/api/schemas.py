@@ -363,3 +363,23 @@ class WatchlistAlertsResponse(BaseModel):
     data_source: DataSourceStatus
     total: int
     items: List[WatchlistAlert]
+
+
+class WatchlistEventItem(BaseModel):
+    event_id: str
+    category: Literal["watchlist", "alert", "advisory", "orchestration"]
+    occurred_at: datetime
+    title: str
+    detail: str
+    suburb_slug: Optional[str] = None
+    suburb_name: Optional[str] = None
+    follow_up_href: str
+    follow_up_label: str
+
+
+class WatchlistEventsResponse(BaseModel):
+    generated_at: datetime
+    mode: Literal["mock", "postgres"]
+    data_source: DataSourceStatus
+    total: int
+    items: List[WatchlistEventItem]

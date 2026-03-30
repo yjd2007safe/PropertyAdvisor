@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-import { ApiError, formatCurrency, getWatchlist, getWatchlistAlerts, getWatchlistDetail } from "../../lib/api";
+import { ApiError, formatCurrency, getWatchlist, getWatchlistAlerts, getWatchlistDetail, getWatchlistEvents } from "../../lib/api";
 import { AlertBadge, DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 
 type WatchlistPageProps = {
@@ -19,7 +19,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
   const params = (await searchParams) ?? {};
 
   try {
-    const [watchlist, alertFeed, detail] = await Promise.all([
+    const [watchlist, alertFeed, eventFeed, detail] = await Promise.all([
       getWatchlist({
         suburb_slug: params.suburb_slug,
         strategy: params.strategy,
@@ -28,6 +28,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
         group_by: params.group_by ?? "none"
       }),
       getWatchlistAlerts(params.alert_severity),
+      getWatchlistEvents(10),
       params.detail_slug ? getWatchlistDetail(params.detail_slug) : Promise.resolve(null)
     ]);
 
@@ -174,6 +175,22 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
             <ul className="detail-list">
               {alertFeed.items.map((alert) => (
                 <li key={`${alert.metric}-${alert.observed_at}-${alert.title}`}><AlertBadge tone={alert.severity}>{alert.severity}</AlertBadge> {alert.title}: {alert.detail}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {eventFeed.items.length === 0 ? (
+          <EmptyState title="No recent watchlist events" body="As new alerts and orchestration updates arrive, this timeline will highlight what changed and what to do next." />
+        ) : (
+          <section className="panel">
+            <p className="meta-label">Recent change timeline ({eventFeed.total})</p>
+            <ul className="detail-list">
+              {eventFeed.items.map((event) => (
+                <li key={event.event_id}>
+                  <strong>[{event.category}]</strong> {event.title} ({event.occurred_at}) — {event.detail} {" "}
+                  <a href={event.follow_up_href}>{event.follow_up_label}</a>
+                </li>
               ))}
             </ul>
           </section>

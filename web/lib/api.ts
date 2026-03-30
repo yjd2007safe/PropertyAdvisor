@@ -195,6 +195,17 @@ export type OrchestrationReviewResponse = {
 };
 
 export type WatchlistAlert = { severity: "info" | "watch" | "high"; title: string; detail: string; metric: string; observed_at: string };
+export type WatchlistEvent = {
+  event_id: string;
+  category: "watchlist" | "alert" | "advisory" | "orchestration";
+  occurred_at: string;
+  title: string;
+  detail: string;
+  suburb_slug?: string | null;
+  suburb_name?: string | null;
+  follow_up_href: string;
+  follow_up_label: string;
+};
 
 export type WatchlistEntry = {
   suburb_slug: string;
@@ -250,6 +261,11 @@ export const getWatchlistDetail = (suburb_slug: string) =>
 
 export const getWatchlistAlerts = (severity?: "info" | "watch" | "high") =>
   getJson<{ generated_at: string; mode: "mock" | "postgres"; data_source: DataSourceStatus; total: number; items: WatchlistAlert[] }>(`/api/watchlist/alerts${buildSearch({ severity })}`);
+
+export const getWatchlistEvents = (limit?: number) =>
+  getJson<{ generated_at: string; mode: "mock" | "postgres"; data_source: DataSourceStatus; total: number; items: WatchlistEvent[] }>(
+    `/api/watchlist/events${buildSearch({ limit })}`
+  );
 
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-AU", {

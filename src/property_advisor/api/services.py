@@ -36,6 +36,8 @@ from property_advisor.api.schemas import (
     WatchlistContextSummary,
     WatchlistDetailResponse,
     WatchlistEntry,
+    WatchlistEventItem,
+    WatchlistEventsResponse,
     WatchlistGroup,
     WatchlistResponse,
     WatchlistSummary,
@@ -764,11 +766,99 @@ def get_watchlist_alerts(severity: Optional[str] = None, dal: DataAccessLayer = 
     )
 
 
+def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> WatchlistEventsResponse:
+    entries = dal.watchlist.list_entries(WatchlistQuery())
+    events: list[WatchlistEventItem] = []
+
+    for entry in entries:
+        if entry.alerts:
+            latest_alert = sorted(entry.alerts, key=lambda alert: alert.observed_at, reverse=True)[0]
+            events.append(
+                WatchlistEventItem(
+                    event_id=f"alert:{entry.suburb_slug}:{latest_alert.metric}:{latest_alert.observed_at}",
+                    category="alert",
+                    occurred_at=_parse_timestamp(latest_alert.observed_at) or datetime.now(timezone.utc),
+                    title=f"{entry.suburb_name}: {latest_alert.title}",
+                    detail=f"{latest_alert.detail} (severity: {latest_alert.severity})",
+                    suburb_slug=entry.suburb_slug,
+                    suburb_name=entry.suburb_name,
+                    follow_up_href=f"/watchlist?detail_slug={entry.suburb_slug}",
+                    follow_up_label="Open watchlist detail",
+                )
+            )
+
+        events.append(
+            WatchlistEventItem(
+                event_id=f"watchlist:{entry.suburb_slug}:{entry.watch_status}",
+                category="watchlist",
+                occurred_at=datetime.now(timezone.utc),
+                title=f"{entry.suburb_name}: watchlist status is {entry.watch_status}",
+                detail=f"Strategy={entry.strategy}; target band ${entry.target_buy_range_min:,}-${entry.target_buy_range_max:,}.",
+                suburb_slug=entry.suburb_slug,
+                suburb_name=entry.suburb_name,
+                follow_up_href=f"/advisor?query={entry.suburb_slug}&query_type=slug",
+                follow_up_label="Run advisor follow-up",
+            )
+        )
+
+        events.append(
+            WatchlistEventItem(
+                event_id=f"advisory:{entry.suburb_slug}",
+                category="advisory",
+                occurred_at=datetime.now(timezone.utc),
+                title=f"{entry.suburb_name}: advisory refresh recommended",
+                detail=f"Re-check recommendation for {entry.strategy} strategy before progressing this suburb.",
+                suburb_slug=entry.suburb_slug,
+                suburb_name=entry.suburb_name,
+                follow_up_href=f"/advisor?query={entry.suburb_slug}&query_type=slug",
+                follow_up_label="Open advisor",
+            )
+        )
+
+    orchestration = get_orchestration_review_status(limit=3)
+    for plan in orchestration.plans:
+        occurred_at = _parse_timestamp(plan.queued_at or plan.created_at) or datetime.now(timezone.utc)
+        events.append(
+            WatchlistEventItem(
+                event_id=f"orchestration:{plan.event_id}",
+                category="orchestration",
+                occurred_at=occurred_at,
+                title=f"Orchestration event: {plan.event_type}",
+                detail=(
+                    f"{plan.strategy_summary} Pending action: {plan.action}."
+                    if plan.strategy_summary
+                    else f"Pending action: {plan.action}."
+                ),
+                follow_up_href="/orchestration",
+                follow_up_label="Open orchestration review",
+            )
+        )
+
+    events.sort(key=lambda event: event.occurred_at, reverse=True)
+    limited = events[: max(limit, 0)]
+
+    return WatchlistEventsResponse(
+        generated_at=datetime.now(timezone.utc),
+        mode=dal.mode,
+        data_source=_resolve_data_source(
+            dal,
+            dal.watchlist,
+            "Watchlist events",
+            upstream_repositories={"suburbs": dal.suburbs},
+        ),
+        total=len(limited),
+        items=limited,
+    )
+
+
 def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
     except ValueError:
         return None
 
