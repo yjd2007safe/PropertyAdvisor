@@ -182,14 +182,20 @@ def get_health_status() -> HealthResponse:
 
 
 def _product_workflow_links(suburb_slug: Optional[str] = None, source_surface: Optional[str] = None) -> List[WorkflowLink]:
-    suffix = f"?detail_slug={suburb_slug}" if suburb_slug else ""
+    suffix = f"?detail_slug={suburb_slug}&suburb_slug={suburb_slug}" if suburb_slug else ""
     save_href = "/watchlist"
+    advisor_href = "/advisor"
+    comparables_href = "/comparables"
+    if suburb_slug:
+        inferred_query_type = "slug" if "-" in suburb_slug and "," not in suburb_slug else "auto"
+        advisor_href = f"/advisor?query={suburb_slug}&query_type={inferred_query_type}"
+        comparables_href = f"/comparables?query={suburb_slug}"
     if suburb_slug and source_surface:
         save_href = f"/watchlist/actions?suburb_slug={suburb_slug}&source_surface={source_surface}"
     return [
         WorkflowLink(label="Suburb dashboard", href="/suburbs", context="Re-check suburb-level momentum and liquidity."),
-        WorkflowLink(label="Property advisor", href="/advisor", context="Convert evidence into a decision recommendation."),
-        WorkflowLink(label="Comparables", href="/comparables", context="Validate pricing fit and comp confidence."),
+        WorkflowLink(label="Property advisor", href=advisor_href, context="Convert evidence into a decision recommendation."),
+        WorkflowLink(label="Comparables", href=comparables_href, context="Validate pricing fit and comp confidence."),
         WorkflowLink(label="Watchlist", href=f"/watchlist{suffix}", context="Track strategy alerts and action queue."),
         WorkflowLink(label="Save to watchlist", href=save_href, context="Capture this suburb into watchlist action review."),
         WorkflowLink(label="Orchestration review", href="/orchestration", context="Check runtime review blockers, freshness, and operator actions."),

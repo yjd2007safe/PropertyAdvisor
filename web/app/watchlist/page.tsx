@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getWatchlist, getWatchlistAlerts, getWatchlistDetail, getWatchlistEvents } from "../../lib/api";
 import { AlertBadge, DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
+import { withFlowContext } from "../../lib/workflow";
 
 type WatchlistPageProps = {
   searchParams?: Promise<{
@@ -12,6 +13,8 @@ type WatchlistPageProps = {
     group_by?: "none" | "state" | "strategy";
     alert_severity?: "info" | "watch" | "high";
     detail_slug?: string;
+    from?: string;
+    intent?: string;
   }>;
 };
 
@@ -19,6 +22,15 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
   const params = (await searchParams) ?? {};
 
   try {
+    const detailPromise = params.detail_slug
+      ? getWatchlistDetail(params.detail_slug).catch((error) => {
+        if (error instanceof ApiError && error.status === 404) {
+          return null;
+        }
+        throw error;
+      })
+      : Promise.resolve(null);
+
     const [watchlist, alertFeed, eventFeed, detail] = await Promise.all([
       getWatchlist({
         suburb_slug: params.suburb_slug,
@@ -29,8 +41,9 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
       }),
       getWatchlistAlerts(params.alert_severity),
       getWatchlistEvents(10),
-      params.detail_slug ? getWatchlistDetail(params.detail_slug) : Promise.resolve(null)
+      detailPromise
     ]);
+    const handoffContext = params.from ? `Continuing from ${params.from}${params.intent ? ` (${params.intent})` : ""}.` : null;
 
     return (
       <main className="section-stack">
@@ -60,6 +73,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           <MetricCard label="High alerts" value={watchlist.summary.alert_counts.high ?? 0} tone="highlight" />
           <MetricCard label="Ready to progress" value={watchlist.summary.action_counts.ready_to_progress ?? 0} />
         </section>
+        {handoffContext ? <section className="panel"><p className="lede compact">{handoffContext}</p></section> : null}
 
         <section className="panel">
           <form className="query-form" method="GET">
@@ -142,7 +156,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                     <td>{entry.strategy}</td>
                     <td>{formatCurrency(entry.target_buy_range_min)} - {formatCurrency(entry.target_buy_range_max)}</td>
                     <td>{entry.alerts[0] ? <AlertBadge tone={entry.alerts[0].severity}>{entry.alerts[0].title}</AlertBadge> : "No alerts"}</td>
-                    <td><a href={`/watchlist?detail_slug=${entry.suburb_slug}`}>Open detail</a></td>
+                    <td><a href={withFlowContext(`/watchlist?detail_slug=${entry.suburb_slug}&suburb_slug=${entry.suburb_slug}`, "watchlist", "open-detail")}>Open detail</a></td>
                   </tr>
                 ))}
               </tbody>
@@ -156,8 +170,8 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
             <h3>{detail.item.suburb_name}</h3>
             <p className="lede">{detail.item.notes}</p>
             <p className="lede compact">
-              Next workflow step: <a href={`/advisor?query=${detail.item.suburb_slug}&query_type=slug`}>run advisor</a> then validate in {" "}
-              <a href={`/comparables?query=${detail.item.suburb_slug}`}>comparables</a>.
+              Next workflow step: <a href={withFlowContext(`/advisor?query=${detail.item.suburb_slug}&query_type=slug`, "watchlist", "run-advisor")}>run advisor</a> then validate in{" "}
+              <a href={withFlowContext(`/comparables?query=${detail.item.suburb_slug}`, "watchlist", "validate-pricing")}>comparables</a>.
             </p>
             <ul className="detail-list">
               {detail.item.alerts.map((alert) => (
@@ -165,6 +179,9 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
               ))}
             </ul>
           </section>
+        ) : null}
+        {params.detail_slug && !detail ? (
+          <EmptyState title="Watchlist detail not found" body={`No entry exists for ${params.detail_slug}. Use the table below to pick an active suburb context.`} />
         ) : null}
 
         {alertFeed.items.length === 0 ? (

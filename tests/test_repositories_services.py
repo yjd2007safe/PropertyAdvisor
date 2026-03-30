@@ -316,6 +316,21 @@ def test_workflow_snapshots_link_surfaces_across_services() -> None:
     assert watchlist.workflow_snapshot.primary_suburb_slug == "southport-qld-4215"
 
 
+def test_workflow_links_preserve_entity_context_for_cross_page_handoffs() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    advisor = get_property_advice(query="southport-qld-4215", query_type="slug", dal=dal)
+    comps = get_comparables(query="southport-qld-4215", dal=dal)
+    watchlist = get_watchlist(suburb_slug="southport-qld-4215", dal=dal)
+
+    advisor_links = {item.label: item.href for item in advisor.workflow_links}
+    comp_links = {item.label: item.href for item in comps.workflow_links}
+    watchlist_links = {item.label: item.href for item in watchlist.workflow_links}
+
+    assert advisor_links["Comparables"].endswith("?query=southport-qld-4215")
+    assert comp_links["Property advisor"].endswith("?query=southport-qld-4215&query_type=slug")
+    assert watchlist_links["Watchlist"].endswith("?detail_slug=southport-qld-4215&suburb_slug=southport-qld-4215")
+
+
 def test_postgres_comparables_repository_falls_back_on_connection_error(monkeypatch) -> None:
     repo = PostgresComparableRepository(
         DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
