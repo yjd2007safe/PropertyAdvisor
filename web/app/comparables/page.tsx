@@ -2,9 +2,10 @@ export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getComparables } from "../../lib/api";
 import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
+import { inferQueryType, withFlowContext } from "../../lib/workflow";
 
 type ComparablesPageProps = {
-  searchParams?: Promise<{ query?: string; max_items?: string; min_price?: string; max_price?: string; max_distance_km?: string }>;
+  searchParams?: Promise<{ query?: string; max_items?: string; min_price?: string; max_price?: string; max_distance_km?: string; from?: string; intent?: string }>;
 };
 
 export default async function ComparablesPage({ searchParams }: ComparablesPageProps) {
@@ -14,6 +15,7 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
   const minPrice = params.min_price ? Number(params.min_price) : undefined;
   const maxPrice = params.max_price ? Number(params.max_price) : undefined;
   const maxDistance = params.max_distance_km ? Number(params.max_distance_km) : undefined;
+  const handoffContext = params.from ? `Continuing from ${params.from}${params.intent ? ` (${params.intent})` : ""}.` : null;
 
   try {
     const comparables = await getComparables({ query: query || undefined, max_items: maxItems, min_price: minPrice, max_price: maxPrice, max_distance_km: maxDistance });
@@ -40,6 +42,7 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
             </div>
           </form>
         </section>
+        {handoffContext ? <section className="panel"><p className="lede compact">{handoffContext}</p></section> : null}
 
         <WorkflowSnapshotPanel snapshot={comparables.workflow_snapshot} />
 
@@ -49,7 +52,7 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
         <WorkflowLinks links={comparables.workflow_links} />
 
         {comparables.items.length === 0 ? (
-          <EmptyState title="No comparables found" body={comparables.narrative.action_prompt} />
+          <EmptyState title="No comparables found" body={`${comparables.narrative.action_prompt} Try widening price/distance filters or continue in watchlist alerts.`} />
         ) : (
           <>
             <section className="stats-grid">
@@ -59,7 +62,7 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
             </section>
 
             <section className="panel">
-              <SectionTitle eyebrow="Investor prompt" title={comparables.narrative.action_prompt} supportingText={`Then continue in advisor: /advisor?query=${comparables.query}&query_type=auto`} />
+              <SectionTitle eyebrow="Investor prompt" title={comparables.narrative.action_prompt} supportingText={`Then continue in advisor with the same target context.`} />
               <table className="data-table">
                 <thead>
                   <tr><th>Address</th><th>Price</th><th>Sold</th><th>Config</th><th>Distance</th><th>Why it matters</th></tr>
@@ -77,6 +80,14 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
                   ))}
                 </tbody>
               </table>
+            </section>
+            <section className="panel">
+              <p className="lede compact">
+                Next actions:{" "}
+                <a href={withFlowContext(`/advisor?query=${comparables.query}&query_type=${inferQueryType(comparables.query)}`, "comparables", "apply-evidence")}>apply in advisor</a>{" "}
+                then{" "}
+                <a href={withFlowContext(`/watchlist?detail_slug=${comparables.query}&suburb_slug=${comparables.query}`, "comparables", "confirm-watchlist")}>confirm watchlist/alerts</a>.
+              </p>
             </section>
           </>
         )}

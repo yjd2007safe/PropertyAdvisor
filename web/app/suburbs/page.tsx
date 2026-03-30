@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getSuburbsOverview, getWatchlist } from "../../lib/api";
 import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
+import { withFlowContext } from "../../lib/workflow";
 
 export default async function SuburbsPage() {
   try {
@@ -59,7 +60,9 @@ export default async function SuburbsPage() {
                     <td>{suburb.avg_days_on_market} days</td>
                     <td>{suburb.vacancy_rate_pct}%</td>
                     <td>
-                      <a href={`/advisor?query=${suburb.slug}&query_type=slug`}>Advisor</a> · <a href={`/comparables?query=${suburb.slug}`}>Comps</a> · <a href={`/watchlist?detail_slug=${suburb.slug}`}>Watchlist</a>
+                      <a href={withFlowContext(`/advisor?query=${suburb.slug}&query_type=slug`, "suburbs", "review-advice")}>Advisor</a> ·{" "}
+                      <a href={withFlowContext(`/comparables?query=${suburb.slug}`, "suburbs", "validate-pricing")}>Comps</a> ·{" "}
+                      <a href={withFlowContext(`/watchlist?detail_slug=${suburb.slug}&suburb_slug=${suburb.slug}`, "suburbs", "triage-alerts")}>Watchlist</a>
                     </td>
                   </tr>
                 ))}

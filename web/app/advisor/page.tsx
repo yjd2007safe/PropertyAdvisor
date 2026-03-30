@@ -2,16 +2,18 @@ export const dynamic = "force-dynamic";
 
 import { ApiError, getPropertyAdvisor } from "../../lib/api";
 import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
+import { inferQueryType, sanitizeQuery, withFlowContext } from "../../lib/workflow";
 
 type AdvisorPageProps = {
-  searchParams?: Promise<{ query?: string; query_type?: "address" | "slug" | "auto"; focus_strategy?: "yield" | "owner-occupier" | "balanced" }>;
+  searchParams?: Promise<{ query?: string; query_type?: "address" | "slug" | "auto"; focus_strategy?: "yield" | "owner-occupier" | "balanced"; from?: string; intent?: string }>;
 };
 
 export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
   const params = (await searchParams) ?? {};
   const query = params.query ?? "";
-  const queryType = params.query_type ?? "auto";
+  const queryType = params.query_type ?? inferQueryType(query);
   const focusStrategy = params.focus_strategy ?? "";
+  const handoffContext = params.from ? `Continuing from ${params.from}${params.intent ? ` (${params.intent})` : ""}.` : null;
 
   try {
     const advisor = await getPropertyAdvisor({ query: query || undefined, query_type: queryType, focus_strategy: params.focus_strategy });
@@ -45,6 +47,7 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
             </div>
           </form>
         </section>
+        {handoffContext ? <section className="panel"><p className="lede compact">{handoffContext}</p></section> : null}
 
         <WorkflowSnapshotPanel snapshot={advisor.workflow_snapshot} />
 
@@ -114,8 +117,10 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
             ))}
           </ul>
           <p className="lede compact">
-            Continue with <a href={`/comparables?query=${advisor.inputs.suburb_slug ?? advisor.inputs.query}`}>comparables</a> then confirm status in {" "}
-            <a href={`/watchlist?detail_slug=${advisor.inputs.suburb_slug ?? "southport-qld-4215"}`}>watchlist</a>.
+            Continue with{" "}
+            <a href={withFlowContext(`/comparables?query=${sanitizeQuery(advisor.inputs.suburb_slug) ?? advisor.inputs.query}`, "advisor", "validate-pricing")}>comparables</a>{" "}
+            then confirm status in{" "}
+            <a href={withFlowContext(`/watchlist?detail_slug=${sanitizeQuery(advisor.inputs.suburb_slug) ?? "southport-qld-4215"}&suburb_slug=${sanitizeQuery(advisor.inputs.suburb_slug) ?? "southport-qld-4215"}`, "advisor", "triage-alerts")}>watchlist</a>.
           </p>
         </section>
       </main>
