@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getComparables } from "../../lib/api";
 import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, TransparencyPanel, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
-import { inferQueryType, withFlowContext } from "../../lib/workflow";
+import { flowContextLabel, inferQueryType, withFlowContext, withUpdatedSearch } from "../../lib/workflow";
 
 type ComparablesPageProps = {
   searchParams?: Promise<{ query?: string; max_items?: string; min_price?: string; max_price?: string; max_distance_km?: string; from?: string; intent?: string }>;
@@ -15,7 +15,10 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
   const minPrice = params.min_price ? Number(params.min_price) : undefined;
   const maxPrice = params.max_price ? Number(params.max_price) : undefined;
   const maxDistance = params.max_distance_km ? Number(params.max_distance_km) : undefined;
-  const handoffContext = params.from ? `Continuing from ${params.from}${params.intent ? ` (${params.intent})` : ""}.` : null;
+  const handoffContext = flowContextLabel(params.from, params.intent);
+  const currentSearch = new URLSearchParams(
+    Object.entries(params).flatMap(([key, value]) => (value ? [[key, value]] : []))
+  );
 
   try {
     const comparables = await getComparables({ query: query || undefined, max_items: maxItems, min_price: minPrice, max_price: maxPrice, max_distance_km: maxDistance });
@@ -48,6 +51,12 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
               <button type="submit">Find comparables</button>
             </div>
           </form>
+          <p className="meta-label">Quick weekly filters</p>
+          <div className="inline-links">
+            <a href={withUpdatedSearch("/comparables", currentSearch, { max_items: "5", max_distance_km: "1.5", min_price: null, max_price: null })}>Nearby shortlist</a> ·{" "}
+            <a href={withUpdatedSearch("/comparables", currentSearch, { max_items: "10", max_distance_km: "4", min_price: null, max_price: null })}>Broader market scan</a> ·{" "}
+            <a href={withUpdatedSearch("/comparables", currentSearch, { min_price: null, max_price: null, max_distance_km: null, max_items: "5" })}>Reset filters</a>
+          </div>
         </section>
         {handoffContext ? <section className="panel"><p className="lede compact">{handoffContext}</p></section> : null}
 
@@ -115,7 +124,7 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
                     <option value="paused">Paused</option>
                     <option value="archived">Archived</option>
                   </select>
-                  <button type="submit">Save / update watchlist</button>
+                  <button type="submit">Save to watchlist</button>
                 </div>
               </form>
               <p className="lede compact">
