@@ -32,6 +32,10 @@ function formatTimestamp(value?: string | null): string {
   return parsed.toLocaleString("en-AU", { timeZone: "UTC", hour12: false }) + " UTC";
 }
 
+function formatActionLabel(action: string): string {
+  return action.replace(/[_-]+/g, " ");
+}
+
 function buildCompactFollowUpSummary(plans: OrchestrationPlanItem[]): string {
   if (plans.length === 0) {
     return "No visible events to review.";
@@ -56,6 +60,44 @@ function buildCompactFollowUpSummary(plans: OrchestrationPlanItem[]): string {
   return compactLines.join(" · ");
 }
 
+function buildGroupedFollowUpCue(plans: OrchestrationPlanItem[]): string {
+  const reviewFirst = plans.filter((plan) => plan.requires_human_review);
+  if (reviewFirst.length === 0) {
+    return "No manual-review groups in this scope.";
+  }
+
+  const grouped = new Map<string, { count: number; latestAt: number; eventTypes: string[] }>();
+  for (const plan of reviewFirst) {
+    const current = grouped.get(plan.action) ?? { count: 0, latestAt: 0, eventTypes: [] };
+    current.count += 1;
+    current.latestAt = Math.max(current.latestAt, parseTimestamp(plan.queued_at ?? plan.created_at));
+    if (!current.eventTypes.includes(plan.event_type)) {
+      current.eventTypes.push(plan.event_type);
+    }
+    grouped.set(plan.action, current);
+  }
+
+  const compactGroups = [...grouped.entries()]
+    .sort((left, right) => {
+      if (left[1].count !== right[1].count) return right[1].count - left[1].count;
+      if (left[1].latestAt !== right[1].latestAt) return right[1].latestAt - left[1].latestAt;
+      return left[0].localeCompare(right[0]);
+    })
+    .slice(0, 3)
+    .map(([action, details]) => {
+      const eventTypeLabel = details.eventTypes.slice(0, 2).join(", ");
+      const overflow = details.eventTypes.length > 2 ? ` +${details.eventTypes.length - 2}` : "";
+      return `${formatActionLabel(action)} ×${details.count} (${eventTypeLabel}${overflow})`;
+    });
+
+  const remainingGroups = grouped.size - compactGroups.length;
+  if (remainingGroups > 0) {
+    compactGroups.push(`+${remainingGroups} more group${remainingGroups > 1 ? "s" : ""}`);
+  }
+
+  return compactGroups.join(" · ");
+}
+
 export default async function OrchestrationReviewPage({ searchParams }: OrchestrationReviewPageProps) {
   const params = (await searchParams) ?? {};
   const selectedView = params.view === "all" ? "all" : "actionable";
@@ -70,6 +112,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
     const queuedVisibleCount = sortedVisiblePlans.filter((plan) => Boolean(plan.queued_at)).length;
     const mostRecentVisibleAt = sortedVisiblePlans[0]?.queued_at ?? sortedVisiblePlans[0]?.created_at ?? null;
     const compactFollowUpSummary = buildCompactFollowUpSummary(sortedVisiblePlans);
+    const groupedFollowUpCue = buildGroupedFollowUpCue(sortedVisiblePlans);
 
     return (
       <main className="section-stack">
@@ -104,6 +147,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
             Review snapshot: {sortedVisiblePlans.length} visible · {queuedVisibleCount} queued for delivery · Most recent event {formatTimestamp(mostRecentVisibleAt)}.
           </p>
           <p className="lede compact">Follow-up summary: {compactFollowUpSummary}</p>
+          <p className="lede compact">Grouped follow-up cue: {groupedFollowUpCue}</p>
         </section>
 
         {visiblePlans.length === 0 ? (
