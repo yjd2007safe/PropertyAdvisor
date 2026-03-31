@@ -120,6 +120,7 @@ export type SuburbsOverviewResponse = {
 };
 
 export type PropertyAdvisorResponse = {
+  generated_at: string;
   data_source: DataSourceStatus;
   property: {
     address: string;
@@ -189,6 +190,7 @@ export type PropertyAdvisorResponse = {
 };
 
 export type ComparablesResponse = {
+  generated_at: string;
   data_source: DataSourceStatus;
   subject: string;
   set_quality: string;
@@ -341,6 +343,13 @@ export function formatCurrency(value: number): string {
     currency: "AUD",
     maximumFractionDigits: 0
   }).format(value);
+}
+
+export function formatTimestampUTC(value?: string | null): string {
+  if (!value) return "Not available";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString("en-AU", { timeZone: "UTC", hour12: false }) + " UTC";
 }
 
 export const getOrchestrationReview = () => getJson<OrchestrationReviewResponse>("/api/orchestration/review");

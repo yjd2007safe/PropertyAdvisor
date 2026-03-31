@@ -1106,6 +1106,7 @@ class PostgresPropertyAdviceRepository(MockPropertyAdviceRepository):
             evidence_strength=semantics.evidence_strength,
         )
         return PropertyAdvisorResponse(
+            generated_at=datetime.now(timezone.utc),
             data_source=DataSourceStatus(mode="postgres", source="postgres", is_fallback=False, message="Property advice snapshot loaded from PostgreSQL."),
             property=SubjectProperty(
                 address=_format_property_address(subject[1], subject[2], subject[3], subject[4]),

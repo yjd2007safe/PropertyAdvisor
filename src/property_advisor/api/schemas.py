@@ -184,6 +184,7 @@ class AdvisoryInputs(BaseModel):
 
 
 class PropertyAdvisorResponse(BaseModel):
+    generated_at: datetime
     data_source: DataSourceStatus
     property: SubjectProperty
     advice: PropertyAdvice
@@ -230,6 +231,7 @@ class ComparableNarrative(BaseModel):
 
 
 class ComparablesResponse(BaseModel):
+    generated_at: datetime
     data_source: DataSourceStatus
     subject: str
     set_quality: str

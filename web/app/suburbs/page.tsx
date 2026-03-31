@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getSuburbsOverview, getWatchlist } from "../../lib/api";
-import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
+import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SummaryCardGrid, TransparencyPanel, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 import { withFlowContext } from "../../lib/workflow";
 
 export default async function SuburbsPage() {
@@ -19,6 +19,11 @@ export default async function SuburbsPage() {
         <WorkflowSnapshotPanel snapshot={suburbs.workflow_snapshot} />
 
         <DataSourcePanel status={suburbs.data_source} />
+        <TransparencyPanel
+          generatedAt={suburbs.generated_at}
+          snapshotCount={suburbs.items.length}
+          thinDataWarning={suburbs.data_source.status_label !== "live_db" ? "Dashboard is not fully DB-backed; treat suburb signals as directional." : null}
+        />
 
         <section className="stats-grid">
           <MetricCard label="Tracked suburbs" value={suburbs.summary.tracked_suburbs} />

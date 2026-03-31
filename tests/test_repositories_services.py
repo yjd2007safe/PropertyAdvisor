@@ -48,6 +48,7 @@ def test_service_comparables_summary_is_derived_from_repository_data() -> None:
     assert response.summary.count == len(response.items)
     assert response.summary.min_price <= response.summary.average_price <= response.summary.max_price
     assert response.narrative.price_position in {"discount", "aligned", "premium"}
+    assert response.generated_at is not None
     assert response.summary_cards
     assert response.workflow_links
 
@@ -62,6 +63,7 @@ def test_service_property_advice_query_flow_supports_slug() -> None:
     assert response.investor_signals
     assert response.data_source.source in {"mock", "postgres", "fallback_mock"}
     assert response.inputs.contract_version == "phase2.round3"
+    assert response.generated_at is not None
     assert response.inputs.required_persisted_inputs["subject_property_identity"] is True
     assert "persisted_comparable_sales" in response.inputs.missing_data_behavior
 

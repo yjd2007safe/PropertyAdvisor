@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getWatchlist, getWatchlistAlerts, getWatchlistDetail, getWatchlistEvents } from "../../lib/api";
-import { AlertBadge, DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
+import { AlertBadge, DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, TransparencyPanel, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 import { withFlowContext } from "../../lib/workflow";
 
 type WatchlistPageProps = {
@@ -62,6 +62,13 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
             upstream_sources: { ...watchlist.data_source.upstream_sources, alert_feed: alertFeed.data_source.source }
           }}
           label="Data source"
+        />
+        <TransparencyPanel
+          generatedAt={watchlist.generated_at}
+          latestRefreshAt={eventFeed.items[0]?.occurred_at ?? detail?.item.latest_context?.updated_at ?? null}
+          snapshotCount={watchlist.summary.total_entries}
+          thinDataWarning={watchlist.data_source.status_label !== "live_db" ? "Watchlist is using sample/fallback data; operator actions should be treated as rehearsal-grade." : null}
+          lowConfidenceWarning={watchlist.summary.action_counts.needs_review > 0 ? `${watchlist.summary.action_counts.needs_review} suburbs require manual review.` : null}
         />
 
         <SummaryCardGrid cards={watchlist.summary_cards} />
