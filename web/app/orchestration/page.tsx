@@ -3,6 +3,10 @@ export const dynamic = "force-dynamic";
 import { ApiError, getOrchestrationReview } from "../../lib/api";
 import { EmptyState, MetricCard, PageIntro, SectionTitle } from "../../components/sections";
 
+type OrchestrationReviewPageProps = {
+  searchParams?: Promise<{ view?: "actionable" | "all" }>;
+};
+
 function formatTimestamp(value?: string | null): string {
   if (!value) return "Not available";
   const parsed = new Date(value);
@@ -10,10 +14,16 @@ function formatTimestamp(value?: string | null): string {
   return parsed.toLocaleString("en-AU", { timeZone: "UTC", hour12: false }) + " UTC";
 }
 
-export default async function OrchestrationReviewPage() {
+export default async function OrchestrationReviewPage({ searchParams }: OrchestrationReviewPageProps) {
+  const params = (await searchParams) ?? {};
+  const selectedView = params.view === "all" ? "all" : "actionable";
+
   try {
     const review = await getOrchestrationReview();
     const summary = review.summary;
+    const actionablePlans = review.plans.filter((plan) => plan.requires_human_review);
+    const visiblePlans = selectedView === "all" ? review.plans : actionablePlans;
+    const hiddenPlanCount = review.plans.length - visiblePlans.length;
 
     return (
       <main className="section-stack">
@@ -38,19 +48,32 @@ export default async function OrchestrationReviewPage() {
             <li>Latest event timestamp: {formatTimestamp(summary.latest_event_at)}</li>
             <li>Snapshot generated: {formatTimestamp(summary.generated_at)}</li>
           </ul>
+          <p className="meta-label">Review scope</p>
+          <div className="inline-links">
+            <a href="/orchestration?view=actionable">Actionable queue</a> · <a href="/orchestration?view=all">All events</a>
+          </div>
+          {!params.view ? <p className="lede compact">Weekly default: Actionable queue first to keep repeat reviews focused on items that require manual attention.</p> : null}
+          {selectedView === "actionable" && hiddenPlanCount > 0 ? <p className="lede compact">Showing {visiblePlans.length} actionable items ({hiddenPlanCount} auto-continue events hidden).</p> : null}
         </section>
 
-        {review.plans.length === 0 ? (
-          <EmptyState title="No pending orchestration events" body="The runtime queue is currently clear. Return after the next notification cycle." />
+        {visiblePlans.length === 0 ? (
+          <EmptyState
+            title={selectedView === "all" ? "No pending orchestration events" : "No actionable orchestration events"}
+            body={selectedView === "all" ? "The runtime queue is currently clear. Return after the next notification cycle." : "No events currently require manual review. Switch to All events if you want to inspect auto-continue queue activity."}
+          />
         ) : (
           <section className="panel">
-            <SectionTitle eyebrow="Queue" title="Prioritized orchestration events" supportingText="Top-priority plans are sorted by orchestration policy and recency." />
+            <SectionTitle
+              eyebrow="Queue"
+              title={selectedView === "all" ? "Prioritized orchestration events" : "Prioritized actionable events"}
+              supportingText={selectedView === "all" ? "Top-priority plans are sorted by orchestration policy and recency." : "Focused view for repeat weekly reviews: human-review items sorted by orchestration policy and recency."}
+            />
             <table className="data-table">
               <thead>
                 <tr><th>Event</th><th>Action</th><th>Review</th><th>Queued</th><th>Summary</th></tr>
               </thead>
               <tbody>
-                {review.plans.map((plan) => (
+                {visiblePlans.map((plan) => (
                   <tr key={plan.event_id}>
                     <td>{plan.event_type}<div className="meta-label">{plan.event_id}</div></td>
                     <td>{plan.action}<div className="meta-label">{plan.bucket}</div></td>
