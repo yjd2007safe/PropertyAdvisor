@@ -808,7 +808,7 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
                     suburb_slug=entry.suburb_slug,
                     suburb_name=entry.suburb_name,
                     follow_up_href=f"/watchlist?detail_slug={entry.suburb_slug}",
-                    follow_up_label="Open watchlist detail",
+                    follow_up_label="Review suburb detail",
                 )
             )
 
@@ -822,7 +822,7 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
                 suburb_slug=entry.suburb_slug,
                 suburb_name=entry.suburb_name,
                 follow_up_href=f"/advisor?query={entry.suburb_slug}&query_type=slug",
-                follow_up_label="Run advisor follow-up",
+                follow_up_label="Refresh advisor view",
             )
         )
 
@@ -836,7 +836,7 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
                 suburb_slug=entry.suburb_slug,
                 suburb_name=entry.suburb_name,
                 follow_up_href=f"/advisor?query={entry.suburb_slug}&query_type=slug",
-                follow_up_label="Open advisor",
+                follow_up_label="Check advisor recommendation",
             )
         )
 

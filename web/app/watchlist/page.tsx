@@ -42,7 +42,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
         strategy: params.strategy,
         state: params.state,
         watch_status: params.watch_status,
-        group_by: params.group_by ?? "none"
+        group_by: defaultGroupBy
       }),
       getWatchlistAlerts(params.alert_severity),
       getWatchlistEvents(10),
@@ -123,7 +123,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           <div className="inline-links">
             <a href={withUpdatedSearch("/watchlist", currentSearch, { watch_status: "active", alert_severity: "watch", group_by: "strategy" })}>Active weekly queue</a> ·{" "}
             <a href={withUpdatedSearch("/watchlist", currentSearch, { watch_status: "review", alert_severity: "high", group_by: "none" })}>Needs review + high alerts</a> ·{" "}
-            <a href={withUpdatedSearch("/watchlist", currentSearch, { suburb_slug: null, strategy: null, state: null, watch_status: null, alert_severity: null, group_by: "none", detail_slug: null })}>Reset view</a>
+            <a href={withUpdatedSearch("/watchlist", currentSearch, { suburb_slug: null, strategy: null, state: null, watch_status: null, alert_severity: null, group_by: "strategy", detail_slug: null })}>Reset view</a>
           </div>
           {!hasActiveFilters ? <p className="lede compact">Weekly default: grouped by strategy so recurring triage queues are visible first.</p> : null}
         </section>

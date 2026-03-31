@@ -122,3 +122,20 @@ def test_phase3_workflow_smoke_thin_data_and_empty_states() -> None:
     assert no_alerts.total == 0
     assert no_alerts.items == []
     assert no_alerts.data_source.message
+
+
+def test_phase3_watchlist_event_follow_up_labels_are_concise() -> None:
+    dal = _mock_dal()
+    events = get_watchlist_events(limit=12, dal=dal)
+    assert events.items
+    labels = [item.follow_up_label for item in events.items]
+    assert all(label.strip() for label in labels)
+    assert set(labels).issubset(
+        {
+            "Review suburb detail",
+            "Refresh advisor view",
+            "Check advisor recommendation",
+            "Open orchestration review",
+        }
+    )
+    assert all("follow-up" not in label.lower() for label in labels)
