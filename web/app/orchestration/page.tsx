@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-import { ApiError, getOrchestrationReview } from "../../lib/api";
+import { ApiError, getOrchestrationReview, type OrchestrationPlanItem } from "../../lib/api";
 import { EmptyState, MetricCard, PageIntro, SectionTitle } from "../../components/sections";
 
 type OrchestrationReviewPageProps = {
@@ -13,12 +13,7 @@ function parseTimestamp(value?: string | null): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function sortPlansForReview(plans: Array<{
-  event_id: string;
-  requires_human_review: boolean;
-  queued_at?: string | null;
-  created_at?: string | null;
-}>): typeof plans {
+function sortPlansForReview(plans: OrchestrationPlanItem[]): OrchestrationPlanItem[] {
   return [...plans].sort((left, right) => {
     if (left.requires_human_review !== right.requires_human_review) {
       return left.requires_human_review ? -1 : 1;
@@ -37,6 +32,30 @@ function formatTimestamp(value?: string | null): string {
   return parsed.toLocaleString("en-AU", { timeZone: "UTC", hour12: false }) + " UTC";
 }
 
+function buildCompactFollowUpSummary(plans: OrchestrationPlanItem[]): string {
+  if (plans.length === 0) {
+    return "No visible events to review.";
+  }
+
+  const reviewFirst = plans.filter((plan) => plan.requires_human_review);
+  if (reviewFirst.length === 0) {
+    return "No manual follow-up needed in this scope.";
+  }
+
+  const compactLines = reviewFirst.slice(0, 2).map((plan) => {
+    const summary = plan.strategy_summary.trim();
+    const compactSummary = summary.endsWith(".") ? summary.slice(0, -1) : summary;
+    return `${plan.event_type}: ${plan.action} — ${compactSummary}`;
+  });
+
+  const remaining = reviewFirst.length - compactLines.length;
+  if (remaining > 0) {
+    compactLines.push(`+${remaining} more manual-review event${remaining > 1 ? "s" : ""}.`);
+  }
+
+  return compactLines.join(" · ");
+}
+
 export default async function OrchestrationReviewPage({ searchParams }: OrchestrationReviewPageProps) {
   const params = (await searchParams) ?? {};
   const selectedView = params.view === "all" ? "all" : "actionable";
@@ -50,6 +69,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
     const hiddenPlanCount = review.plans.length - visiblePlans.length;
     const queuedVisibleCount = sortedVisiblePlans.filter((plan) => Boolean(plan.queued_at)).length;
     const mostRecentVisibleAt = sortedVisiblePlans[0]?.queued_at ?? sortedVisiblePlans[0]?.created_at ?? null;
+    const compactFollowUpSummary = buildCompactFollowUpSummary(sortedVisiblePlans);
 
     return (
       <main className="section-stack">
@@ -83,6 +103,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           <p className="lede compact">
             Review snapshot: {sortedVisiblePlans.length} visible · {queuedVisibleCount} queued for delivery · Most recent event {formatTimestamp(mostRecentVisibleAt)}.
           </p>
+          <p className="lede compact">Follow-up summary: {compactFollowUpSummary}</p>
         </section>
 
         {visiblePlans.length === 0 ? (
