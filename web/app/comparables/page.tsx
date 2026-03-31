@@ -2,10 +2,10 @@ export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getComparables } from "../../lib/api";
 import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, TransparencyPanel, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
-import { flowContextLabel, inferQueryType, withFlowContext, withUpdatedSearch } from "../../lib/workflow";
+import { flowContextLabel, inferQueryType, sortComparables, withFlowContext, workflowNextStepCopy, withUpdatedSearch } from "../../lib/workflow";
 
 type ComparablesPageProps = {
-  searchParams?: Promise<{ query?: string; max_items?: string; min_price?: string; max_price?: string; max_distance_km?: string; from?: string; intent?: string }>;
+  searchParams?: Promise<{ query?: string; max_items?: string; min_price?: string; max_price?: string; max_distance_km?: string; sort_by?: "match" | "price_desc" | "price_asc" | "distance_asc" | "recent_sale"; from?: string; intent?: string }>;
 };
 
 export default async function ComparablesPage({ searchParams }: ComparablesPageProps) {
@@ -16,6 +16,7 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
   const maxPrice = params.max_price ? Number(params.max_price) : undefined;
   const maxDistance = params.max_distance_km ? Number(params.max_distance_km) : undefined;
   const handoffContext = flowContextLabel(params.from, params.intent);
+  const sortBy = params.sort_by ?? "match";
   const currentSearch = new URLSearchParams(
     Object.entries(params).flatMap(([key, value]) => (value ? [[key, value]] : []))
   );
@@ -29,6 +30,7 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
       comparables.summary.algorithm_version ? `Algorithm: ${comparables.summary.algorithm_version}` : null
     ].filter((item): item is string => Boolean(item));
     const hasThinEvidence = comparables.summary.sample_state === "low" || comparables.summary.sample_state === "empty" || comparables.summary.quality_label === "low";
+    const sortedItems = sortComparables(comparables.items, sortBy);
 
     return (
       <main className="section-stack">
@@ -48,14 +50,21 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
               <input id="min_price" name="min_price" type="number" min={0} defaultValue={minPrice ?? ""} placeholder="Min price" />
               <input id="max_price" name="max_price" type="number" min={0} defaultValue={maxPrice ?? ""} placeholder="Max price" />
               <input id="max_distance_km" name="max_distance_km" type="number" min={0} step="0.1" defaultValue={maxDistance ?? ""} placeholder="Max km" />
+              <select name="sort_by" defaultValue={sortBy}>
+                <option value="match">Best match score</option>
+                <option value="recent_sale">Most recent sale</option>
+                <option value="distance_asc">Closest distance</option>
+                <option value="price_desc">Highest price</option>
+                <option value="price_asc">Lowest price</option>
+              </select>
               <button type="submit">Find comparables</button>
             </div>
           </form>
           <p className="meta-label">Quick weekly filters</p>
           <div className="inline-links">
-            <a href={withUpdatedSearch("/comparables", currentSearch, { max_items: "5", max_distance_km: "1.5", min_price: null, max_price: null })}>Nearby shortlist</a> ·{" "}
-            <a href={withUpdatedSearch("/comparables", currentSearch, { max_items: "10", max_distance_km: "4", min_price: null, max_price: null })}>Broader market scan</a> ·{" "}
-            <a href={withUpdatedSearch("/comparables", currentSearch, { min_price: null, max_price: null, max_distance_km: null, max_items: "5" })}>Reset filters</a>
+            <a href={withUpdatedSearch("/comparables", currentSearch, { max_items: "5", max_distance_km: "1.5", min_price: null, max_price: null, sort_by: "distance_asc" })}>Nearby shortlist</a> ·{" "}
+            <a href={withUpdatedSearch("/comparables", currentSearch, { max_items: "10", max_distance_km: "4", min_price: null, max_price: null, sort_by: "recent_sale" })}>Broader market scan</a> ·{" "}
+            <a href={withUpdatedSearch("/comparables", currentSearch, { min_price: null, max_price: null, max_distance_km: null, max_items: "5", sort_by: "match" })}>Reset filters</a>
           </div>
         </section>
         {handoffContext ? <section className="panel"><p className="lede compact">{handoffContext}</p></section> : null}
@@ -66,15 +75,15 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
         <TransparencyPanel
           generatedAt={comparables.generated_at}
           snapshotCount={comparables.summary.count}
-          thinDataWarning={hasThinEvidence ? "Comparable sample is thin; pricing narrative is directional only." : null}
-          lowConfidenceWarning={comparables.summary.sample_state === "empty" ? "No comparable evidence available for this query." : null}
+          thinDataWarning={hasThinEvidence ? "Comparable sample is thin; treat the pricing narrative as directional." : null}
+          lowConfidenceWarning={comparables.summary.sample_state === "empty" ? "No comparable sample returned; widen filters before acting." : null}
         />
 
         <SummaryCardGrid cards={comparables.summary_cards} />
         <WorkflowLinks links={comparables.workflow_links} />
 
         {comparables.items.length === 0 ? (
-          <EmptyState title="No comparables found" body={`${comparables.narrative.action_prompt} Try widening price/distance filters or continue in watchlist alerts.`} />
+          <EmptyState title="No comparables found" body={`${comparables.narrative.action_prompt} Widen price or distance filters, then re-run this panel.`} />
         ) : (
           <>
             <section className="stats-grid">
@@ -95,7 +104,7 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
                   <tr><th>Rank</th><th>Address</th><th>Price</th><th>Sold</th><th>Config</th><th>Distance</th><th>Score</th><th>Why it matters</th><th>Evidence rationale</th></tr>
                 </thead>
                 <tbody>
-                  {comparables.items.map((item, index) => (
+                  {sortedItems.map((item, index) => (
                     <tr key={item.address}>
                       <td>{index + 1}</td>
                       <td>{item.address}</td>
@@ -128,10 +137,10 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
                 </div>
               </form>
               <p className="lede compact">
-                Next actions:{" "}
-                <a href={withFlowContext(`/advisor?query=${comparables.query}&query_type=${inferQueryType(comparables.query)}`, "comparables", "apply-evidence")}>apply in advisor</a>{" "}
+                {workflowNextStepCopy(["Apply in advisor", "Confirm watchlist status"])}{" "}
+                <a href={withFlowContext(`/advisor?query=${comparables.query}&query_type=${inferQueryType(comparables.query)}`, "comparables", "apply-evidence")}>Apply in advisor</a>{" "}
                 then{" "}
-                <a href={withFlowContext(`/watchlist?detail_slug=${comparables.query}&suburb_slug=${comparables.query}`, "comparables", "confirm-watchlist")}>confirm watchlist/alerts</a>.
+                <a href={withFlowContext(`/watchlist?detail_slug=${comparables.query}&suburb_slug=${comparables.query}`, "comparables", "confirm-watchlist")}>confirm watchlist status</a>.
               </p>
             </section>
           </>

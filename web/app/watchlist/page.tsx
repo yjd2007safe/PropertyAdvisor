@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getWatchlist, getWatchlistAlerts, getWatchlistDetail, getWatchlistEvents } from "../../lib/api";
 import { AlertBadge, DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, TransparencyPanel, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
-import { flowContextLabel, withFlowContext, withUpdatedSearch } from "../../lib/workflow";
+import { flowContextLabel, withFlowContext, workflowNextStepCopy, withUpdatedSearch } from "../../lib/workflow";
 
 type WatchlistPageProps = {
   searchParams?: Promise<{
@@ -70,8 +70,8 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           generatedAt={watchlist.generated_at}
           latestRefreshAt={eventFeed.items[0]?.occurred_at ?? detail?.item.latest_context?.updated_at ?? null}
           snapshotCount={watchlist.summary.total_entries}
-          thinDataWarning={watchlist.data_source.status_label !== "live_db" ? "Watchlist is using sample/fallback data; operator actions should be treated as rehearsal-grade." : null}
-          lowConfidenceWarning={watchlist.summary.action_counts.needs_review > 0 ? `${watchlist.summary.action_counts.needs_review} suburbs require manual review.` : null}
+          thinDataWarning={watchlist.data_source.status_label !== "live_db" ? "Watchlist is using sample/fallback data; treat status updates as provisional." : null}
+          lowConfidenceWarning={watchlist.summary.action_counts.needs_review > 0 ? `${watchlist.summary.action_counts.needs_review} suburbs still need manual review.` : null}
         />
 
         <SummaryCardGrid cards={watchlist.summary_cards} />
@@ -202,8 +202,9 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
             <h3>{detail.item.suburb_name}</h3>
             <p className="lede">{detail.item.notes}</p>
             <p className="lede compact">
-              Next workflow step: <a href={withFlowContext(`/advisor?query=${detail.item.suburb_slug}&query_type=slug`, "watchlist", "run-advisor")}>run advisor</a> then validate in{" "}
-              <a href={withFlowContext(`/comparables?query=${detail.item.suburb_slug}`, "watchlist", "validate-pricing")}>comparables</a>.
+              {workflowNextStepCopy(["Run advisor", "Validate comparables"])}{" "}
+              <a href={withFlowContext(`/advisor?query=${detail.item.suburb_slug}&query_type=slug`, "watchlist", "run-advisor")}>run advisor</a> then{" "}
+              <a href={withFlowContext(`/comparables?query=${detail.item.suburb_slug}`, "watchlist", "validate-pricing")}>validate comparables</a>.
             </p>
             {detail.item.latest_context ? (
               <ul className="detail-list">

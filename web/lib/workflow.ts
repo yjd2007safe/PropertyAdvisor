@@ -1,5 +1,14 @@
 export type FlowSurface = "suburbs" | "advisor" | "comparables" | "watchlist" | "alerts";
 
+export type ComparableSort = "match" | "price_desc" | "price_asc" | "distance_asc" | "recent_sale";
+
+type ComparableLike = {
+  price: number;
+  distance_km: number;
+  sold_date: string;
+  score?: number | null;
+};
+
 export function sanitizeQuery(value?: string | null): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
@@ -25,6 +34,28 @@ export function flowContextLabel(from?: string, intent?: string): string | null 
     return null;
   }
   return `Continuing from ${from}${intent ? ` (${intent})` : ""}.`;
+}
+
+export function workflowNextStepCopy(actions: string[]): string {
+  const compact = actions.filter((item) => item.trim().length > 0);
+  return compact.length > 0 ? `Next step: ${compact.join(" → ")}.` : "";
+}
+
+export function sortComparables<T extends ComparableLike>(items: T[], sortBy: ComparableSort): T[] {
+  const ranked = [...items];
+  if (sortBy === "price_desc") {
+    return ranked.sort((a, b) => b.price - a.price);
+  }
+  if (sortBy === "price_asc") {
+    return ranked.sort((a, b) => a.price - b.price);
+  }
+  if (sortBy === "distance_asc") {
+    return ranked.sort((a, b) => a.distance_km - b.distance_km);
+  }
+  if (sortBy === "recent_sale") {
+    return ranked.sort((a, b) => Date.parse(b.sold_date) - Date.parse(a.sold_date));
+  }
+  return ranked.sort((a, b) => (b.score ?? Number.NEGATIVE_INFINITY) - (a.score ?? Number.NEGATIVE_INFINITY));
 }
 
 export function withUpdatedSearch(pathname: string, current: URLSearchParams, updates: Record<string, string | null | undefined>): string {
