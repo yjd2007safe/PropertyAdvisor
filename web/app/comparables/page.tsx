@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getComparables } from "../../lib/api";
 import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, TransparencyPanel, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
-import { flowContextLabel, inferQueryType, sortComparables, withFlowContext, workflowNextStepCopy, withUpdatedSearch } from "../../lib/workflow";
+import { defaultComparablesSort, flowContextLabel, inferQueryType, isWeeklyReviewIntent, sortComparables, withFlowContext, workflowNextStepCopy, withUpdatedSearch } from "../../lib/workflow";
 
 type ComparablesPageProps = {
   searchParams?: Promise<{ query?: string; max_items?: string; min_price?: string; max_price?: string; max_distance_km?: string; sort_by?: "match" | "price_desc" | "price_asc" | "distance_asc" | "recent_sale"; from?: string; intent?: string }>;
@@ -16,7 +16,8 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
   const maxPrice = params.max_price ? Number(params.max_price) : undefined;
   const maxDistance = params.max_distance_km ? Number(params.max_distance_km) : undefined;
   const handoffContext = flowContextLabel(params.from, params.intent);
-  const sortBy = params.sort_by ?? "match";
+  const sortBy = defaultComparablesSort(params.sort_by, params.intent);
+  const weeklyReviewMode = isWeeklyReviewIntent(params.intent);
   const currentSearch = new URLSearchParams(
     Object.entries(params).flatMap(([key, value]) => (value ? [[key, value]] : []))
   );
@@ -62,10 +63,11 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
           </form>
           <p className="meta-label">Quick weekly filters</p>
           <div className="inline-links">
+            <a href={withUpdatedSearch("/comparables", currentSearch, { max_items: "10", max_distance_km: "4", min_price: null, max_price: null, sort_by: "recent_sale" })}>Weekly refresh</a> ·{" "}
             <a href={withUpdatedSearch("/comparables", currentSearch, { max_items: "5", max_distance_km: "1.5", min_price: null, max_price: null, sort_by: "distance_asc" })}>Nearby shortlist</a> ·{" "}
-            <a href={withUpdatedSearch("/comparables", currentSearch, { max_items: "10", max_distance_km: "4", min_price: null, max_price: null, sort_by: "recent_sale" })}>Broader market scan</a> ·{" "}
             <a href={withUpdatedSearch("/comparables", currentSearch, { min_price: null, max_price: null, max_distance_km: null, max_items: "5", sort_by: "match" })}>Reset filters</a>
           </div>
+          {!params.sort_by ? <p className="lede compact">Default sort: {weeklyReviewMode ? "Most recent sale (weekly review mode)." : "Best match score."}</p> : null}
         </section>
         {handoffContext ? <section className="panel"><p className="lede compact">{handoffContext}</p></section> : null}
 

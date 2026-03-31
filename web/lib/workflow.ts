@@ -41,6 +41,21 @@ export function workflowNextStepCopy(actions: string[]): string {
   return compact.length > 0 ? `Next step: ${compact.join(" → ")}.` : "";
 }
 
+export function isWeeklyReviewIntent(intent?: string | null): boolean {
+  const value = intent?.trim().toLowerCase();
+  if (!value) {
+    return false;
+  }
+  return value.includes("weekly") || value.includes("review") || value.includes("triage");
+}
+
+export function defaultComparablesSort(sortBy: ComparableSort | undefined, intent?: string | null): ComparableSort {
+  if (sortBy) {
+    return sortBy;
+  }
+  return isWeeklyReviewIntent(intent) ? "recent_sale" : "match";
+}
+
 export function sortComparables<T extends ComparableLike>(items: T[], sortBy: ComparableSort): T[] {
   const ranked = [...items];
   if (sortBy === "price_desc") {
