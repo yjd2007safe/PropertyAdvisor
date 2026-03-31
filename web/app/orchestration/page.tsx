@@ -7,6 +7,29 @@ type OrchestrationReviewPageProps = {
   searchParams?: Promise<{ view?: "actionable" | "all" }>;
 };
 
+function parseTimestamp(value?: string | null): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function sortPlansForReview(plans: Array<{
+  event_id: string;
+  requires_human_review: boolean;
+  queued_at?: string | null;
+  created_at?: string | null;
+}>): typeof plans {
+  return [...plans].sort((left, right) => {
+    if (left.requires_human_review !== right.requires_human_review) {
+      return left.requires_human_review ? -1 : 1;
+    }
+    const rightTs = parseTimestamp(right.queued_at ?? right.created_at);
+    const leftTs = parseTimestamp(left.queued_at ?? left.created_at);
+    if (leftTs !== rightTs) return rightTs - leftTs;
+    return left.event_id.localeCompare(right.event_id);
+  });
+}
+
 function formatTimestamp(value?: string | null): string {
   if (!value) return "Not available";
   const parsed = new Date(value);
@@ -23,7 +46,10 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
     const summary = review.summary;
     const actionablePlans = review.plans.filter((plan) => plan.requires_human_review);
     const visiblePlans = selectedView === "all" ? review.plans : actionablePlans;
+    const sortedVisiblePlans = sortPlansForReview(visiblePlans);
     const hiddenPlanCount = review.plans.length - visiblePlans.length;
+    const queuedVisibleCount = sortedVisiblePlans.filter((plan) => Boolean(plan.queued_at)).length;
+    const mostRecentVisibleAt = sortedVisiblePlans[0]?.queued_at ?? sortedVisiblePlans[0]?.created_at ?? null;
 
     return (
       <main className="section-stack">
@@ -54,6 +80,9 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           </div>
           {!params.view ? <p className="lede compact">Weekly default: Actionable queue first to keep repeat reviews focused on items that require manual attention.</p> : null}
           {selectedView === "actionable" && hiddenPlanCount > 0 ? <p className="lede compact">Showing {visiblePlans.length} actionable items ({hiddenPlanCount} auto-continue events hidden).</p> : null}
+          <p className="lede compact">
+            Review snapshot: {sortedVisiblePlans.length} visible · {queuedVisibleCount} queued for delivery · Most recent event {formatTimestamp(mostRecentVisibleAt)}.
+          </p>
         </section>
 
         {visiblePlans.length === 0 ? (
@@ -73,7 +102,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                 <tr><th>Event</th><th>Action</th><th>Review</th><th>Queued</th><th>Summary</th></tr>
               </thead>
               <tbody>
-                {visiblePlans.map((plan) => (
+                {sortedVisiblePlans.map((plan) => (
                   <tr key={plan.event_id}>
                     <td>{plan.event_type}<div className="meta-label">{plan.event_id}</div></td>
                     <td>{plan.action}<div className="meta-label">{plan.bucket}</div></td>
