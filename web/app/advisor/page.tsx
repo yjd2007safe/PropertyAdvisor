@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, getPropertyAdvisor } from "../../lib/api";
-import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
+import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, TransparencyPanel, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 import { inferQueryType, sanitizeQuery, withFlowContext } from "../../lib/workflow";
 
 type AdvisorPageProps = {
@@ -65,6 +65,12 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
         <WorkflowSnapshotPanel snapshot={advisor.workflow_snapshot} />
 
         <DataSourcePanel status={advisor.data_source} />
+        <TransparencyPanel
+          generatedAt={advisor.generated_at}
+          snapshotCount={advisor.comparable_snapshot.sample_size}
+          thinDataWarning={advisor.advice.fallback_state && advisor.advice.fallback_state !== "none" ? `Advisor fallback active (${advisor.advice.fallback_state}).` : null}
+          lowConfidenceWarning={advisor.advice.confidence === "low" ? "Recommendation confidence is low; clear warnings before progression." : null}
+        />
 
         <SummaryCardGrid cards={advisor.summary_cards} />
         <WorkflowLinks links={advisor.workflow_links} />

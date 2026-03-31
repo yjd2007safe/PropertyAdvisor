@@ -409,6 +409,7 @@ def get_property_advice(
 
     return advice.model_copy(
         update={
+            "generated_at": datetime.now(timezone.utc),
             "data_source": _resolve_data_source(
                 dal,
                 dal.property_advice,
@@ -553,6 +554,7 @@ def get_comparables(
         )
         narrative = _build_comparable_narrative(empty_summary, query)
         return ComparablesResponse(
+            generated_at=datetime.now(timezone.utc),
             data_source=_resolve_data_source(dal, dal.comparables, "Comparables", upstream_repositories={"suburbs": dal.suburbs}),
             subject=query,
             set_quality="empty",
@@ -583,6 +585,7 @@ def get_comparables(
     )
     narrative = _build_comparable_narrative(summary, query)
     return ComparablesResponse(
+        generated_at=datetime.now(timezone.utc),
         data_source=_resolve_data_source(dal, dal.comparables, "Comparables", upstream_repositories={"suburbs": dal.suburbs}),
         subject=query,
         set_quality=(

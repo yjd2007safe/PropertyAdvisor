@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ReactNode } from "react";
-import { DataSourceStatus, SummaryCard, WorkflowLink, WorkflowSnapshot } from "../lib/api";
+import { DataSourceStatus, SummaryCard, WorkflowLink, WorkflowSnapshot, formatTimestampUTC } from "../lib/api";
 
 export function PageIntro({ eyebrow, title, lede, aside }: { eyebrow: string; title: string; lede: string; aside?: ReactNode }) {
   return (
@@ -104,6 +104,35 @@ export function DataSourcePanel({ status, label = "Data source" }: { status: Dat
       {upstream.length > 0 ? <p className="lede compact">Upstreams: {upstream.map(([name, source]) => `${name}:${source}`).join(", ")}</p> : null}
       <p className="lede compact">Breakdown: postgres {breakdown.postgres} · fallback {breakdown.fallback_mock} · mock {breakdown.mock}</p>
       {status.fallback_reason ? <p className="lede compact">Fallback reason: {status.fallback_reason}</p> : null}
+    </section>
+  );
+}
+
+export function TransparencyPanel({
+  generatedAt,
+  snapshotCount,
+  latestRefreshAt,
+  lowConfidenceWarning,
+  thinDataWarning,
+  label = "Transparency & operator checks"
+}: {
+  generatedAt: string;
+  snapshotCount?: number | null;
+  latestRefreshAt?: string | null;
+  lowConfidenceWarning?: string | null;
+  thinDataWarning?: string | null;
+  label?: string;
+}) {
+  return (
+    <section className="panel">
+      <p className="meta-label">{label}</p>
+      <ul className="detail-list">
+        <li><strong>Latest refresh:</strong> {formatTimestampUTC(latestRefreshAt ?? generatedAt)}</li>
+        <li><strong>Snapshot generated:</strong> {formatTimestampUTC(generatedAt)}</li>
+        {typeof snapshotCount === "number" ? <li><strong>Snapshot count:</strong> {snapshotCount}</li> : null}
+        {thinDataWarning ? <li><strong>Thin-data indicator:</strong> {thinDataWarning}</li> : null}
+        {lowConfidenceWarning ? <li><strong>Low-confidence warning:</strong> {lowConfidenceWarning}</li> : null}
+      </ul>
     </section>
   );
 }

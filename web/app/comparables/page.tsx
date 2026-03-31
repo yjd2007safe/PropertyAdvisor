@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getComparables } from "../../lib/api";
-import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
+import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, TransparencyPanel, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
 import { inferQueryType, withFlowContext } from "../../lib/workflow";
 
 type ComparablesPageProps = {
@@ -54,6 +54,12 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
         <WorkflowSnapshotPanel snapshot={comparables.workflow_snapshot} />
 
         <DataSourcePanel status={comparables.data_source} />
+        <TransparencyPanel
+          generatedAt={comparables.generated_at}
+          snapshotCount={comparables.summary.count}
+          thinDataWarning={hasThinEvidence ? "Comparable sample is thin; pricing narrative is directional only." : null}
+          lowConfidenceWarning={comparables.summary.sample_state === "empty" ? "No comparable evidence available for this query." : null}
+        />
 
         <SummaryCardGrid cards={comparables.summary_cards} />
         <WorkflowLinks links={comparables.workflow_links} />
