@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { ApiError, formatCurrency, getWatchlist, getWatchlistAlerts, getWatchlistDetail, getWatchlistEvents } from "../../lib/api";
 import { AlertBadge, DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, TransparencyPanel, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
-import { withFlowContext } from "../../lib/workflow";
+import { flowContextLabel, withFlowContext, withUpdatedSearch } from "../../lib/workflow";
 
 type WatchlistPageProps = {
   searchParams?: Promise<{
@@ -20,6 +20,9 @@ type WatchlistPageProps = {
 
 export default async function WatchlistPage({ searchParams }: WatchlistPageProps) {
   const params = (await searchParams) ?? {};
+  const currentSearch = new URLSearchParams(
+    Object.entries(params).flatMap(([key, value]) => (value ? [[key, value]] : []))
+  );
 
   try {
     const detailPromise = params.detail_slug
@@ -43,7 +46,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
       getWatchlistEvents(10),
       detailPromise
     ]);
-    const handoffContext = params.from ? `Continuing from ${params.from}${params.intent ? ` (${params.intent})` : ""}.` : null;
+    const handoffContext = flowContextLabel(params.from, params.intent);
 
     return (
       <main className="section-stack">
@@ -114,6 +117,12 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
               <button type="submit">Apply filters</button>
             </div>
           </form>
+          <p className="meta-label">Saved review views</p>
+          <div className="inline-links">
+            <a href={withUpdatedSearch("/watchlist", currentSearch, { watch_status: "review", alert_severity: "high", group_by: "none" })}>Needs review + high alerts</a> ·{" "}
+            <a href={withUpdatedSearch("/watchlist", currentSearch, { watch_status: "active", alert_severity: "watch", group_by: "strategy" })}>Active weekly queue</a> ·{" "}
+            <a href={withUpdatedSearch("/watchlist", currentSearch, { suburb_slug: null, strategy: null, state: null, watch_status: null, alert_severity: null, group_by: "none", detail_slug: null })}>Reset view</a>
+          </div>
         </section>
 
         <section className="card-grid two-up">
@@ -160,7 +169,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
               <tbody>
                 {watchlist.items.map((entry) => (
                   <tr key={entry.suburb_slug}>
-                    <td>{entry.suburb_name}<div className="inline-links"><a href={`/advisor?query=${entry.suburb_slug}&query_type=slug`}>Advisor</a> · <a href={`/comparables?query=${entry.suburb_slug}`}>Comps</a></div></td>
+                    <td>{entry.suburb_name}<div className="inline-links"><a href={`/advisor?query=${entry.suburb_slug}&query_type=slug`}>Advisor</a> · <a href={`/comparables?query=${entry.suburb_slug}`}>Comparables</a></div></td>
                     <td>{entry.watch_status}</td>
                     <td>{entry.strategy}</td>
                     <td>{formatCurrency(entry.target_buy_range_min)} - {formatCurrency(entry.target_buy_range_max)}</td>

@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { ApiError, getPropertyAdvisor } from "../../lib/api";
 import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, TransparencyPanel, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
-import { inferQueryType, sanitizeQuery, withFlowContext } from "../../lib/workflow";
+import { flowContextLabel, inferQueryType, sanitizeQuery, withFlowContext } from "../../lib/workflow";
 
 type AdvisorPageProps = {
   searchParams?: Promise<{ query?: string; query_type?: "address" | "slug" | "auto"; focus_strategy?: "yield" | "owner-occupier" | "balanced"; from?: string; intent?: string; detail_slug?: string }>;
@@ -13,7 +13,7 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
   const query = params.query ?? "";
   const queryType = params.query_type ?? inferQueryType(query);
   const focusStrategy = params.focus_strategy ?? "";
-  const handoffContext = params.from ? `Continuing from ${params.from}${params.intent ? ` (${params.intent})` : ""}.` : null;
+  const handoffContext = flowContextLabel(params.from, params.intent);
 
   try {
     const advisor = await getPropertyAdvisor({ query: query || undefined, query_type: queryType, focus_strategy: params.focus_strategy });
@@ -56,7 +56,7 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
                 <option value="yield">Yield</option>
                 <option value="owner-occupier">Owner-occupier</option>
               </select>
-              <button type="submit">Run advice query</button>
+                <button type="submit">Run advisor review</button>
             </div>
           </form>
         </section>
@@ -193,7 +193,7 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
                   <option value="yield">Yield</option>
                   <option value="owner-occupier">Owner-occupier</option>
                 </select>
-                <button type="submit">Save / update watchlist</button>
+                <button type="submit">Save to watchlist</button>
               </div>
             </form>
           ) : null}
