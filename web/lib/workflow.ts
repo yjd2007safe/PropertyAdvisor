@@ -38,7 +38,8 @@ export function flowContextLabel(from?: string, intent?: string): string | null 
 
 export function workflowNextStepCopy(actions: string[]): string {
   const compact = actions.filter((item) => item.trim().length > 0);
-  return compact.length > 0 ? `Next step: ${compact.join(" → ")}.` : "";
+  const deduped = compact.filter((item, index) => compact.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index);
+  return deduped.length > 0 ? `Follow-up: ${deduped.join(" → ")}.` : "";
 }
 
 export function isWeeklyReviewIntent(intent?: string | null): boolean {

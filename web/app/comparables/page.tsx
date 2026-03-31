@@ -68,6 +68,7 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
             <a href={withUpdatedSearch("/comparables", currentSearch, { min_price: null, max_price: null, max_distance_km: null, max_items: "5", sort_by: "match" })}>Reset filters</a>
           </div>
           {!params.sort_by ? <p className="lede compact">Default sort: {weeklyReviewMode ? "Most recent sale (weekly review mode)." : "Best match score."}</p> : null}
+          {sortBy === "recent_sale" ? <p className="lede compact"><strong>Change emphasis:</strong> newest comparable sales are listed first for faster weekly re-checks.</p> : null}
         </section>
         {handoffContext ? <section className="panel"><p className="lede compact">{handoffContext}</p></section> : null}
 
