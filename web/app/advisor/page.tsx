@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { ApiError, getPropertyAdvisor } from "../../lib/api";
 import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, SummaryCardGrid, TransparencyPanel, WorkflowLinks, WorkflowSnapshotPanel } from "../../components/sections";
-import { flowContextLabel, inferQueryType, sanitizeQuery, withFlowContext } from "../../lib/workflow";
+import { flowContextLabel, inferQueryType, sanitizeQuery, withFlowContext, workflowNextStepCopy } from "../../lib/workflow";
 
 type AdvisorPageProps = {
   searchParams?: Promise<{ query?: string; query_type?: "address" | "slug" | "auto"; focus_strategy?: "yield" | "owner-occupier" | "balanced"; from?: string; intent?: string; detail_slug?: string }>;
@@ -198,10 +198,10 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
             </form>
           ) : null}
           <p className="lede compact">
-            Continue with{" "}
-            <a href={withFlowContext(`/comparables?query=${sanitizeQuery(advisor.inputs.suburb_slug) ?? advisor.inputs.query}`, "advisor", "validate-pricing")}>comparables</a>{" "}
-            then confirm status in{" "}
-            <a href={withFlowContext(`/watchlist?detail_slug=${sanitizeQuery(advisor.inputs.suburb_slug) ?? "southport-qld-4215"}&suburb_slug=${sanitizeQuery(advisor.inputs.suburb_slug) ?? "southport-qld-4215"}`, "advisor", "triage-alerts")}>watchlist</a>.
+            {workflowNextStepCopy(["Validate comparables", "Confirm watchlist status"])}{" "}
+            <a href={withFlowContext(`/comparables?query=${sanitizeQuery(advisor.inputs.suburb_slug) ?? advisor.inputs.query}`, "advisor", "validate-pricing")}>validate comparables</a>{" "}
+            then{" "}
+            <a href={withFlowContext(`/watchlist?detail_slug=${sanitizeQuery(advisor.inputs.suburb_slug) ?? "southport-qld-4215"}&suburb_slug=${sanitizeQuery(advisor.inputs.suburb_slug) ?? "southport-qld-4215"}`, "advisor", "triage-alerts")}>confirm watchlist status</a>.
           </p>
         </section>
       </main>
