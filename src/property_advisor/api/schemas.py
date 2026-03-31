@@ -262,7 +262,7 @@ class WatchlistEntry(BaseModel):
     suburb_name: str
     state: str
     strategy: Literal["yield", "owner-occupier", "balanced"]
-    watch_status: Literal["active", "review", "paused"]
+    watch_status: Literal["active", "review", "paused", "archived"]
     notes: str
     target_buy_range_min: int
     target_buy_range_max: int
@@ -310,9 +310,9 @@ class WatchlistDetailResponse(BaseModel):
 
 class WatchlistActionRequest(BaseModel):
     suburb_slug: str
-    source_surface: Literal["advisor", "comparables", "watchlist"]
+    source_surface: Literal["advisor", "comparables", "watchlist", "suburbs"]
     strategy: Optional[Literal["yield", "owner-occupier", "balanced"]] = None
-    watch_status: Optional[Literal["active", "review", "paused"]] = None
+    watch_status: Optional[Literal["active", "review", "paused", "archived"]] = None
     notes: Optional[str] = None
 
 

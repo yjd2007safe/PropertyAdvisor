@@ -5,7 +5,7 @@ import { DataSourcePanel, EmptyState, MetricCard, PageIntro, SectionTitle, Summa
 import { inferQueryType, sanitizeQuery, withFlowContext } from "../../lib/workflow";
 
 type AdvisorPageProps = {
-  searchParams?: Promise<{ query?: string; query_type?: "address" | "slug" | "auto"; focus_strategy?: "yield" | "owner-occupier" | "balanced"; from?: string; intent?: string }>;
+  searchParams?: Promise<{ query?: string; query_type?: "address" | "slug" | "auto"; focus_strategy?: "yield" | "owner-occupier" | "balanced"; from?: string; intent?: string; detail_slug?: string }>;
 };
 
 export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
@@ -168,6 +168,29 @@ export default async function AdvisorPage({ searchParams }: AdvisorPageProps) {
               <li key={step}>{step}</li>
             ))}
           </ul>
+          {advisor.inputs.suburb_slug ? (
+            <form className="query-form" method="POST" action="/watchlist/actions">
+              <label htmlFor="advisor_watch_status">Save to watchlist</label>
+              <div>
+                <input type="hidden" name="suburb_slug" value={advisor.inputs.suburb_slug} />
+                <input type="hidden" name="source_surface" value="advisor" />
+                <input type="hidden" name="redirect_to" value={`/watchlist?detail_slug=${advisor.inputs.suburb_slug}&suburb_slug=${advisor.inputs.suburb_slug}&from=advisor&intent=saved`} />
+                <select id="advisor_watch_status" name="watch_status" defaultValue="review">
+                  <option value="review">Review</option>
+                  <option value="active">Active</option>
+                  <option value="paused">Paused</option>
+                  <option value="archived">Archived</option>
+                </select>
+                <select name="strategy" defaultValue={params.focus_strategy ?? ""}>
+                  <option value="">Keep strategy</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="yield">Yield</option>
+                  <option value="owner-occupier">Owner-occupier</option>
+                </select>
+                <button type="submit">Save / update watchlist</button>
+              </div>
+            </form>
+          ) : null}
           <p className="lede compact">
             Continue with{" "}
             <a href={withFlowContext(`/comparables?query=${sanitizeQuery(advisor.inputs.suburb_slug) ?? advisor.inputs.query}`, "advisor", "validate-pricing")}>comparables</a>{" "}

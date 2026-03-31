@@ -97,6 +97,21 @@ export default async function ComparablesPage({ searchParams }: ComparablesPageP
               </table>
             </section>
             <section className="panel">
+              <form className="query-form" method="POST" action="/watchlist/actions">
+                <label htmlFor="comparables_watch_status">Move target into watchlist</label>
+                <div>
+                  <input type="hidden" name="suburb_slug" value={comparables.query} />
+                  <input type="hidden" name="source_surface" value="comparables" />
+                  <input type="hidden" name="redirect_to" value={`/watchlist?detail_slug=${comparables.query}&suburb_slug=${comparables.query}&from=comparables&intent=saved`} />
+                  <select id="comparables_watch_status" name="watch_status" defaultValue="review">
+                    <option value="review">Review</option>
+                    <option value="active">Active</option>
+                    <option value="paused">Paused</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                  <button type="submit">Save / update watchlist</button>
+                </div>
+              </form>
               <p className="lede compact">
                 Next actions:{" "}
                 <a href={withFlowContext(`/advisor?query=${comparables.query}&query_type=${inferQueryType(comparables.query)}`, "comparables", "apply-evidence")}>apply in advisor</a>{" "}

@@ -82,12 +82,13 @@ def test_watchlist_filter_returns_empty_for_unknown_slug() -> None:
 def test_watchlist_action_upsert_feeds_watchlist_context() -> None:
     dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     action = upsert_watchlist_action(
-        WatchlistActionRequest(suburb_slug="new-suburb-qld-4300", source_surface="comparables"),
+        WatchlistActionRequest(suburb_slug="new-suburb-qld-4300", source_surface="comparables", watch_status="archived"),
         dal=dal,
     )
     response = get_watchlist(suburb_slug="new-suburb-qld-4300", dal=dal)
     assert action.action == "created"
     assert response.summary.total_entries == 1
+    assert response.items[0].watch_status == "archived"
     assert response.items[0].latest_context is not None
     assert "review_required=" in response.items[0].latest_context.orchestration
 
@@ -1319,3 +1320,25 @@ def test_postgres_property_advice_snapshot_generation_keeps_negative_recommendat
     assert response.advice.confidence == "high"
     assert response.advice.fallback_state == "none"
     assert response.advice.confidence_reasons
+
+
+def test_watchlist_context_flags_thin_data_honestly() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    action = upsert_watchlist_action(
+        WatchlistActionRequest(suburb_slug="empty", source_surface="suburbs", watch_status="review"),
+        dal=dal,
+    )
+    assert "thin-data" in action.item.latest_context.advisory
+    assert "directional only" in action.item.latest_context.comparables
+
+
+def test_watchlist_status_filter_supports_archived() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    upsert_watchlist_action(
+        WatchlistActionRequest(suburb_slug="archived-suburb-qld-4000", source_surface="watchlist", watch_status="archived"),
+        dal=dal,
+    )
+    response = get_watchlist(watch_status="archived", dal=dal)
+    assert response.items
+    assert all(item.watch_status == "archived" for item in response.items)
+    assert response.summary.by_status["archived"] >= 1

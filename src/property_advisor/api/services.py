@@ -658,9 +658,9 @@ def get_watchlist(
         )
     )
     alert_counts = {"info": 0, "watch": 0, "high": 0}
-    by_status = {"active": 0, "review": 0, "paused": 0}
+    by_status = {"active": 0, "review": 0, "paused": 0, "archived": 0}
     by_strategy = {"yield": 0, "owner-occupier": 0, "balanced": 0}
-    action_counts = {"needs_review": 0, "ready_to_progress": 0, "on_hold": 0}
+    action_counts = {"needs_review": 0, "ready_to_progress": 0, "on_hold": 0, "archived": 0}
 
     for item in items:
         by_status[item.watch_status] += 1
@@ -669,8 +669,10 @@ def get_watchlist(
             action_counts["needs_review"] += 1
         elif item.watch_status == "active":
             action_counts["ready_to_progress"] += 1
-        else:
+        elif item.watch_status == "paused":
             action_counts["on_hold"] += 1
+        else:
+            action_counts["archived"] += 1
 
         for alert in item.alerts:
             alert_counts[alert.severity] += 1
@@ -686,7 +688,7 @@ def get_watchlist(
         by_strategy=by_strategy,
         action_counts=action_counts,
         investor_brief=(
-            "Focus this week on review and paused suburbs with high-severity pricing alerts."
+            "Focus this week on review and paused suburbs with high-severity pricing alerts; archive only after outcomes are captured."
             if alert_counts["high"] > 0
             else "No critical alerts detected; continue weekly monitoring cadence."
         ),
@@ -730,11 +732,25 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
     advice = get_property_advice(query=item.suburb_slug, query_type="slug", dal=dal)
     comparables = get_comparables(query=item.suburb_slug, max_items=5, dal=dal)
     orchestration = get_orchestration_review_status(limit=3)
+
+    advisory_context = f"{advice.advice.recommendation} ({advice.advice.confidence}) — {advice.advice.headline}"
+    if advice.advice.fallback_state and advice.advice.fallback_state != "none":
+        advisory_context = f"{advisory_context} | thin-data: {advice.advice.fallback_state}"
+
+    if comparables.summary.sample_state in {"empty", "low"}:
+        comparables_context = (
+            f"{comparables.summary.count} comps ({comparables.summary.sample_state}); pricing signal is directional only."
+        )
+    else:
+        comparables_context = (
+            f"{comparables.summary.count} comps, avg ${comparables.summary.average_price:,}, state={comparables.summary.sample_state}"
+        )
+
     return item.model_copy(
         update={
             "latest_context": WatchlistContextSummary(
-                advisory=f"{advice.advice.recommendation} ({advice.advice.confidence}) — {advice.advice.headline}",
-                comparables=f"{comparables.summary.count} comps, avg ${comparables.summary.average_price:,}, state={comparables.summary.sample_state}",
+                advisory=advisory_context,
+                comparables=comparables_context,
                 orchestration=f"{orchestration.summary.current_state}; review_required={orchestration.summary.review_required_count}",
                 updated_at=datetime.now(timezone.utc),
             )

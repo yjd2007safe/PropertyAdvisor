@@ -9,7 +9,7 @@ type WatchlistPageProps = {
     suburb_slug?: string;
     strategy?: "yield" | "owner-occupier" | "balanced";
     state?: string;
-    watch_status?: "active" | "review" | "paused";
+    watch_status?: "active" | "review" | "paused" | "archived";
     group_by?: "none" | "state" | "strategy";
     alert_severity?: "info" | "watch" | "high";
     detail_slug?: string;
@@ -91,6 +91,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                 <option value="active">Active</option>
                 <option value="review">Review</option>
                 <option value="paused">Paused</option>
+                <option value="archived">Archived</option>
               </select>
               <select name="group_by" defaultValue={params.group_by ?? "none"}>
                 <option value="none">Ungrouped</option>
@@ -115,6 +116,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
               <li>Active: {watchlist.summary.by_status.active ?? 0}</li>
               <li>Review: {watchlist.summary.by_status.review ?? 0}</li>
               <li>Paused: {watchlist.summary.by_status.paused ?? 0}</li>
+              <li>Archived: {watchlist.summary.by_status.archived ?? 0}</li>
             </ul>
           </article>
           <article className="panel">
@@ -146,7 +148,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           <section className="panel">
             <table className="data-table">
               <thead>
-                <tr><th>Suburb</th><th>Status</th><th>Strategy</th><th>Target band</th><th>Latest alert</th><th>Detail</th></tr>
+                <tr><th>Suburb</th><th>Status</th><th>Strategy</th><th>Target band</th><th>Latest alert</th><th>Actions</th><th>Detail</th></tr>
               </thead>
               <tbody>
                 {watchlist.items.map((entry) => (
@@ -156,6 +158,20 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                     <td>{entry.strategy}</td>
                     <td>{formatCurrency(entry.target_buy_range_min)} - {formatCurrency(entry.target_buy_range_max)}</td>
                     <td>{entry.alerts[0] ? <AlertBadge tone={entry.alerts[0].severity}>{entry.alerts[0].title}</AlertBadge> : "No alerts"}</td>
+                    <td>
+                      <form method="POST" action="/watchlist/actions">
+                        <input type="hidden" name="suburb_slug" value={entry.suburb_slug} />
+                        <input type="hidden" name="source_surface" value="watchlist" />
+                        <input type="hidden" name="redirect_to" value={`/watchlist?detail_slug=${entry.suburb_slug}&suburb_slug=${entry.suburb_slug}&from=watchlist&intent=status-updated`} />
+                        <select name="watch_status" defaultValue={entry.watch_status}>
+                          <option value="active">Active</option>
+                          <option value="review">Review</option>
+                          <option value="paused">Paused</option>
+                          <option value="archived">Archived</option>
+                        </select>
+                        <button type="submit">Update</button>
+                      </form>
+                    </td>
                     <td><a href={withFlowContext(`/watchlist?detail_slug=${entry.suburb_slug}&suburb_slug=${entry.suburb_slug}`, "watchlist", "open-detail")}>Open detail</a></td>
                   </tr>
                 ))}
@@ -173,6 +189,34 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
               Next workflow step: <a href={withFlowContext(`/advisor?query=${detail.item.suburb_slug}&query_type=slug`, "watchlist", "run-advisor")}>run advisor</a> then validate in{" "}
               <a href={withFlowContext(`/comparables?query=${detail.item.suburb_slug}`, "watchlist", "validate-pricing")}>comparables</a>.
             </p>
+            {detail.item.latest_context ? (
+              <ul className="detail-list">
+                <li><strong>Advisory:</strong> {detail.item.latest_context.advisory}</li>
+                <li><strong>Comparables:</strong> {detail.item.latest_context.comparables}</li>
+                <li><strong>Orchestration:</strong> {detail.item.latest_context.orchestration}</li>
+              </ul>
+            ) : null}
+            <form className="query-form" method="POST" action="/watchlist/actions">
+              <label htmlFor="detail_watch_status">Update watchlist status</label>
+              <div>
+                <input type="hidden" name="suburb_slug" value={detail.item.suburb_slug} />
+                <input type="hidden" name="source_surface" value="watchlist" />
+                <input type="hidden" name="redirect_to" value={`/watchlist?detail_slug=${detail.item.suburb_slug}&suburb_slug=${detail.item.suburb_slug}&from=watchlist&intent=detail-updated`} />
+                <select id="detail_watch_status" name="watch_status" defaultValue={detail.item.watch_status}>
+                  <option value="active">Active</option>
+                  <option value="review">Review</option>
+                  <option value="paused">Paused</option>
+                  <option value="archived">Archived</option>
+                </select>
+                <select name="strategy" defaultValue={detail.item.strategy}>
+                  <option value="balanced">Balanced</option>
+                  <option value="yield">Yield</option>
+                  <option value="owner-occupier">Owner-occupier</option>
+                </select>
+                <input name="notes" defaultValue={detail.item.notes} />
+                <button type="submit">Save changes</button>
+              </div>
+            </form>
             <ul className="detail-list">
               {detail.item.alerts.map((alert) => (
                 <li key={`${alert.metric}-${alert.observed_at}`}><AlertBadge tone={alert.severity}>{alert.severity}</AlertBadge> {alert.title} ({alert.observed_at}) — {alert.detail}</li>

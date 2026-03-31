@@ -63,6 +63,13 @@ export default async function SuburbsPage() {
                       <a href={withFlowContext(`/advisor?query=${suburb.slug}&query_type=slug`, "suburbs", "review-advice")}>Advisor</a> ·{" "}
                       <a href={withFlowContext(`/comparables?query=${suburb.slug}`, "suburbs", "validate-pricing")}>Comps</a> ·{" "}
                       <a href={withFlowContext(`/watchlist?detail_slug=${suburb.slug}&suburb_slug=${suburb.slug}`, "suburbs", "triage-alerts")}>Watchlist</a>
+                      <form method="POST" action="/watchlist/actions">
+                        <input type="hidden" name="suburb_slug" value={suburb.slug} />
+                        <input type="hidden" name="source_surface" value="suburbs" />
+                        <input type="hidden" name="watch_status" value="review" />
+                        <input type="hidden" name="redirect_to" value={`/watchlist?detail_slug=${suburb.slug}&suburb_slug=${suburb.slug}&from=suburbs&intent=saved`} />
+                        <button type="submit">Save</button>
+                      </form>
                     </td>
                   </tr>
                 ))}
