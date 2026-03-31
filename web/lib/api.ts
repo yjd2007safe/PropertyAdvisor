@@ -32,6 +32,32 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    cache: "no-store",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const fallback = `Request failed with status ${response.status}`;
+    let message = fallback;
+    try {
+      const payload = await response.json();
+      if (payload?.detail) {
+        message = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+      }
+    } catch {
+      message = fallback;
+    }
+    throw new ApiError(message, response.status);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 function buildSearch(params: Record<string, string | number | undefined | null>) {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -248,11 +274,17 @@ export type WatchlistEntry = {
   suburb_name: string;
   state: string;
   strategy: "yield" | "owner-occupier" | "balanced";
-  watch_status: "active" | "review" | "paused";
+  watch_status: "active" | "review" | "paused" | "archived";
   notes: string;
   target_buy_range_min: number;
   target_buy_range_max: number;
   alerts: WatchlistAlert[];
+  latest_context?: {
+    advisory: string;
+    comparables: string;
+    orchestration: string;
+    updated_at: string;
+  } | null;
 };
 
 export type WatchlistResponse = {
@@ -288,7 +320,7 @@ export const getWatchlist = (params?: {
   suburb_slug?: string;
   strategy?: "yield" | "owner-occupier" | "balanced";
   state?: string;
-  watch_status?: "active" | "review" | "paused";
+  watch_status?: "active" | "review" | "paused" | "archived";
   group_by?: "none" | "state" | "strategy";
 }) => getJson<WatchlistResponse>(`/api/watchlist${buildSearch(params ?? {})}`);
 
@@ -312,3 +344,12 @@ export function formatCurrency(value: number): string {
 }
 
 export const getOrchestrationReview = () => getJson<OrchestrationReviewResponse>("/api/orchestration/review");
+
+
+export const postWatchlistAction = (payload: {
+  suburb_slug: string;
+  source_surface: "advisor" | "comparables" | "watchlist" | "suburbs";
+  strategy?: "yield" | "owner-occupier" | "balanced";
+  watch_status?: "active" | "review" | "paused" | "archived";
+  notes?: string;
+}) => postJson<{ action: "created" | "updated"; item: WatchlistEntry }>("/api/watchlist/actions", payload);

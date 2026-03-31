@@ -81,7 +81,7 @@ def watchlist(
     suburb_slug: Optional[str] = Query(default=None),
     strategy: Optional[Literal["yield", "owner-occupier", "balanced"]] = Query(default=None),
     state: Optional[str] = Query(default=None, min_length=2, max_length=3),
-    watch_status: Optional[Literal["active", "review", "paused"]] = Query(default=None),
+    watch_status: Optional[Literal["active", "review", "paused", "archived"]] = Query(default=None),
     group_by: Literal["none", "state", "strategy"] = Query(default="none"),
 ) -> WatchlistResponse:
     return get_watchlist(

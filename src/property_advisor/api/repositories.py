@@ -129,9 +129,9 @@ class WatchlistQuery:
 @dataclass(frozen=True)
 class WatchlistUpsertRequest:
     suburb_slug: str
-    source_surface: Literal["advisor", "comparables", "watchlist"]
+    source_surface: Literal["advisor", "comparables", "watchlist", "suburbs"]
     strategy: Optional[Literal["yield", "owner-occupier", "balanced"]] = None
-    watch_status: Optional[Literal["active", "review", "paused"]] = None
+    watch_status: Optional[Literal["active", "review", "paused", "archived"]] = None
     notes: Optional[str] = None
 
 
@@ -206,10 +206,12 @@ def _format_property_address(address_line_1: Optional[str], suburb_name: Optiona
     return street or locality
 
 
-def _normalize_watch_status(value: Optional[str]) -> Literal["active", "review", "paused"]:
+def _normalize_watch_status(value: Optional[str]) -> Literal["active", "review", "paused", "archived"]:
     normalized = (value or "").strip().lower()
-    if normalized in {"active", "review", "paused"}:
+    if normalized in {"active", "review", "paused", "archived"}:
         return normalized
+    if "archive" in normalized or "closed" in normalized:
+        return "archived"
     if "pause" in normalized:
         return "paused"
     if "review" in normalized or "watch" in normalized:
@@ -788,7 +790,7 @@ class MockWatchlistRepository:
             updated = existing.model_copy(
                 update={
                     "strategy": request.strategy or existing.strategy,
-                    "watch_status": request.watch_status or "review",
+                    "watch_status": _normalize_watch_status(request.watch_status or existing.watch_status),
                     "notes": request.notes or f"Updated from {request.source_surface} workflow.",
                 }
             )
@@ -801,7 +803,7 @@ class MockWatchlistRepository:
             suburb_name=fallback_suburb,
             state="QLD",
             strategy=request.strategy or "balanced",
-            watch_status=request.watch_status or "review",
+            watch_status=_normalize_watch_status(request.watch_status or "review"),
             notes=request.notes or f"Saved from {request.source_surface} workflow.",
             target_buy_range_min=0,
             target_buy_range_max=0,

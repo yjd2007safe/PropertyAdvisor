@@ -117,10 +117,11 @@ def test_watchlist_detail_not_found() -> None:
 
 def test_watchlist_action_route_creates_entry() -> None:
     payload = watchlist_action(
-        WatchlistActionRequest(suburb_slug="new-suburb-qld-4300", source_surface="advisor")
+        WatchlistActionRequest(suburb_slug="new-suburb-qld-4300", source_surface="advisor", watch_status="archived")
     ).model_dump(mode="json")
     assert payload["action"] in {"created", "updated"}
     assert payload["item"]["suburb_slug"] == "new-suburb-qld-4300"
+    assert payload["item"]["watch_status"] == "archived"
     assert payload["item"]["latest_context"]["comparables"]
 
 
