@@ -20,6 +20,8 @@ type WatchlistPageProps = {
 
 export default async function WatchlistPage({ searchParams }: WatchlistPageProps) {
   const params = (await searchParams) ?? {};
+  const defaultGroupBy = params.group_by ?? "strategy";
+  const hasActiveFilters = Boolean(params.suburb_slug || params.strategy || params.state || params.watch_status || params.alert_severity || params.detail_slug || params.group_by);
   const currentSearch = new URLSearchParams(
     Object.entries(params).flatMap(([key, value]) => (value ? [[key, value]] : []))
   );
@@ -103,7 +105,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                 <option value="paused">Paused</option>
                 <option value="archived">Archived</option>
               </select>
-              <select name="group_by" defaultValue={params.group_by ?? "none"}>
+              <select name="group_by" defaultValue={defaultGroupBy}>
                 <option value="none">Ungrouped</option>
                 <option value="state">Group by state</option>
                 <option value="strategy">Group by strategy</option>
@@ -119,10 +121,11 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           </form>
           <p className="meta-label">Saved review views</p>
           <div className="inline-links">
-            <a href={withUpdatedSearch("/watchlist", currentSearch, { watch_status: "review", alert_severity: "high", group_by: "none" })}>Needs review + high alerts</a> ·{" "}
             <a href={withUpdatedSearch("/watchlist", currentSearch, { watch_status: "active", alert_severity: "watch", group_by: "strategy" })}>Active weekly queue</a> ·{" "}
+            <a href={withUpdatedSearch("/watchlist", currentSearch, { watch_status: "review", alert_severity: "high", group_by: "none" })}>Needs review + high alerts</a> ·{" "}
             <a href={withUpdatedSearch("/watchlist", currentSearch, { suburb_slug: null, strategy: null, state: null, watch_status: null, alert_severity: null, group_by: "none", detail_slug: null })}>Reset view</a>
           </div>
+          {!hasActiveFilters ? <p className="lede compact">Weekly default: grouped by strategy so recurring triage queues are visible first.</p> : null}
         </section>
 
         <section className="card-grid two-up">
