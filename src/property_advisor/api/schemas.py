@@ -338,6 +338,9 @@ class OrchestrationPlanItem(BaseModel):
     created_at: Optional[str] = None
     queued_at: Optional[str] = None
     strategy_summary: str
+    follow_up_state: str
+    next_step_outcome: str
+    revisit_reason: str
     message: Optional[str] = None
 
 

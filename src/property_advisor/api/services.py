@@ -81,11 +81,57 @@ _ORCHESTRATION_STRATEGY_SUMMARY = {
     "notify_only": "仅通知，不自动推进。",
 }
 
+_ORCHESTRATION_OUTCOME_FRAMING = {
+    "ready_for_evaluation": {
+        "next_step_outcome": "Capture operator evaluation decision so execution can safely continue.",
+        "revisit_reason": "Waiting on explicit review outcome before continuing this session.",
+        "follow_up_state": "awaiting_outcome",
+    },
+    "evaluation_failed": {
+        "next_step_outcome": "Confirm recovery run resolves the failed evaluation path.",
+        "revisit_reason": "Revisit after recovery evidence lands to verify outcome quality.",
+        "follow_up_state": "revisit_after_recovery",
+    },
+    "blocked": {
+        "next_step_outcome": "Unblock dependency and resume orchestration flow.",
+        "revisit_reason": "External blocker must clear before outcome can progress.",
+        "follow_up_state": "waiting_on_dependency",
+    },
+    "interrupted": {
+        "next_step_outcome": "Validate resumed run completed without introducing new regressions.",
+        "revisit_reason": "Interrupted runs should be rechecked after auto-resume.",
+        "follow_up_state": "revisit_after_resume",
+    },
+    "completed": {
+        "next_step_outcome": "Confirm completion output is reflected in downstream review surfaces.",
+        "revisit_reason": "Carry completed results into advisor/watchlist follow-up checks.",
+        "follow_up_state": "revisit_downstream_surfaces",
+    },
+    "evaluated": {
+        "next_step_outcome": "Propagate evaluated result through decision-facing surfaces.",
+        "revisit_reason": "Review downstream decision context after evaluation updates.",
+        "follow_up_state": "revisit_downstream_surfaces",
+    },
+    "delivered": {
+        "next_step_outcome": "Verify delivered payload has been acknowledged by the operator.",
+        "revisit_reason": "Revisit only if delivery acknowledgement is missing or stale.",
+        "follow_up_state": "monitor_delivery_ack",
+    },
+}
+
+_DEFAULT_OUTCOME_FRAMING = {
+    "next_step_outcome": "Capture the next operator-visible outcome and then reassess queue priority.",
+    "revisit_reason": "Revisit when fresh orchestration evidence is available.",
+    "follow_up_state": "monitor",
+}
+
 
 def _build_orchestration_plan(record: dict[str, object]) -> dict[str, object]:
     event_type = str(record.get("event_type") or "")
     policy = dict(_DEFAULT_ORCHESTRATION_POLICY)
     policy.update(_ORCHESTRATION_POLICY.get(event_type, {}))
+    outcome_framing = dict(_DEFAULT_OUTCOME_FRAMING)
+    outcome_framing.update(_ORCHESTRATION_OUTCOME_FRAMING.get(event_type, {}))
     action = str(policy["action"])
     return {
         "event_id": record.get("event_id"),
@@ -100,6 +146,9 @@ def _build_orchestration_plan(record: dict[str, object]) -> dict[str, object]:
         "auto_continue": bool(policy["auto_continue"]),
         "requires_human_review": bool(policy["requires_human_review"]),
         "strategy_summary": _ORCHESTRATION_STRATEGY_SUMMARY[action],
+        "follow_up_state": str(outcome_framing["follow_up_state"]),
+        "next_step_outcome": str(outcome_framing["next_step_outcome"]),
+        "revisit_reason": str(outcome_framing["revisit_reason"]),
     }
 
 
@@ -957,13 +1006,13 @@ def get_orchestration_review_status(
 
     if review_required_count > 0:
         current_state = "awaiting_review"
-        next_action = "Review the highest-priority orchestration event and acknowledge delivery before continuing."
+        next_action = "Review highest-priority manual event, record the decision outcome, then continue the orchestration loop."
     elif plans:
         current_state = "auto_progressing"
-        next_action = "No manual review blocker is active; monitor auto-progress and queued delivery records."
+        next_action = "No manual blocker active; monitor auto-progress outcomes and revisit flagged items after downstream surfaces refresh."
     else:
         current_state = "idle"
-        next_action = "No pending orchestration events. Wait for the next runtime notification cycle."
+        next_action = "No pending orchestration events. Wait for next runtime cycle, then restart review when new outcomes arrive."
 
     return OrchestrationReviewResponse(
         summary=OrchestrationReviewSummary(
@@ -989,6 +1038,9 @@ def get_orchestration_review_status(
                 created_at=plan.get("created_at"),
                 queued_at=plan.get("queued_at"),
                 strategy_summary=str(plan.get("strategy_summary") or ""),
+                follow_up_state=str(plan.get("follow_up_state") or "monitor"),
+                next_step_outcome=str(plan.get("next_step_outcome") or ""),
+                revisit_reason=str(plan.get("revisit_reason") or ""),
                 message=plan.get("message"),
             )
             for plan in plans
