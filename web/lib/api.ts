@@ -242,6 +242,10 @@ export type OrchestrationPlanItem = {
   follow_up_state: string;
   next_step_outcome: string;
   revisit_reason: string;
+  is_carry_forward_follow_up: boolean;
+  reviewer_action_state: "pending" | "acknowledged" | "closed";
+  reviewer_available_actions: Array<"acknowledge" | "close_follow_up">;
+  reviewer_last_action_at?: string | null;
   message?: string | null;
 };
 
@@ -356,6 +360,15 @@ export function formatTimestampUTC(value?: string | null): string {
 }
 
 export const getOrchestrationReview = () => getJson<OrchestrationReviewResponse>("/api/orchestration/review");
+
+export const postOrchestrationReviewAction = (payload: {
+  event_id: string;
+  action: "acknowledge" | "close_follow_up";
+}) =>
+  postJson<{ summary: OrchestrationReviewResponse["summary"]; updated_plan: OrchestrationPlanItem }>(
+    "/api/orchestration/review/actions",
+    payload
+  );
 
 
 export const postWatchlistAction = (payload: {

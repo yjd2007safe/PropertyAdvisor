@@ -55,12 +55,18 @@ function buildActiveReason(plan: OrchestrationPlanItem): string {
   return `${formatFollowUpStateLabel(plan.follow_up_state)}: ${revisitReason}`;
 }
 
+function formatReviewerState(state: OrchestrationPlanItem["reviewer_action_state"]): string {
+  if (state === "acknowledged") return "Acknowledged";
+  if (state === "closed") return "Closed";
+  return "Pending";
+}
+
 function buildLowNoiseFollowUpEmphasis(plans: OrchestrationPlanItem[]): string {
   if (plans.length === 0) {
     return "No visible events to review.";
   }
 
-  const reviewFirst = plans.filter((plan) => plan.requires_human_review);
+  const reviewFirst = plans.filter((plan) => plan.requires_human_review && plan.reviewer_action_state !== "closed");
   if (reviewFirst.length === 0) {
     return "No manual follow-up needed in this scope.";
   }
@@ -98,7 +104,7 @@ function buildLowNoiseFollowUpEmphasis(plans: OrchestrationPlanItem[]): string {
 }
 
 function buildGroupedFollowUpCue(plans: OrchestrationPlanItem[]): string {
-  const reviewFirst = plans.filter((plan) => plan.requires_human_review);
+  const reviewFirst = plans.filter((plan) => plan.requires_human_review && plan.reviewer_action_state !== "closed");
   if (reviewFirst.length === 0) {
     return "No manual-review groups in this scope.";
   }
@@ -188,6 +194,11 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           </p>
           <p className="lede compact">Follow-up emphasis: {lowNoiseFollowUpEmphasis}</p>
           <p className="lede compact">Grouped follow-up cue: {groupedFollowUpCue}</p>
+          <p className="lede compact">
+            Carry-forward closure: {sortedVisiblePlans.filter((plan) => plan.is_carry_forward_follow_up && plan.reviewer_action_state === "pending").length} pending ·{" "}
+            {sortedVisiblePlans.filter((plan) => plan.is_carry_forward_follow_up && plan.reviewer_action_state === "acknowledged").length} acknowledged ·{" "}
+            {sortedVisiblePlans.filter((plan) => plan.is_carry_forward_follow_up && plan.reviewer_action_state === "closed").length} closed.
+          </p>
         </section>
 
         {visiblePlans.length === 0 ? (
@@ -204,17 +215,34 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
             />
             <table className="data-table">
               <thead>
-                <tr><th>Event</th><th>Action</th><th>Review</th><th>Queued</th><th>Outcome</th><th>Revisit later because</th></tr>
+                <tr><th>Event</th><th>Action</th><th>Review</th><th>Queued</th><th>Outcome</th><th>Revisit later because</th><th>Reviewer state</th><th>Workflow closure</th></tr>
               </thead>
               <tbody>
                 {sortedVisiblePlans.map((plan) => (
                   <tr key={plan.event_id}>
-                    <td>{plan.event_type}<div className="meta-label">{plan.event_id}</div></td>
+                    <td>{plan.event_type}<div className="meta-label">{plan.event_id}</div>{plan.is_carry_forward_follow_up ? <div className="meta-label">Carry-forward follow-up</div> : null}</td>
                     <td>{plan.action}<div className="meta-label">{plan.bucket} · {formatFollowUpStateLabel(plan.follow_up_state)}</div></td>
                     <td>{plan.requires_human_review ? "Required" : "Not required"}</td>
                     <td>{formatTimestamp(plan.queued_at ?? plan.created_at)}</td>
                     <td>{plan.next_step_outcome}</td>
                     <td>{buildActiveReason(plan)}</td>
+                    <td>{formatReviewerState(plan.reviewer_action_state)}{plan.reviewer_last_action_at ? <div className="meta-label">{formatTimestamp(plan.reviewer_last_action_at)}</div> : null}</td>
+                    <td>
+                      {plan.reviewer_available_actions.length > 0 ? (
+                        <div className="inline-links">
+                          {plan.reviewer_available_actions.map((action) => (
+                            <form key={action} method="post" action="/orchestration/actions">
+                              <input type="hidden" name="event_id" value={plan.event_id} />
+                              <input type="hidden" name="view" value={selectedView} />
+                              <input type="hidden" name="action" value={action} />
+                              <button type="submit">{action === "acknowledge" ? "Acknowledge" : "Close follow-up"}</button>
+                            </form>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="meta-label">No actions</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
