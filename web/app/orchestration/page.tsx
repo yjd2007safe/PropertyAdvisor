@@ -48,7 +48,7 @@ function buildLowNoiseFollowUpEmphasis(plans: OrchestrationPlanItem[]): string {
 
   const groupedSummaries = new Map<string, { count: number; latestAt: number }>();
   for (const plan of reviewFirst) {
-    const summary = plan.strategy_summary.trim();
+    const summary = plan.revisit_reason.trim() || plan.strategy_summary.trim();
     const compactSummary = summary.endsWith(".") ? summary.slice(0, -1) : summary;
     if (!compactSummary) continue;
     const current = groupedSummaries.get(compactSummary) ?? { count: 0, latestAt: 0 };
@@ -164,6 +164,9 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           <p className="lede compact">
             Review snapshot: {sortedVisiblePlans.length} visible · {queuedVisibleCount} queued for delivery · Most recent event {formatTimestamp(mostRecentVisibleAt)}.
           </p>
+          <p className="lede compact">
+            Next-step outcome framing: {sortedVisiblePlans[0]?.next_step_outcome ?? "No visible outcomes pending."}
+          </p>
           <p className="lede compact">Follow-up emphasis: {lowNoiseFollowUpEmphasis}</p>
           <p className="lede compact">Grouped follow-up cue: {groupedFollowUpCue}</p>
         </section>
@@ -182,16 +185,17 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
             />
             <table className="data-table">
               <thead>
-                <tr><th>Event</th><th>Action</th><th>Review</th><th>Queued</th><th>Summary</th></tr>
+                <tr><th>Event</th><th>Action</th><th>Review</th><th>Queued</th><th>Outcome</th><th>Revisit later because</th></tr>
               </thead>
               <tbody>
                 {sortedVisiblePlans.map((plan) => (
                   <tr key={plan.event_id}>
                     <td>{plan.event_type}<div className="meta-label">{plan.event_id}</div></td>
-                    <td>{plan.action}<div className="meta-label">{plan.bucket}</div></td>
+                    <td>{plan.action}<div className="meta-label">{plan.bucket} · {plan.follow_up_state}</div></td>
                     <td>{plan.requires_human_review ? "Required" : "Not required"}</td>
                     <td>{formatTimestamp(plan.queued_at ?? plan.created_at)}</td>
-                    <td>{plan.strategy_summary}</td>
+                    <td>{plan.next_step_outcome}</td>
+                    <td>{plan.revisit_reason}</td>
                   </tr>
                 ))}
               </tbody>

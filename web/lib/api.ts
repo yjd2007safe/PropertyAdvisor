@@ -239,6 +239,9 @@ export type OrchestrationPlanItem = {
   created_at?: string | null;
   queued_at?: string | null;
   strategy_summary: string;
+  follow_up_state: string;
+  next_step_outcome: string;
+  revisit_reason: string;
   message?: string | null;
 };
 

@@ -46,8 +46,13 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert status.summary.review_required_count == 1
     assert status.summary.pending_count == 2
     assert status.summary.latest_event_at == "2026-03-29T09:30:00+00:00"
+    assert "record the decision outcome" in status.summary.next_action
     assert status.plans[0].event_id == "evt-review"
     assert status.plans[0].requires_human_review is True
+    assert status.plans[0].follow_up_state == "awaiting_outcome"
+    assert "decision" in status.plans[0].next_step_outcome.lower()
+    assert "review outcome" in status.plans[0].revisit_reason.lower()
+    assert status.plans[1].follow_up_state == "revisit_downstream_surfaces"
 
 
 def test_orchestration_review_status_empty_queue(tmp_path: Path) -> None:
@@ -58,4 +63,5 @@ def test_orchestration_review_status_empty_queue(tmp_path: Path) -> None:
     assert status.summary.pending_count == 0
     assert status.summary.freshness == "empty"
     assert status.summary.latest_event_at is None
+    assert "restart review" in status.summary.next_action.lower()
     assert status.plans == []
