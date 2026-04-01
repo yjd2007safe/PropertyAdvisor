@@ -47,6 +47,8 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert status.summary.pending_count == 2
     assert status.summary.latest_event_at == "2026-03-29T09:30:00+00:00"
     assert "record the decision outcome" in status.summary.next_action
+    assert "active follow-up states" in status.summary.next_action.lower()
+    assert "awaiting operator outcome ×1" in status.summary.next_action.lower()
     assert status.plans[0].event_id == "evt-review"
     assert status.plans[0].requires_human_review is True
     assert status.plans[0].follow_up_state == "awaiting_outcome"
@@ -65,3 +67,24 @@ def test_orchestration_review_status_empty_queue(tmp_path: Path) -> None:
     assert status.summary.latest_event_at is None
     assert "restart review" in status.summary.next_action.lower()
     assert status.plans == []
+
+
+def test_orchestration_review_status_auto_progressing_includes_follow_up_state_cue(tmp_path: Path) -> None:
+    _write_artifact(
+        tmp_path,
+        event_type="completed",
+        event_id="evt-completed",
+        created_at="2026-03-29T11:00:00+00:00",
+    )
+    _write_artifact(
+        tmp_path,
+        event_type="interrupted",
+        event_id="evt-interrupted",
+        created_at="2026-03-29T11:05:00+00:00",
+    )
+
+    status = get_orchestration_review_status(artifact_path=tmp_path)
+
+    assert status.summary.current_state == "auto_progressing"
+    assert "active follow-up states" in status.summary.next_action.lower()
+    assert "revisit after resume ×1" in status.summary.next_action.lower()

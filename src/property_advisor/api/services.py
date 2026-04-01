@@ -125,6 +125,16 @@ _DEFAULT_OUTCOME_FRAMING = {
     "follow_up_state": "monitor",
 }
 
+_FOLLOW_UP_STATE_LABELS = {
+    "awaiting_outcome": "awaiting operator outcome",
+    "revisit_after_recovery": "revisit after recovery",
+    "waiting_on_dependency": "waiting on dependency",
+    "revisit_after_resume": "revisit after resume",
+    "revisit_downstream_surfaces": "carry-forward downstream",
+    "monitor_delivery_ack": "monitor delivery acknowledgement",
+    "monitor": "monitor",
+}
+
 
 def _build_orchestration_plan(record: dict[str, object]) -> dict[str, object]:
     event_type = str(record.get("event_type") or "")
@@ -156,6 +166,26 @@ def _build_orchestration_queue(records: list[dict[str, object]]) -> list[dict[st
     plans = [_build_orchestration_plan(record) for record in records]
     plans.sort(key=lambda plan: (-int(plan["priority"]), str(plan.get("queued_at") or ""), str(plan.get("created_at") or ""), str(plan.get("event_id") or "")))
     return plans
+
+
+def _build_follow_up_state_cue(plans: list[dict[str, object]], *, max_items: int = 2) -> str:
+    if not plans:
+        return ""
+
+    state_counts: dict[str, int] = {}
+    for plan in plans:
+        state = str(plan.get("follow_up_state") or "monitor")
+        state_counts[state] = state_counts.get(state, 0) + 1
+
+    ranked_states = sorted(state_counts.items(), key=lambda item: (-item[1], item[0]))
+    compact_states = [
+        f"{_FOLLOW_UP_STATE_LABELS.get(state, state.replace('_', ' '))} ×{count}"
+        for state, count in ranked_states[:max_items]
+    ]
+    remaining = len(ranked_states) - len(compact_states)
+    if remaining > 0:
+        compact_states.append(f"+{remaining} more")
+    return "; ".join(compact_states)
 
 
 def _read_source(repository: object) -> Literal["mock", "postgres", "fallback_mock"]:
@@ -1006,10 +1036,18 @@ def get_orchestration_review_status(
 
     if review_required_count > 0:
         current_state = "awaiting_review"
-        next_action = "Review highest-priority manual event, record the decision outcome, then continue the orchestration loop."
+        state_cue = _build_follow_up_state_cue([plan for plan in plans if bool(plan.get("requires_human_review"))])
+        next_action = (
+            "Review highest-priority manual event, record the decision outcome, then continue the orchestration loop."
+            + (f" Active follow-up states: {state_cue}." if state_cue else "")
+        )
     elif plans:
         current_state = "auto_progressing"
-        next_action = "No manual blocker active; monitor auto-progress outcomes and revisit flagged items after downstream surfaces refresh."
+        state_cue = _build_follow_up_state_cue(plans)
+        next_action = (
+            "No manual blocker active; monitor auto-progress outcomes and revisit flagged items after downstream surfaces refresh."
+            + (f" Active follow-up states: {state_cue}." if state_cue else "")
+        )
     else:
         current_state = "idle"
         next_action = "No pending orchestration events. Wait for next runtime cycle, then restart review when new outcomes arrive."
