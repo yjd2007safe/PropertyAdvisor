@@ -188,6 +188,27 @@ def _build_follow_up_state_cue(plans: list[dict[str, object]], *, max_items: int
     return "; ".join(compact_states)
 
 
+def _build_carry_forward_summary(plans: list[dict[str, object]], *, max_items: int = 2) -> str:
+    if not plans:
+        return ""
+
+    grouped_rationale: dict[str, int] = {}
+    for plan in plans:
+        state = str(plan.get("follow_up_state") or "monitor")
+        state_label = _FOLLOW_UP_STATE_LABELS.get(state, state.replace("_", " "))
+        revisit_reason = str(plan.get("revisit_reason") or "").strip()
+        compact_reason = revisit_reason.rstrip(".") if revisit_reason else "No additional rationale provided"
+        key = f"{state_label}: {compact_reason}"
+        grouped_rationale[key] = grouped_rationale.get(key, 0) + 1
+
+    ranked = sorted(grouped_rationale.items(), key=lambda item: (-item[1], item[0]))
+    compact = [f"{reason}{f' ×{count}' if count > 1 else ''}" for reason, count in ranked[:max_items]]
+    remaining = len(ranked) - len(compact)
+    if remaining > 0:
+        compact.append(f"+{remaining} more")
+    return " · ".join(compact)
+
+
 def _read_source(repository: object) -> Literal["mock", "postgres", "fallback_mock"]:
     source = getattr(repository, "last_source", "mock")
     if source not in {"mock", "postgres", "fallback_mock"}:
@@ -1036,17 +1057,22 @@ def get_orchestration_review_status(
 
     if review_required_count > 0:
         current_state = "awaiting_review"
-        state_cue = _build_follow_up_state_cue([plan for plan in plans if bool(plan.get("requires_human_review"))])
+        review_plans = [plan for plan in plans if bool(plan.get("requires_human_review"))]
+        state_cue = _build_follow_up_state_cue(review_plans)
+        carry_forward_summary = _build_carry_forward_summary(review_plans)
         next_action = (
             "Review highest-priority manual event, record the decision outcome, then continue the orchestration loop."
             + (f" Active follow-up states: {state_cue}." if state_cue else "")
+            + (f" Carry-forward summary: {carry_forward_summary}." if carry_forward_summary else "")
         )
     elif plans:
         current_state = "auto_progressing"
         state_cue = _build_follow_up_state_cue(plans)
+        carry_forward_summary = _build_carry_forward_summary(plans)
         next_action = (
             "No manual blocker active; monitor auto-progress outcomes and revisit flagged items after downstream surfaces refresh."
             + (f" Active follow-up states: {state_cue}." if state_cue else "")
+            + (f" Carry-forward summary: {carry_forward_summary}." if carry_forward_summary else "")
         )
     else:
         current_state = "idle"
