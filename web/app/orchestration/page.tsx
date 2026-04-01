@@ -36,6 +36,25 @@ function formatActionLabel(action: string): string {
   return action.replace(/[_-]+/g, " ");
 }
 
+function formatFollowUpStateLabel(state: string): string {
+  const labels: Record<string, string> = {
+    awaiting_outcome: "Awaiting operator outcome",
+    revisit_after_recovery: "Revisit after recovery",
+    waiting_on_dependency: "Waiting on dependency",
+    revisit_after_resume: "Revisit after resume",
+    revisit_downstream_surfaces: "Carry-forward downstream",
+    monitor_delivery_ack: "Monitor delivery acknowledgement",
+    monitor: "Monitor"
+  };
+  return labels[state] ?? state.replace(/[_-]+/g, " ");
+}
+
+function buildActiveReason(plan: OrchestrationPlanItem): string {
+  const revisitReason = plan.revisit_reason.trim();
+  if (!revisitReason) return "No additional revisit rationale provided.";
+  return `${formatFollowUpStateLabel(plan.follow_up_state)}: ${revisitReason}`;
+}
+
 function buildLowNoiseFollowUpEmphasis(plans: OrchestrationPlanItem[]): string {
   if (plans.length === 0) {
     return "No visible events to review.";
@@ -191,11 +210,11 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                 {sortedVisiblePlans.map((plan) => (
                   <tr key={plan.event_id}>
                     <td>{plan.event_type}<div className="meta-label">{plan.event_id}</div></td>
-                    <td>{plan.action}<div className="meta-label">{plan.bucket} · {plan.follow_up_state}</div></td>
+                    <td>{plan.action}<div className="meta-label">{plan.bucket} · {formatFollowUpStateLabel(plan.follow_up_state)}</div></td>
                     <td>{plan.requires_human_review ? "Required" : "Not required"}</td>
                     <td>{formatTimestamp(plan.queued_at ?? plan.created_at)}</td>
                     <td>{plan.next_step_outcome}</td>
-                    <td>{plan.revisit_reason}</td>
+                    <td>{buildActiveReason(plan)}</td>
                   </tr>
                 ))}
               </tbody>
