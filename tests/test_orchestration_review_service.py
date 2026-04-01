@@ -49,6 +49,8 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "record the decision outcome" in status.summary.next_action
     assert "active follow-up states" in status.summary.next_action.lower()
     assert "awaiting operator outcome ×1" in status.summary.next_action.lower()
+    assert "carry-forward summary" in status.summary.next_action.lower()
+    assert "awaiting operator outcome: waiting on explicit review outcome before continuing this session" in status.summary.next_action.lower()
     assert status.plans[0].event_id == "evt-review"
     assert status.plans[0].requires_human_review is True
     assert status.plans[0].follow_up_state == "awaiting_outcome"
@@ -88,3 +90,5 @@ def test_orchestration_review_status_auto_progressing_includes_follow_up_state_c
     assert status.summary.current_state == "auto_progressing"
     assert "active follow-up states" in status.summary.next_action.lower()
     assert "revisit after resume ×1" in status.summary.next_action.lower()
+    assert "carry-forward summary" in status.summary.next_action.lower()
+    assert "revisit after resume: interrupted runs should be rechecked after auto-resume" in status.summary.next_action.lower()
