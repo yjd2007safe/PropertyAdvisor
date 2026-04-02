@@ -146,6 +146,12 @@ _CARRY_FORWARD_FOLLOW_UP_STATES = {
     "monitor_delivery_ack",
 }
 
+_DECISION_SUPPORT_LABELS = {
+    "active_attention": "Needs active attention",
+    "mostly_stable": "Mostly stable",
+    "reopen_for_closer_review": "Re-open for closer review",
+}
+
 
 def _review_state_path(artifact_path: Path) -> Path:
     return artifact_path / "review_state.json"
@@ -168,7 +174,11 @@ def _load_review_state(artifact_path: Path) -> dict[str, dict[str, str]]:
         action = str(payload.get("action") or "").strip()
         acted_at = str(payload.get("acted_at") or "").strip()
         if action in {"acknowledge", "close_follow_up"} and acted_at:
-            normalized[event_id] = {"action": action, "acted_at": acted_at}
+            rationale = str(payload.get("rationale") or "").strip()
+            normalized_payload = {"action": action, "acted_at": acted_at}
+            if rationale:
+                normalized_payload["rationale"] = rationale
+            normalized[event_id] = normalized_payload
     return normalized
 
 
@@ -204,10 +214,61 @@ def _build_orchestration_plan(record: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _build_reviewer_action_rationale(plan: dict[str, object], action: str) -> str:
+    follow_up_state = str(plan.get("follow_up_state") or "monitor")
+    follow_up_label = _FOLLOW_UP_STATE_LABELS.get(follow_up_state, follow_up_state.replace("_", " "))
+    revisit_reason = str(plan.get("revisit_reason") or "").strip().rstrip(".")
+    if action == "acknowledge":
+        if revisit_reason:
+            return f"Acknowledged to keep this carry-forward item visible: {follow_up_label}; {revisit_reason}."
+        return f"Acknowledged to keep this carry-forward item visible: {follow_up_label}."
+    if action == "close_follow_up":
+        if revisit_reason:
+            return f"Closed follow-up after reviewer decision: {follow_up_label}; {revisit_reason}."
+        return f"Closed follow-up after reviewer decision: {follow_up_label}."
+    return ""
+
+
 def _build_orchestration_queue(records: list[dict[str, object]]) -> list[dict[str, object]]:
     plans = [_build_orchestration_plan(record) for record in records]
     plans.sort(key=lambda plan: (-int(plan["priority"]), str(plan.get("queued_at") or ""), str(plan.get("created_at") or ""), str(plan.get("event_id") or "")))
     return plans
+
+
+def _build_revisit_decision_support(plan: dict[str, object]) -> dict[str, str]:
+    follow_up_state = str(plan.get("follow_up_state") or "monitor")
+    reviewer_state = str(plan.get("reviewer_action_state") or "pending")
+    requires_human_review = bool(plan.get("requires_human_review"))
+    is_carry_forward = bool(plan.get("is_carry_forward_follow_up"))
+    revisit_reason = str(plan.get("revisit_reason") or "").strip()
+
+    decision_support_state = "mostly_stable"
+    if requires_human_review and reviewer_state == "pending":
+        decision_support_state = "active_attention"
+    elif is_carry_forward and reviewer_state == "acknowledged" and follow_up_state in {
+        "awaiting_outcome",
+        "revisit_after_recovery",
+        "waiting_on_dependency",
+        "revisit_after_resume",
+    }:
+        decision_support_state = "reopen_for_closer_review"
+
+    cue = ""
+    if decision_support_state == "active_attention":
+        cue = "Action still open — reviewer outcome needed."
+    elif decision_support_state == "reopen_for_closer_review":
+        cue = "Recheck soon — prior acknowledgement may no longer be enough."
+    else:
+        cue = "Stable for now — monitor in weekly low-noise pass."
+
+    guidance = _DECISION_SUPPORT_LABELS[decision_support_state]
+    if revisit_reason:
+        guidance = f"{guidance}: {revisit_reason.rstrip('.')}"
+    return {
+        "decision_support_state": decision_support_state,
+        "next_review_cue": cue,
+        "revisit_guidance": guidance,
+    }
 
 
 def _apply_reviewer_action_state(
@@ -238,6 +299,9 @@ def _apply_reviewer_action_state(
         enriched_plan["reviewer_action_state"] = reviewer_state
         enriched_plan["reviewer_available_actions"] = available_actions
         enriched_plan["reviewer_last_action_at"] = action_payload.get("acted_at")
+        enriched_plan["reviewer_last_action"] = action if action in {"acknowledge", "close_follow_up"} else None
+        enriched_plan["reviewer_last_action_rationale"] = action_payload.get("rationale")
+        enriched_plan.update(_build_revisit_decision_support(enriched_plan))
         enriched.append(enriched_plan)
     return enriched
 
@@ -281,6 +345,20 @@ def _build_carry_forward_summary(plans: list[dict[str, object]], *, max_items: i
     if remaining > 0:
         compact.append(f"+{remaining} more")
     return " · ".join(compact)
+
+
+def _build_revisit_guidance_cue(plans: list[dict[str, object]]) -> str:
+    if not plans:
+        return ""
+    state_counts: dict[str, int] = {}
+    for plan in plans:
+        state = str(plan.get("decision_support_state") or "active_attention")
+        state_counts[state] = state_counts.get(state, 0) + 1
+    ranked = sorted(state_counts.items(), key=lambda item: (-item[1], item[0]))
+    return "; ".join(
+        f"{_DECISION_SUPPORT_LABELS.get(state, state.replace('_', ' '))} ×{count}"
+        for state, count in ranked
+    )
 
 
 def _read_source(repository: object) -> Literal["mock", "postgres", "fallback_mock"]:
@@ -1139,19 +1217,23 @@ def get_orchestration_review_status(
         ]
         state_cue = _build_follow_up_state_cue(review_plans)
         carry_forward_summary = _build_carry_forward_summary(review_plans)
+        revisit_guidance_cue = _build_revisit_guidance_cue(review_plans)
         next_action = (
             "Review highest-priority carry-forward follow-up, apply reviewer action state, then continue the orchestration loop."
             + (f" Active follow-up states: {state_cue}." if state_cue else "")
             + (f" Carry-forward summary: {carry_forward_summary}." if carry_forward_summary else "")
+            + (f" Revisit guidance: {revisit_guidance_cue}." if revisit_guidance_cue else "")
         )
     elif plans:
         current_state = "auto_progressing"
         state_cue = _build_follow_up_state_cue(plans)
         carry_forward_summary = _build_carry_forward_summary(plans)
+        revisit_guidance_cue = _build_revisit_guidance_cue(plans)
         next_action = (
             "No manual blocker active; monitor auto-progress outcomes and revisit flagged items after downstream surfaces refresh."
             + (f" Active follow-up states: {state_cue}." if state_cue else "")
             + (f" Carry-forward summary: {carry_forward_summary}." if carry_forward_summary else "")
+            + (f" Revisit guidance: {revisit_guidance_cue}." if revisit_guidance_cue else "")
         )
     else:
         current_state = "idle"
@@ -1196,6 +1278,23 @@ def get_orchestration_review_status(
                     if plan.get("reviewer_last_action_at")
                     else None
                 ),
+                reviewer_last_action=(
+                    str(plan.get("reviewer_last_action"))
+                    if str(plan.get("reviewer_last_action") or "") in {"acknowledge", "close_follow_up"}
+                    else None
+                ),
+                reviewer_last_action_rationale=(
+                    str(plan.get("reviewer_last_action_rationale")).strip()
+                    if str(plan.get("reviewer_last_action_rationale") or "").strip()
+                    else None
+                ),
+                revisit_guidance=str(plan.get("revisit_guidance") or ""),
+                next_review_cue=str(plan.get("next_review_cue") or ""),
+                decision_support_state=(
+                    str(plan.get("decision_support_state"))
+                    if str(plan.get("decision_support_state") or "") in {"active_attention", "mostly_stable", "reopen_for_closer_review"}
+                    else "active_attention"
+                ),
                 message=plan.get("message"),
             )
             for plan in plans
@@ -1220,9 +1319,11 @@ def apply_orchestration_review_action(
         )
 
     review_actions = _load_review_state(artifact_path)
+    rationale = _build_reviewer_action_rationale(target.model_dump(mode="json"), payload.action)
     review_actions[payload.event_id] = {
         "action": payload.action,
         "acted_at": datetime.now(timezone.utc).isoformat(),
+        "rationale": rationale,
     }
     _save_review_state(artifact_path, review_actions)
 

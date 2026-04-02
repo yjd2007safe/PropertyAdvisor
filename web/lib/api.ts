@@ -246,6 +246,11 @@ export type OrchestrationPlanItem = {
   reviewer_action_state: "pending" | "acknowledged" | "closed";
   reviewer_available_actions: Array<"acknowledge" | "close_follow_up">;
   reviewer_last_action_at?: string | null;
+  reviewer_last_action?: "acknowledge" | "close_follow_up" | null;
+  reviewer_last_action_rationale?: string | null;
+  revisit_guidance: string;
+  next_review_cue: string;
+  decision_support_state: "active_attention" | "mostly_stable" | "reopen_for_closer_review";
   message?: string | null;
 };
 

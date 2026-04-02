@@ -61,6 +61,18 @@ function formatReviewerState(state: OrchestrationPlanItem["reviewer_action_state
   return "Pending";
 }
 
+function formatReviewerAction(action?: OrchestrationPlanItem["reviewer_last_action"]): string {
+  if (action === "acknowledge") return "Acknowledge";
+  if (action === "close_follow_up") return "Close follow-up";
+  return "No action yet";
+}
+
+function formatDecisionSupportState(state: OrchestrationPlanItem["decision_support_state"]): string {
+  if (state === "mostly_stable") return "Mostly stable";
+  if (state === "reopen_for_closer_review") return "Re-open for closer review";
+  return "Needs active attention";
+}
+
 function buildLowNoiseFollowUpEmphasis(plans: OrchestrationPlanItem[]): string {
   if (plans.length === 0) {
     return "No visible events to review.";
@@ -156,6 +168,11 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
     const mostRecentVisibleAt = sortedVisiblePlans[0]?.queued_at ?? sortedVisiblePlans[0]?.created_at ?? null;
     const lowNoiseFollowUpEmphasis = buildLowNoiseFollowUpEmphasis(sortedVisiblePlans);
     const groupedFollowUpCue = buildGroupedFollowUpCue(sortedVisiblePlans);
+    const decisionSupportCounts = {
+      activeAttention: sortedVisiblePlans.filter((plan) => plan.decision_support_state === "active_attention").length,
+      mostlyStable: sortedVisiblePlans.filter((plan) => plan.decision_support_state === "mostly_stable").length,
+      reopen: sortedVisiblePlans.filter((plan) => plan.decision_support_state === "reopen_for_closer_review").length,
+    };
 
     return (
       <main className="section-stack">
@@ -195,6 +212,9 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           <p className="lede compact">Follow-up emphasis: {lowNoiseFollowUpEmphasis}</p>
           <p className="lede compact">Grouped follow-up cue: {groupedFollowUpCue}</p>
           <p className="lede compact">
+            Revisit decision support: {decisionSupportCounts.activeAttention} active · {decisionSupportCounts.mostlyStable} mostly stable · {decisionSupportCounts.reopen} re-open.
+          </p>
+          <p className="lede compact">
             Carry-forward closure: {sortedVisiblePlans.filter((plan) => plan.is_carry_forward_follow_up && plan.reviewer_action_state === "pending").length} pending ·{" "}
             {sortedVisiblePlans.filter((plan) => plan.is_carry_forward_follow_up && plan.reviewer_action_state === "acknowledged").length} acknowledged ·{" "}
             {sortedVisiblePlans.filter((plan) => plan.is_carry_forward_follow_up && plan.reviewer_action_state === "closed").length} closed.
@@ -215,7 +235,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
             />
             <table className="data-table">
               <thead>
-                <tr><th>Event</th><th>Action</th><th>Review</th><th>Queued</th><th>Outcome</th><th>Revisit later because</th><th>Reviewer state</th><th>Workflow closure</th></tr>
+                <tr><th>Event</th><th>Action</th><th>Review</th><th>Queued</th><th>Outcome</th><th>Revisit later because</th><th>Revisit guidance</th><th>Reviewer state</th><th>Workflow closure</th></tr>
               </thead>
               <tbody>
                 {sortedVisiblePlans.map((plan) => (
@@ -226,7 +246,17 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                     <td>{formatTimestamp(plan.queued_at ?? plan.created_at)}</td>
                     <td>{plan.next_step_outcome}</td>
                     <td>{buildActiveReason(plan)}</td>
-                    <td>{formatReviewerState(plan.reviewer_action_state)}{plan.reviewer_last_action_at ? <div className="meta-label">{formatTimestamp(plan.reviewer_last_action_at)}</div> : null}</td>
+                    <td>
+                      {formatDecisionSupportState(plan.decision_support_state)}
+                      <div className="meta-label">{plan.next_review_cue || "No cue provided."}</div>
+                      <div className="meta-label">Guidance: {plan.revisit_guidance || "No guidance provided."}</div>
+                    </td>
+                    <td>
+                      {formatReviewerState(plan.reviewer_action_state)}
+                      {plan.reviewer_last_action_at ? <div className="meta-label">{formatTimestamp(plan.reviewer_last_action_at)}</div> : null}
+                      {plan.reviewer_last_action ? <div className="meta-label">Latest action: {formatReviewerAction(plan.reviewer_last_action)}</div> : null}
+                      {plan.reviewer_last_action_rationale ? <div className="meta-label">Why: {plan.reviewer_last_action_rationale}</div> : null}
+                    </td>
                     <td>
                       {plan.reviewer_available_actions.length > 0 ? (
                         <div className="inline-links">

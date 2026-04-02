@@ -345,6 +345,11 @@ class OrchestrationPlanItem(BaseModel):
     reviewer_action_state: Literal["pending", "acknowledged", "closed"] = "pending"
     reviewer_available_actions: List[Literal["acknowledge", "close_follow_up"]] = Field(default_factory=list)
     reviewer_last_action_at: Optional[str] = None
+    reviewer_last_action: Optional[Literal["acknowledge", "close_follow_up"]] = None
+    reviewer_last_action_rationale: Optional[str] = None
+    revisit_guidance: str = ""
+    next_review_cue: str = ""
+    decision_support_state: Literal["active_attention", "mostly_stable", "reopen_for_closer_review"] = "active_attention"
     message: Optional[str] = None
 
 
