@@ -14,6 +14,8 @@ from property_advisor.api.mock_fixtures import PROPERTY_ADVISOR_FIXTURE
 from property_advisor.api.repositories import ComparableQuery, WatchlistQuery, WatchlistUpsertRequest
 from property_advisor.api.schemas import (
     OrchestrationPlanItem,
+    OrchestrationReviewActionRequest,
+    OrchestrationReviewActionResponse,
     OrchestrationReviewResponse,
     OrchestrationReviewSummary,
     AdvisoryInputs,
@@ -135,6 +137,46 @@ _FOLLOW_UP_STATE_LABELS = {
     "monitor": "monitor",
 }
 
+_CARRY_FORWARD_FOLLOW_UP_STATES = {
+    "awaiting_outcome",
+    "revisit_after_recovery",
+    "waiting_on_dependency",
+    "revisit_after_resume",
+    "revisit_downstream_surfaces",
+    "monitor_delivery_ack",
+}
+
+
+def _review_state_path(artifact_path: Path) -> Path:
+    return artifact_path / "review_state.json"
+
+
+def _load_review_state(artifact_path: Path) -> dict[str, dict[str, str]]:
+    path = _review_state_path(artifact_path)
+    if not path.exists():
+        return {}
+    loaded = json.loads(path.read_text())
+    if not isinstance(loaded, dict):
+        return {}
+    actions = loaded.get("event_actions", {})
+    if not isinstance(actions, dict):
+        return {}
+    normalized: dict[str, dict[str, str]] = {}
+    for event_id, payload in actions.items():
+        if not isinstance(event_id, str) or not isinstance(payload, dict):
+            continue
+        action = str(payload.get("action") or "").strip()
+        acted_at = str(payload.get("acted_at") or "").strip()
+        if action in {"acknowledge", "close_follow_up"} and acted_at:
+            normalized[event_id] = {"action": action, "acted_at": acted_at}
+    return normalized
+
+
+def _save_review_state(artifact_path: Path, event_actions: dict[str, dict[str, str]]) -> None:
+    artifact_path.mkdir(parents=True, exist_ok=True)
+    payload = {"event_actions": event_actions}
+    _review_state_path(artifact_path).write_text(json.dumps(payload, indent=2, sort_keys=True))
+
 
 def _build_orchestration_plan(record: dict[str, object]) -> dict[str, object]:
     event_type = str(record.get("event_type") or "")
@@ -166,6 +208,38 @@ def _build_orchestration_queue(records: list[dict[str, object]]) -> list[dict[st
     plans = [_build_orchestration_plan(record) for record in records]
     plans.sort(key=lambda plan: (-int(plan["priority"]), str(plan.get("queued_at") or ""), str(plan.get("created_at") or ""), str(plan.get("event_id") or "")))
     return plans
+
+
+def _apply_reviewer_action_state(
+    plans: list[dict[str, object]],
+    review_actions: dict[str, dict[str, str]],
+) -> list[dict[str, object]]:
+    enriched: list[dict[str, object]] = []
+    for plan in plans:
+        event_id = str(plan.get("event_id") or "")
+        follow_up_state = str(plan.get("follow_up_state") or "monitor")
+        action_payload = review_actions.get(event_id, {})
+        action = str(action_payload.get("action") or "")
+        is_carry_forward = follow_up_state in _CARRY_FORWARD_FOLLOW_UP_STATES
+        reviewer_state = "pending"
+        if action == "acknowledge":
+            reviewer_state = "acknowledged"
+        elif action == "close_follow_up":
+            reviewer_state = "closed"
+        available_actions: list[str] = []
+        if is_carry_forward:
+            if reviewer_state == "pending":
+                available_actions = ["acknowledge", "close_follow_up"]
+            elif reviewer_state == "acknowledged":
+                available_actions = ["close_follow_up"]
+
+        enriched_plan = dict(plan)
+        enriched_plan["is_carry_forward_follow_up"] = is_carry_forward
+        enriched_plan["reviewer_action_state"] = reviewer_state
+        enriched_plan["reviewer_available_actions"] = available_actions
+        enriched_plan["reviewer_last_action_at"] = action_payload.get("acted_at")
+        enriched.append(enriched_plan)
+    return enriched
 
 
 def _build_follow_up_state_cue(plans: list[dict[str, object]], *, max_items: int = 2) -> str:
@@ -1031,6 +1105,7 @@ def get_orchestration_review_status(
             )
 
     plans = _build_orchestration_queue(records)
+    plans = _apply_reviewer_action_state(plans, _load_review_state(artifact_path))
     if limit > 0:
         plans = plans[:limit]
 
@@ -1057,11 +1132,15 @@ def get_orchestration_review_status(
 
     if review_required_count > 0:
         current_state = "awaiting_review"
-        review_plans = [plan for plan in plans if bool(plan.get("requires_human_review"))]
+        review_plans = [
+            plan
+            for plan in plans
+            if bool(plan.get("requires_human_review")) and str(plan.get("reviewer_action_state") or "pending") != "closed"
+        ]
         state_cue = _build_follow_up_state_cue(review_plans)
         carry_forward_summary = _build_carry_forward_summary(review_plans)
         next_action = (
-            "Review highest-priority manual event, record the decision outcome, then continue the orchestration loop."
+            "Review highest-priority carry-forward follow-up, apply reviewer action state, then continue the orchestration loop."
             + (f" Active follow-up states: {state_cue}." if state_cue else "")
             + (f" Carry-forward summary: {carry_forward_summary}." if carry_forward_summary else "")
         )
@@ -1105,8 +1184,50 @@ def get_orchestration_review_status(
                 follow_up_state=str(plan.get("follow_up_state") or "monitor"),
                 next_step_outcome=str(plan.get("next_step_outcome") or ""),
                 revisit_reason=str(plan.get("revisit_reason") or ""),
+                is_carry_forward_follow_up=bool(plan.get("is_carry_forward_follow_up")),
+                reviewer_action_state=str(plan.get("reviewer_action_state") or "pending"),
+                reviewer_available_actions=[
+                    str(action)
+                    for action in plan.get("reviewer_available_actions", [])
+                    if str(action) in {"acknowledge", "close_follow_up"}
+                ],
+                reviewer_last_action_at=(
+                    str(plan.get("reviewer_last_action_at"))
+                    if plan.get("reviewer_last_action_at")
+                    else None
+                ),
                 message=plan.get("message"),
             )
             for plan in plans
         ],
     )
+
+
+def apply_orchestration_review_action(
+    payload: OrchestrationReviewActionRequest,
+    *,
+    artifact_path: Path = Path(".dev_pipeline/notifications"),
+) -> OrchestrationReviewActionResponse:
+    status = get_orchestration_review_status(artifact_path=artifact_path, limit=200)
+    target = next((plan for plan in status.plans if plan.event_id == payload.event_id), None)
+    if target is None:
+        raise ValueError(f"Event '{payload.event_id}' is not available in the orchestration review queue.")
+    if not target.is_carry_forward_follow_up:
+        raise ValueError(f"Event '{payload.event_id}' is not a carry-forward follow-up item.")
+    if payload.action not in target.reviewer_available_actions:
+        raise ValueError(
+            f"Action '{payload.action}' is not valid for event '{payload.event_id}' in state '{target.reviewer_action_state}'."
+        )
+
+    review_actions = _load_review_state(artifact_path)
+    review_actions[payload.event_id] = {
+        "action": payload.action,
+        "acted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_review_state(artifact_path, review_actions)
+
+    refreshed = get_orchestration_review_status(artifact_path=artifact_path, limit=200)
+    updated = next((plan for plan in refreshed.plans if plan.event_id == payload.event_id), None)
+    if updated is None:
+        raise ValueError(f"Event '{payload.event_id}' disappeared after action '{payload.action}'.")
+    return OrchestrationReviewActionResponse(summary=refreshed.summary, updated_plan=updated)

@@ -9,6 +9,8 @@ from fastapi import APIRouter, HTTPException, Query
 from property_advisor.api.schemas import (
     ComparablesResponse,
     HealthResponse,
+    OrchestrationReviewActionRequest,
+    OrchestrationReviewActionResponse,
     OrchestrationReviewResponse,
     PropertyAdvisorResponse,
     SuburbsOverviewResponse,
@@ -20,6 +22,7 @@ from property_advisor.api.schemas import (
     WatchlistResponse,
 )
 from property_advisor.api.services import (
+    apply_orchestration_review_action,
     get_comparables,
     get_health_status,
     get_orchestration_review_status,
@@ -74,6 +77,14 @@ def comparables(
 @router.get("/orchestration/review", response_model=OrchestrationReviewResponse)
 def orchestration_review() -> OrchestrationReviewResponse:
     return get_orchestration_review_status()
+
+
+@router.post("/orchestration/review/actions", response_model=OrchestrationReviewActionResponse)
+def orchestration_review_action(payload: OrchestrationReviewActionRequest) -> OrchestrationReviewActionResponse:
+    try:
+        return apply_orchestration_review_action(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/watchlist", response_model=WatchlistResponse)

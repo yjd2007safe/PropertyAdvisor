@@ -341,6 +341,10 @@ class OrchestrationPlanItem(BaseModel):
     follow_up_state: str
     next_step_outcome: str
     revisit_reason: str
+    is_carry_forward_follow_up: bool = False
+    reviewer_action_state: Literal["pending", "acknowledged", "closed"] = "pending"
+    reviewer_available_actions: List[Literal["acknowledge", "close_follow_up"]] = Field(default_factory=list)
+    reviewer_last_action_at: Optional[str] = None
     message: Optional[str] = None
 
 
@@ -360,6 +364,16 @@ class OrchestrationReviewSummary(BaseModel):
 class OrchestrationReviewResponse(BaseModel):
     summary: OrchestrationReviewSummary
     plans: List[OrchestrationPlanItem]
+
+
+class OrchestrationReviewActionRequest(BaseModel):
+    event_id: str
+    action: Literal["acknowledge", "close_follow_up"]
+
+
+class OrchestrationReviewActionResponse(BaseModel):
+    summary: OrchestrationReviewSummary
+    updated_plan: OrchestrationPlanItem
 
 
 class WatchlistAlertsResponse(BaseModel):

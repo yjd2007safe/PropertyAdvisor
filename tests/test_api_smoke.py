@@ -136,3 +136,5 @@ def test_orchestration_review_shape() -> None:
         assert payload["plans"][0]["follow_up_state"]
         assert payload["plans"][0]["next_step_outcome"]
         assert payload["plans"][0]["revisit_reason"]
+        assert payload["plans"][0]["reviewer_action_state"] in {"pending", "acknowledged", "closed"}
+        assert isinstance(payload["plans"][0]["reviewer_available_actions"], list)
