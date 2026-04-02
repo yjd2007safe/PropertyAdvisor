@@ -25,6 +25,7 @@ Turn reviewer action history from a simple latest-action trace into an explainab
 - keep the slice narrow and mergeable
 - no task system or broad workflow redesign
 - no ingestion/database/infra expansion unless strictly required for current review-state continuity
+<<<<<<< HEAD
 
 ## Implemented slice
 
@@ -35,3 +36,5 @@ Turn reviewer action history from a simple latest-action trace into an explainab
 - Added compact rationale generation in reviewer action handling so acknowledge/close decisions include an operator-readable explanation tied to follow-up state and revisit reason.
 - Updated orchestration review UI to show latest reviewer action, timestamp, and rationale inline in the reviewer-state column for carry-forward follow-up clarity during repeated review.
 - Updated tests to validate the new explainability fields and rationale behavior while preserving low-noise queue defaults.
+=======
+>>>>>>> origin/main
