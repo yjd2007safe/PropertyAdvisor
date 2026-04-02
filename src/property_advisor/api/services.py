@@ -168,7 +168,11 @@ def _load_review_state(artifact_path: Path) -> dict[str, dict[str, str]]:
         action = str(payload.get("action") or "").strip()
         acted_at = str(payload.get("acted_at") or "").strip()
         if action in {"acknowledge", "close_follow_up"} and acted_at:
-            normalized[event_id] = {"action": action, "acted_at": acted_at}
+            rationale = str(payload.get("rationale") or "").strip()
+            normalized_payload = {"action": action, "acted_at": acted_at}
+            if rationale:
+                normalized_payload["rationale"] = rationale
+            normalized[event_id] = normalized_payload
     return normalized
 
 
@@ -202,6 +206,21 @@ def _build_orchestration_plan(record: dict[str, object]) -> dict[str, object]:
         "next_step_outcome": str(outcome_framing["next_step_outcome"]),
         "revisit_reason": str(outcome_framing["revisit_reason"]),
     }
+
+
+def _build_reviewer_action_rationale(plan: dict[str, object], action: str) -> str:
+    follow_up_state = str(plan.get("follow_up_state") or "monitor")
+    follow_up_label = _FOLLOW_UP_STATE_LABELS.get(follow_up_state, follow_up_state.replace("_", " "))
+    revisit_reason = str(plan.get("revisit_reason") or "").strip().rstrip(".")
+    if action == "acknowledge":
+        if revisit_reason:
+            return f"Acknowledged to keep this carry-forward item visible: {follow_up_label}; {revisit_reason}."
+        return f"Acknowledged to keep this carry-forward item visible: {follow_up_label}."
+    if action == "close_follow_up":
+        if revisit_reason:
+            return f"Closed follow-up after reviewer decision: {follow_up_label}; {revisit_reason}."
+        return f"Closed follow-up after reviewer decision: {follow_up_label}."
+    return ""
 
 
 def _build_orchestration_queue(records: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -238,6 +257,8 @@ def _apply_reviewer_action_state(
         enriched_plan["reviewer_action_state"] = reviewer_state
         enriched_plan["reviewer_available_actions"] = available_actions
         enriched_plan["reviewer_last_action_at"] = action_payload.get("acted_at")
+        enriched_plan["reviewer_last_action"] = action if action in {"acknowledge", "close_follow_up"} else None
+        enriched_plan["reviewer_last_action_rationale"] = action_payload.get("rationale")
         enriched.append(enriched_plan)
     return enriched
 
@@ -1196,6 +1217,16 @@ def get_orchestration_review_status(
                     if plan.get("reviewer_last_action_at")
                     else None
                 ),
+                reviewer_last_action=(
+                    str(plan.get("reviewer_last_action"))
+                    if str(plan.get("reviewer_last_action") or "") in {"acknowledge", "close_follow_up"}
+                    else None
+                ),
+                reviewer_last_action_rationale=(
+                    str(plan.get("reviewer_last_action_rationale")).strip()
+                    if str(plan.get("reviewer_last_action_rationale") or "").strip()
+                    else None
+                ),
                 message=plan.get("message"),
             )
             for plan in plans
@@ -1220,9 +1251,11 @@ def apply_orchestration_review_action(
         )
 
     review_actions = _load_review_state(artifact_path)
+    rationale = _build_reviewer_action_rationale(target.model_dump(mode="json"), payload.action)
     review_actions[payload.event_id] = {
         "action": payload.action,
         "acted_at": datetime.now(timezone.utc).isoformat(),
+        "rationale": rationale,
     }
     _save_review_state(artifact_path, review_actions)
 

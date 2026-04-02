@@ -84,6 +84,9 @@ def test_orchestration_review_action_closes_follow_up_and_updates_state(tmp_path
     assert acknowledged.updated_plan.reviewer_action_state == "acknowledged"
     assert acknowledged.updated_plan.reviewer_available_actions == ["close_follow_up"]
     assert acknowledged.updated_plan.reviewer_last_action_at is not None
+    assert acknowledged.updated_plan.reviewer_last_action == "acknowledge"
+    assert acknowledged.updated_plan.reviewer_last_action_rationale
+    assert "acknowledged to keep this carry-forward item visible" in acknowledged.updated_plan.reviewer_last_action_rationale.lower()
 
     closed = apply_orchestration_review_action(
         OrchestrationReviewActionRequest(event_id="evt-review", action="close_follow_up"),
@@ -91,10 +94,15 @@ def test_orchestration_review_action_closes_follow_up_and_updates_state(tmp_path
     )
     assert closed.updated_plan.reviewer_action_state == "closed"
     assert closed.updated_plan.reviewer_available_actions == []
+    assert closed.updated_plan.reviewer_last_action == "close_follow_up"
+    assert closed.updated_plan.reviewer_last_action_rationale
+    assert "closed follow-up after reviewer decision" in closed.updated_plan.reviewer_last_action_rationale.lower()
 
     refreshed = get_orchestration_review_status(artifact_path=tmp_path)
     closed_plan = next(plan for plan in refreshed.plans if plan.event_id == "evt-review")
     assert closed_plan.reviewer_action_state == "closed"
+    assert closed_plan.reviewer_last_action == "close_follow_up"
+    assert closed_plan.reviewer_last_action_rationale
     assert "awaiting operator outcome ×1" not in refreshed.summary.next_action.lower()
 
 

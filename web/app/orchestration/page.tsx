@@ -61,6 +61,12 @@ function formatReviewerState(state: OrchestrationPlanItem["reviewer_action_state
   return "Pending";
 }
 
+function formatReviewerAction(action?: OrchestrationPlanItem["reviewer_last_action"]): string {
+  if (action === "acknowledge") return "Acknowledge";
+  if (action === "close_follow_up") return "Close follow-up";
+  return "No action yet";
+}
+
 function buildLowNoiseFollowUpEmphasis(plans: OrchestrationPlanItem[]): string {
   if (plans.length === 0) {
     return "No visible events to review.";
@@ -226,7 +232,12 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                     <td>{formatTimestamp(plan.queued_at ?? plan.created_at)}</td>
                     <td>{plan.next_step_outcome}</td>
                     <td>{buildActiveReason(plan)}</td>
-                    <td>{formatReviewerState(plan.reviewer_action_state)}{plan.reviewer_last_action_at ? <div className="meta-label">{formatTimestamp(plan.reviewer_last_action_at)}</div> : null}</td>
+                    <td>
+                      {formatReviewerState(plan.reviewer_action_state)}
+                      {plan.reviewer_last_action_at ? <div className="meta-label">{formatTimestamp(plan.reviewer_last_action_at)}</div> : null}
+                      {plan.reviewer_last_action ? <div className="meta-label">Latest action: {formatReviewerAction(plan.reviewer_last_action)}</div> : null}
+                      {plan.reviewer_last_action_rationale ? <div className="meta-label">Why: {plan.reviewer_last_action_rationale}</div> : null}
+                    </td>
                     <td>
                       {plan.reviewer_available_actions.length > 0 ? (
                         <div className="inline-links">
