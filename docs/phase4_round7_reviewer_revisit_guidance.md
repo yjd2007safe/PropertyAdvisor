@@ -25,3 +25,16 @@ Turn reviewer decision context into compact revisit guidance so repeated review 
 - keep the slice narrow and mergeable
 - no scoring engine, task system, or broad workflow redesign
 - no ingestion/database/infra expansion unless strictly required for current review-state continuity
+
+## Implemented slice
+
+- Extended orchestration review plan items with compact revisit decision-support context:
+  - `decision_support_state` (`active_attention`, `mostly_stable`, `reopen_for_closer_review`)
+  - `next_review_cue` (short operator cue)
+  - `revisit_guidance` (compact explanation tied to current follow-up rationale)
+- Added service-side guidance classification to keep API and UI consistent without introducing new workflow systems.
+- Included summary-level low-noise revisit guidance rollup in `summary.next_action`.
+- Updated orchestration UI to surface:
+  - queue-level decision-support counts
+  - per-item decision state, cue, and compact guidance
+- Added/updated tests for service behavior and API shape to validate the new guidance fields.

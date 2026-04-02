@@ -58,9 +58,15 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert status.plans[0].is_carry_forward_follow_up is True
     assert status.plans[0].reviewer_action_state == "pending"
     assert status.plans[0].reviewer_available_actions == ["acknowledge", "close_follow_up"]
+    assert status.plans[0].decision_support_state == "active_attention"
+    assert "action still open" in status.plans[0].next_review_cue.lower()
+    assert "needs active attention" in status.plans[0].revisit_guidance.lower()
     assert "decision" in status.plans[0].next_step_outcome.lower()
     assert "review outcome" in status.plans[0].revisit_reason.lower()
     assert status.plans[1].follow_up_state == "revisit_downstream_surfaces"
+    assert status.plans[1].decision_support_state == "mostly_stable"
+    assert "stable for now" in status.plans[1].next_review_cue.lower()
+    assert "revisit guidance" in status.summary.next_action.lower()
 
 
 def test_orchestration_review_action_closes_follow_up_and_updates_state(tmp_path: Path) -> None:
@@ -87,6 +93,8 @@ def test_orchestration_review_action_closes_follow_up_and_updates_state(tmp_path
     assert acknowledged.updated_plan.reviewer_last_action == "acknowledge"
     assert acknowledged.updated_plan.reviewer_last_action_rationale
     assert "acknowledged to keep this carry-forward item visible" in acknowledged.updated_plan.reviewer_last_action_rationale.lower()
+    assert acknowledged.updated_plan.decision_support_state == "reopen_for_closer_review"
+    assert "recheck soon" in acknowledged.updated_plan.next_review_cue.lower()
 
     closed = apply_orchestration_review_action(
         OrchestrationReviewActionRequest(event_id="evt-review", action="close_follow_up"),
@@ -103,6 +111,8 @@ def test_orchestration_review_action_closes_follow_up_and_updates_state(tmp_path
     assert closed_plan.reviewer_action_state == "closed"
     assert closed_plan.reviewer_last_action == "close_follow_up"
     assert closed_plan.reviewer_last_action_rationale
+    assert closed_plan.decision_support_state == "mostly_stable"
+    assert "stable for now" in closed_plan.next_review_cue.lower()
     assert "awaiting operator outcome ×1" not in refreshed.summary.next_action.lower()
 
 
