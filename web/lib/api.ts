@@ -229,6 +229,15 @@ export type ComparablesResponse = {
 };
 
 
+export type DecisionOutcomeSummary = {
+  outcome: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review";
+  summary: string;
+  rationale?: string | null;
+  acted_at?: string | null;
+  source_event_id?: string | null;
+  source_surface: "orchestration" | "watchlist";
+};
+
 export type OrchestrationPlanItem = {
   event_id: string;
   event_type: string;
@@ -248,6 +257,9 @@ export type OrchestrationPlanItem = {
   reviewer_last_action_at?: string | null;
   reviewer_last_action?: "acknowledge" | "close_follow_up" | null;
   reviewer_last_action_rationale?: string | null;
+  reviewer_decision_outcome?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | null;
+  reviewer_decision_summary?: string | null;
+  reviewer_decision_record?: DecisionOutcomeSummary | null;
   revisit_guidance: string;
   next_review_cue: string;
   decision_support_state: "active_attention" | "mostly_stable" | "reopen_for_closer_review";
@@ -297,6 +309,7 @@ export type WatchlistEntry = {
     advisory: string;
     comparables: string;
     orchestration: string;
+    latest_decision?: DecisionOutcomeSummary | null;
     updated_at: string;
   } | null;
 };

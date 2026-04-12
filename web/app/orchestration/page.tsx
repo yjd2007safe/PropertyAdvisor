@@ -73,6 +73,14 @@ function formatDecisionSupportState(state: OrchestrationPlanItem["decision_suppo
   return "Needs active attention";
 }
 
+function formatDecisionOutcome(outcome?: OrchestrationPlanItem["reviewer_decision_outcome"]): string {
+  if (outcome === "continue_monitoring") return "Continue monitoring";
+  if (outcome === "revisit_later") return "Revisit later";
+  if (outcome === "close_for_now") return "Close for now";
+  if (outcome === "escalate_for_closer_review") return "Escalate for closer review";
+  return "No recorded outcome";
+}
+
 function buildLowNoiseFollowUpEmphasis(plans: OrchestrationPlanItem[]): string {
   if (plans.length === 0) {
     return "No visible events to review.";
@@ -235,7 +243,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
             />
             <table className="data-table">
               <thead>
-                <tr><th>Event</th><th>Action</th><th>Review</th><th>Queued</th><th>Outcome</th><th>Revisit later because</th><th>Revisit guidance</th><th>Reviewer state</th><th>Workflow closure</th></tr>
+                <tr><th>Event</th><th>Action</th><th>Review</th><th>Queued</th><th>Outcome</th><th>Revisit later because</th><th>Revisit guidance</th><th>Decision memory</th><th>Reviewer state</th><th>Workflow closure</th></tr>
               </thead>
               <tbody>
                 {sortedVisiblePlans.map((plan) => (
@@ -250,6 +258,10 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                       {formatDecisionSupportState(plan.decision_support_state)}
                       <div className="meta-label">{plan.next_review_cue || "No cue provided."}</div>
                       <div className="meta-label">Guidance: {plan.revisit_guidance || "No guidance provided."}</div>
+                    </td>
+                    <td>
+                      {formatDecisionOutcome(plan.reviewer_decision_outcome)}
+                      <div className="meta-label">{plan.reviewer_decision_summary || "No decision summary recorded yet."}</div>
                     </td>
                     <td>
                       {formatReviewerState(plan.reviewer_action_state)}

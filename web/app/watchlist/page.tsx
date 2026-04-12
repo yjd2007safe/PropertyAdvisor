@@ -214,6 +214,9 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                 <li><strong>Advisory:</strong> {detail.item.latest_context.advisory}</li>
                 <li><strong>Comparables:</strong> {detail.item.latest_context.comparables}</li>
                 <li><strong>Orchestration:</strong> {detail.item.latest_context.orchestration}</li>
+                {detail.item.latest_context.latest_decision ? (
+                  <li><strong>Latest decision:</strong> {detail.item.latest_context.latest_decision.summary} ({detail.item.latest_context.latest_decision.outcome})</li>
+                ) : null}
               </ul>
             ) : null}
             <form className="query-form" method="POST" action="/watchlist/actions">

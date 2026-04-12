@@ -252,10 +252,20 @@ class WatchlistAlert(BaseModel):
     observed_at: str
 
 
+class DecisionOutcomeSummary(BaseModel):
+    outcome: Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review"]
+    summary: str
+    rationale: Optional[str] = None
+    acted_at: Optional[str] = None
+    source_event_id: Optional[str] = None
+    source_surface: Literal["orchestration", "watchlist"] = "orchestration"
+
+
 class WatchlistContextSummary(BaseModel):
     advisory: str
     comparables: str
     orchestration: str
+    latest_decision: Optional[DecisionOutcomeSummary] = None
     updated_at: datetime
 
 
@@ -347,6 +357,9 @@ class OrchestrationPlanItem(BaseModel):
     reviewer_last_action_at: Optional[str] = None
     reviewer_last_action: Optional[Literal["acknowledge", "close_follow_up"]] = None
     reviewer_last_action_rationale: Optional[str] = None
+    reviewer_decision_outcome: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review"]] = None
+    reviewer_decision_summary: Optional[str] = None
+    reviewer_decision_record: Optional[DecisionOutcomeSummary] = None
     revisit_guidance: str = ""
     next_review_cue: str = ""
     decision_support_state: Literal["active_attention", "mostly_stable", "reopen_for_closer_review"] = "active_attention"
