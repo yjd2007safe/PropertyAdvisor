@@ -13,6 +13,7 @@ from property_advisor.api.db import create_session_factory
 from property_advisor.api.mock_fixtures import PROPERTY_ADVISOR_FIXTURE
 from property_advisor.api.repositories import ComparableQuery, WatchlistQuery, WatchlistUpsertRequest
 from property_advisor.api.schemas import (
+    DecisionOutcomeSummary,
     OrchestrationPlanItem,
     OrchestrationReviewActionRequest,
     OrchestrationReviewActionResponse,
@@ -178,6 +179,12 @@ def _load_review_state(artifact_path: Path) -> dict[str, dict[str, str]]:
             normalized_payload = {"action": action, "acted_at": acted_at}
             if rationale:
                 normalized_payload["rationale"] = rationale
+            decision_outcome = str(payload.get("decision_outcome") or "").strip()
+            decision_summary = str(payload.get("decision_summary") or "").strip()
+            if decision_outcome:
+                normalized_payload["decision_outcome"] = decision_outcome
+            if decision_summary:
+                normalized_payload["decision_summary"] = decision_summary
             normalized[event_id] = normalized_payload
     return normalized
 
@@ -227,6 +234,29 @@ def _build_reviewer_action_rationale(plan: dict[str, object], action: str) -> st
             return f"Closed follow-up after reviewer decision: {follow_up_label}; {revisit_reason}."
         return f"Closed follow-up after reviewer decision: {follow_up_label}."
     return ""
+
+
+def _build_reviewer_decision_outcome(plan: dict[str, object], action: str, rationale: str) -> dict[str, str]:
+    follow_up_state = str(plan.get("follow_up_state") or "monitor")
+    event_id = str(plan.get("event_id") or "")
+    if action == "acknowledge":
+        outcome = "escalate_for_closer_review" if follow_up_state in {
+            "awaiting_outcome",
+            "revisit_after_recovery",
+            "waiting_on_dependency",
+            "revisit_after_resume",
+        } else "revisit_later"
+        summary = "Reviewer acknowledged the item and kept it active for a later decision pass."
+    else:
+        outcome = "close_for_now" if follow_up_state in {"monitor_delivery_ack", "monitor"} else "continue_monitoring"
+        summary = "Reviewer closed the current follow-up and moved the item back to monitoring posture."
+    return {
+        "outcome": outcome,
+        "summary": summary,
+        "rationale": rationale,
+        "source_event_id": event_id,
+        "source_surface": "orchestration",
+    }
 
 
 def _build_orchestration_queue(records: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -301,6 +331,22 @@ def _apply_reviewer_action_state(
         enriched_plan["reviewer_last_action_at"] = action_payload.get("acted_at")
         enriched_plan["reviewer_last_action"] = action if action in {"acknowledge", "close_follow_up"} else None
         enriched_plan["reviewer_last_action_rationale"] = action_payload.get("rationale")
+        decision_outcome = str(action_payload.get("decision_outcome") or "").strip()
+        decision_summary = str(action_payload.get("decision_summary") or "").strip()
+        enriched_plan["reviewer_decision_outcome"] = decision_outcome or None
+        enriched_plan["reviewer_decision_summary"] = decision_summary or None
+        enriched_plan["reviewer_decision_record"] = (
+            {
+                "outcome": decision_outcome,
+                "summary": decision_summary,
+                "rationale": action_payload.get("rationale"),
+                "acted_at": action_payload.get("acted_at"),
+                "source_event_id": event_id,
+                "source_surface": "orchestration",
+            }
+            if decision_outcome and decision_summary
+            else None
+        )
         enriched_plan.update(_build_revisit_decision_support(enriched_plan))
         enriched.append(enriched_plan)
     return enriched
@@ -983,6 +1029,24 @@ def get_watchlist_detail(suburb_slug: str, dal: DataAccessLayer = _DAL) -> Optio
     )
 
 
+def _latest_decision_for_watchlist(orchestration: OrchestrationReviewResponse, suburb_slug: str) -> Optional[DecisionOutcomeSummary]:
+    suburb_token = suburb_slug.strip().lower()
+    for plan in orchestration.plans:
+        record = plan.reviewer_decision_record
+        plan_text = " ".join(
+            [
+                plan.event_id,
+                plan.event_type,
+                plan.strategy_summary,
+                plan.revisit_reason,
+                plan.message or "",
+            ]
+        ).lower()
+        if record is not None and suburb_token and suburb_token in plan_text:
+            return record
+    return next((plan.reviewer_decision_record for plan in orchestration.plans if plan.reviewer_decision_record is not None), None)
+
+
 def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer = _DAL) -> WatchlistEntry:
     advice = get_property_advice(query=item.suburb_slug, query_type="slug", dal=dal)
     comparables = get_comparables(query=item.suburb_slug, max_items=5, dal=dal)
@@ -1007,6 +1071,7 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
                 advisory=advisory_context,
                 comparables=comparables_context,
                 orchestration=f"{orchestration.summary.current_state}; review_required={orchestration.summary.review_required_count}",
+                latest_decision=_latest_decision_for_watchlist(orchestration, item.suburb_slug),
                 updated_at=datetime.now(timezone.utc),
             )
         }
@@ -1288,6 +1353,21 @@ def get_orchestration_review_status(
                     if str(plan.get("reviewer_last_action_rationale") or "").strip()
                     else None
                 ),
+                reviewer_decision_outcome=(
+                    str(plan.get("reviewer_decision_outcome"))
+                    if str(plan.get("reviewer_decision_outcome") or "") in {"continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review"}
+                    else None
+                ),
+                reviewer_decision_summary=(
+                    str(plan.get("reviewer_decision_summary")).strip()
+                    if str(plan.get("reviewer_decision_summary") or "").strip()
+                    else None
+                ),
+                reviewer_decision_record=(
+                    DecisionOutcomeSummary(**plan.get("reviewer_decision_record"))
+                    if isinstance(plan.get("reviewer_decision_record"), dict)
+                    else None
+                ),
                 revisit_guidance=str(plan.get("revisit_guidance") or ""),
                 next_review_cue=str(plan.get("next_review_cue") or ""),
                 decision_support_state=(
@@ -1320,10 +1400,13 @@ def apply_orchestration_review_action(
 
     review_actions = _load_review_state(artifact_path)
     rationale = _build_reviewer_action_rationale(target.model_dump(mode="json"), payload.action)
+    decision_outcome = _build_reviewer_decision_outcome(target.model_dump(mode="json"), payload.action, rationale)
     review_actions[payload.event_id] = {
         "action": payload.action,
         "acted_at": datetime.now(timezone.utc).isoformat(),
         "rationale": rationale,
+        "decision_outcome": decision_outcome["outcome"],
+        "decision_summary": decision_outcome["summary"],
     }
     _save_review_state(artifact_path, review_actions)
 

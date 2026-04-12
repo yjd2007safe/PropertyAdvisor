@@ -93,6 +93,9 @@ def test_orchestration_review_action_closes_follow_up_and_updates_state(tmp_path
     assert acknowledged.updated_plan.reviewer_last_action == "acknowledge"
     assert acknowledged.updated_plan.reviewer_last_action_rationale
     assert "acknowledged to keep this carry-forward item visible" in acknowledged.updated_plan.reviewer_last_action_rationale.lower()
+    assert acknowledged.updated_plan.reviewer_decision_outcome == "escalate_for_closer_review"
+    assert acknowledged.updated_plan.reviewer_decision_record is not None
+    assert "kept it active" in acknowledged.updated_plan.reviewer_decision_summary.lower()
     assert acknowledged.updated_plan.decision_support_state == "reopen_for_closer_review"
     assert "recheck soon" in acknowledged.updated_plan.next_review_cue.lower()
 
@@ -104,6 +107,9 @@ def test_orchestration_review_action_closes_follow_up_and_updates_state(tmp_path
     assert closed.updated_plan.reviewer_available_actions == []
     assert closed.updated_plan.reviewer_last_action == "close_follow_up"
     assert closed.updated_plan.reviewer_last_action_rationale
+    assert closed.updated_plan.reviewer_decision_outcome == "continue_monitoring"
+    assert closed.updated_plan.reviewer_decision_record is not None
+    assert "moved the item back to monitoring posture" in closed.updated_plan.reviewer_decision_summary.lower()
     assert "closed follow-up after reviewer decision" in closed.updated_plan.reviewer_last_action_rationale.lower()
 
     refreshed = get_orchestration_review_status(artifact_path=tmp_path)
