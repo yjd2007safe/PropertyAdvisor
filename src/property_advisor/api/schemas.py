@@ -260,6 +260,12 @@ class DecisionOutcomeSummary(BaseModel):
     source_event_id: Optional[str] = None
     source_surface: Literal["orchestration", "watchlist"] = "orchestration"
 
+class DecisionOutcomeDistributionItem(BaseModel):
+    outcome: Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review", "unrecorded"]
+    label: str
+    count: int
+    is_actionable: bool = False
+
 
 class WatchlistContextSummary(BaseModel):
     advisory: str
@@ -292,6 +298,7 @@ class WatchlistSummary(BaseModel):
     by_strategy: Dict[str, int]
     action_counts: Dict[str, int]
     latest_outcome_breakdown: Dict[str, int] = Field(default_factory=dict)
+    latest_outcome_distribution: List[DecisionOutcomeDistributionItem] = Field(default_factory=list)
     active_latest_outcome_filter: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review"]] = None
     latest_outcome_focus_cue: str = ""
     investor_brief: str
@@ -384,6 +391,7 @@ class OrchestrationReviewSummary(BaseModel):
     next_action: str
     decision_outcome_cue: str = ""
     decision_outcome_breakdown: Dict[str, int] = Field(default_factory=dict)
+    latest_outcome_distribution: List[DecisionOutcomeDistributionItem] = Field(default_factory=list)
     active_decision_outcome_filter: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review", "unrecorded"]] = None
 
 

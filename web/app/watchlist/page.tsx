@@ -50,6 +50,21 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
       getWatchlistEvents(10),
       detailPromise
     ]);
+    const outcomePriority: Record<string, number> = {
+      escalate_for_closer_review: 5,
+      revisit_later: 4,
+      unrecorded: 3,
+      continue_monitoring: 2,
+      close_for_now: 1,
+    };
+    const prioritizedItems = [...watchlist.items].sort((left, right) => {
+      const leftOutcome = left.latest_context?.latest_decision?.outcome ?? "unrecorded";
+      const rightOutcome = right.latest_context?.latest_decision?.outcome ?? "unrecorded";
+      if ((outcomePriority[leftOutcome] ?? 0) !== (outcomePriority[rightOutcome] ?? 0)) {
+        return (outcomePriority[rightOutcome] ?? 0) - (outcomePriority[leftOutcome] ?? 0);
+      }
+      return left.suburb_slug.localeCompare(right.suburb_slug);
+    });
     const handoffContext = flowContextLabel(params.from, params.intent);
 
     return (
@@ -136,6 +151,11 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           </div>
           {!hasActiveFilters ? <p className="lede compact">Weekly default: grouped by strategy so recurring triage queues are visible first.</p> : null}
           <p className="lede compact">
+            Latest-outcome summary: {watchlist.summary.latest_outcome_distribution.length > 0
+              ? watchlist.summary.latest_outcome_distribution.map((item) => `${item.label} ×${item.count}${item.is_actionable ? " (actionable)" : ""}`).join(" · ")
+              : "No latest outcomes recorded yet."}
+          </p>
+          <p className="lede compact">
             Latest-outcome focus: {watchlist.summary.latest_outcome_focus_cue} · Escalate {watchlist.summary.latest_outcome_breakdown.escalate_for_closer_review ?? 0} · Revisit {watchlist.summary.latest_outcome_breakdown.revisit_later ?? 0} · Continue {watchlist.summary.latest_outcome_breakdown.continue_monitoring ?? 0} · Closed {watchlist.summary.latest_outcome_breakdown.close_for_now ?? 0} · No record {watchlist.summary.latest_outcome_breakdown.unrecorded ?? 0}
           </p>
         </section>
@@ -182,7 +202,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                 <tr><th>Suburb</th><th>Status</th><th>Strategy</th><th>Target band</th><th>Latest alert</th><th>Decision triage</th><th>Actions</th><th>Detail</th></tr>
               </thead>
               <tbody>
-                {watchlist.items.map((entry) => (
+                {prioritizedItems.map((entry) => (
                   <tr key={entry.suburb_slug}>
                     <td>{entry.suburb_name}<div className="inline-links"><a href={`/advisor?query=${entry.suburb_slug}&query_type=slug`}>Advisor</a> · <a href={`/comparables?query=${entry.suburb_slug}`}>Comparables</a></div></td>
                     <td>{entry.watch_status}</td>

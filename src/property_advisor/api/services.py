@@ -13,6 +13,7 @@ from property_advisor.api.db import create_session_factory
 from property_advisor.api.mock_fixtures import PROPERTY_ADVISOR_FIXTURE
 from property_advisor.api.repositories import ComparableQuery, WatchlistQuery, WatchlistUpsertRequest
 from property_advisor.api.schemas import (
+    DecisionOutcomeDistributionItem,
     DecisionOutcomeSummary,
     OrchestrationPlanItem,
     OrchestrationReviewActionRequest,
@@ -176,6 +177,20 @@ _DECISION_OUTCOME_FILTER_VALUES = {
     "escalate_for_closer_review",
     "unrecorded",
 }
+
+_ACTIONABLE_DECISION_OUTCOMES = {
+    "escalate_for_closer_review",
+    "revisit_later",
+    "unrecorded",
+}
+
+_DECISION_OUTCOME_SUMMARY_ORDER = [
+    "escalate_for_closer_review",
+    "revisit_later",
+    "unrecorded",
+    "continue_monitoring",
+    "close_for_now",
+]
 
 
 def _review_state_path(artifact_path: Path) -> Path:
@@ -463,6 +478,24 @@ def _build_decision_outcome_grouping(plans: list[dict[str, object]]) -> tuple[st
     if counts["unrecorded"] > 0:
         compact.append(f"No recorded outcome ×{counts['unrecorded']}")
     return (" · ".join(compact) if compact else "No decision outcomes recorded yet.", counts)
+
+
+def _build_outcome_distribution(breakdown: dict[str, int]) -> list[DecisionOutcomeDistributionItem]:
+    distribution: list[DecisionOutcomeDistributionItem] = []
+    for outcome in _DECISION_OUTCOME_SUMMARY_ORDER:
+        count = int(breakdown.get(outcome, 0))
+        if count <= 0:
+            continue
+        label = "No recorded outcome" if outcome == "unrecorded" else _DECISION_OUTCOME_LABELS.get(outcome, outcome.replace("_", " "))
+        distribution.append(
+            DecisionOutcomeDistributionItem(
+                outcome=outcome,
+                label=label,
+                count=count,
+                is_actionable=outcome in _ACTIONABLE_DECISION_OUTCOMES,
+            )
+        )
+    return distribution
 
 
 def _filter_plans_by_decision_outcome(plans: list[dict[str, object]], outcome_focus: Optional[str]) -> list[dict[str, object]]:
@@ -1077,6 +1110,7 @@ def get_watchlist(
         by_strategy=by_strategy,
         action_counts=action_counts,
         latest_outcome_breakdown=latest_outcome_breakdown,
+        latest_outcome_distribution=_build_outcome_distribution(latest_outcome_breakdown),
         active_latest_outcome_filter=(
             latest_outcome if latest_outcome in _DECISION_OUTCOME_FILTER_VALUES and latest_outcome != "unrecorded" else None
         ),
@@ -1431,6 +1465,7 @@ def get_orchestration_review_status(
             next_action=next_action,
             decision_outcome_cue=decision_outcome_cue,
             decision_outcome_breakdown=decision_outcome_breakdown,
+            latest_outcome_distribution=_build_outcome_distribution(decision_outcome_breakdown),
             active_decision_outcome_filter=(
                 outcome_focus if outcome_focus and outcome_focus in _DECISION_OUTCOME_FILTER_VALUES else None
             ),

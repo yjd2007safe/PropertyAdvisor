@@ -110,6 +110,8 @@ def test_watchlist_supports_latest_outcome_focus_filter() -> None:
     focused = get_watchlist(latest_outcome=selected_outcome, dal=dal)
     assert focused.summary.active_latest_outcome_filter == selected_outcome
     assert focused.summary.latest_outcome_focus_cue
+    assert focused.summary.latest_outcome_distribution
+    assert focused.summary.latest_outcome_distribution[0].outcome in {"escalate_for_closer_review", "revisit_later", "unrecorded"}
     assert focused.summary.total_entries <= baseline.summary.total_entries
     if focused.items:
         assert all(
