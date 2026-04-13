@@ -266,6 +266,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           <p className="lede compact">Grouped follow-up cue: {groupedFollowUpCue}</p>
           <p className="lede compact">Decision-outcome triage: {summary.decision_outcome_cue}</p>
           <p className="lede compact">Action-oriented scan default: {summary.action_scan_default_cue}</p>
+          <p className="lede compact">Compact next-step batches: {summary.next_step_batching_cue}</p>
           <p className="lede compact">Outcome groups: {formatOutcomeBreakdown(summary.decision_outcome_breakdown)}</p>
           <p className="lede compact">
             Revisit decision support: {decisionSupportCounts.activeAttention} active · {decisionSupportCounts.mostlyStable} mostly stable · {decisionSupportCounts.reopen} re-open.
@@ -303,6 +304,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                     <td>{plan.next_step_outcome}</td>
                     <td>
                       {plan.next_step_action_cue}
+                      <div className="meta-label">{plan.next_step_batch_cue}</div>
                     </td>
                     <td>{buildActiveReason(plan)}</td>
                     <td>

@@ -84,10 +84,12 @@ def test_watchlist_shape() -> None:
     assert "latest_decision" in payload["items"][0]["latest_context"]
     assert "latest_decision_triage_cue" in payload["items"][0]["latest_context"]
     assert "latest_decision_next_step_cue" in payload["items"][0]["latest_context"]
+    assert "latest_decision_batch_cue" in payload["items"][0]["latest_context"]
     assert "latest_outcome_breakdown" in payload["summary"]
     assert "latest_outcome_distribution" in payload["summary"]
     assert "latest_outcome_focus_cue" in payload["summary"]
     assert "next_step_scan_cue" in payload["summary"]
+    assert "next_step_batching_cue" in payload["summary"]
 
 
 def test_watchlist_group_and_detail_routes() -> None:
@@ -156,6 +158,7 @@ def test_orchestration_review_shape() -> None:
         assert "revisit_guidance" in payload["plans"][0]
     assert "decision_outcome_cue" in payload["summary"]
     assert "action_scan_default_cue" in payload["summary"]
+    assert "next_step_batching_cue" in payload["summary"]
     assert isinstance(payload["summary"]["decision_outcome_breakdown"], dict)
     assert isinstance(payload["summary"]["latest_outcome_distribution"], list)
     assert payload["summary"]["total_pending_count"] >= payload["summary"]["pending_count"]

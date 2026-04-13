@@ -95,6 +95,7 @@ def test_watchlist_action_upsert_feeds_watchlist_context() -> None:
     assert "review_required=" in response.items[0].latest_context.orchestration
     assert response.items[0].latest_context.latest_decision_triage_cue is None or ":" in response.items[0].latest_context.latest_decision_triage_cue
     assert response.items[0].latest_context.latest_decision_next_step_cue
+    assert response.items[0].latest_context.latest_decision_batch_cue
 
 
 def test_watchlist_supports_latest_outcome_focus_filter() -> None:
@@ -128,6 +129,7 @@ def test_watchlist_defaults_to_strategy_grouping_and_outcome_priority_sort() -> 
     response = get_watchlist(dal=dal)
     assert response.summary.grouped_view == "strategy"
     assert "default scan" in response.summary.next_step_scan_cue.lower()
+    assert "batch" in response.summary.next_step_batching_cue.lower()
     assert response.groups
     if len(response.items) < 2:
         return

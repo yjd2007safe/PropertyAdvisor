@@ -499,6 +499,29 @@ def _decision_next_step_cue(outcome: Optional[str]) -> str:
     return "No recorded outcome yet: capture a reviewer outcome before de-prioritizing this item."
 
 
+def _decision_batch_cue(outcome: Optional[str]) -> str:
+    normalized = (outcome or "").strip() or "unrecorded"
+    if normalized in {"escalate_for_closer_review", "revisit_later"}:
+        return "Batch with active-intervention rows (Escalate/Revisit) for the same next-step treatment."
+    if normalized in {"continue_monitoring", "close_for_now"}:
+        return "Batch with monitor-later rows (Continue/Closed) for low-noise weekly treatment."
+    return "Batch with outcome-capture rows first so follow-up treatment stays explicit."
+
+
+def _build_next_step_batching_cue(breakdown: dict[str, int]) -> str:
+    active_intervention = int(breakdown.get("escalate_for_closer_review", 0)) + int(breakdown.get("revisit_later", 0))
+    monitor_later = int(breakdown.get("continue_monitoring", 0)) + int(breakdown.get("close_for_now", 0))
+    unrecorded = int(breakdown.get("unrecorded", 0))
+    compact: list[str] = []
+    if active_intervention > 0:
+        compact.append(f"Active-intervention batch (Escalate/Revisit) ×{active_intervention}")
+    if unrecorded > 0:
+        compact.append(f"Outcome-capture batch ×{unrecorded}")
+    if monitor_later > 0:
+        compact.append(f"Monitor-later batch (Continue/Closed) ×{monitor_later}")
+    return " · ".join(compact) if compact else "No next-step batching signals yet."
+
+
 def _build_decision_outcome_grouping(plans: list[dict[str, object]]) -> tuple[str, dict[str, int]]:
     counts = {
         "escalate_for_closer_review": 0,
@@ -1226,6 +1249,7 @@ def get_watchlist(
             else "All latest outcomes"
         ),
         next_step_scan_cue=_build_action_scan_default_cue(latest_outcome_breakdown),
+        next_step_batching_cue=_build_next_step_batching_cue(latest_outcome_breakdown),
         investor_brief=(
             "Focus this week on review and paused suburbs with high-severity pricing alerts; archive only after outcomes are captured."
             if alert_counts["high"] > 0
@@ -1314,6 +1338,7 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
                 latest_decision_next_step_cue=(
                     _decision_next_step_cue(latest_decision.outcome if latest_decision else None)
                 ),
+                latest_decision_batch_cue=_decision_batch_cue(latest_decision.outcome if latest_decision else None),
                 updated_at=datetime.now(timezone.utc),
             )
         }
@@ -1494,6 +1519,7 @@ def get_orchestration_review_status(
     all_plans = _apply_reviewer_action_state(all_plans, _load_review_state(artifact_path))
     decision_outcome_cue, decision_outcome_breakdown = _build_decision_outcome_grouping(all_plans)
     action_scan_default_cue = _build_action_scan_default_cue(decision_outcome_breakdown)
+    next_step_batching_cue = _build_next_step_batching_cue(decision_outcome_breakdown)
     filtered_plans = _sort_orchestration_plans_for_scan(_filter_plans_by_decision_outcome(all_plans, outcome_focus))
     plans = filtered_plans[:limit] if limit > 0 else filtered_plans
 
@@ -1583,6 +1609,7 @@ def get_orchestration_review_status(
                 outcome_focus if outcome_focus and outcome_focus in _DECISION_OUTCOME_FILTER_VALUES else None
             ),
             action_scan_default_cue=action_scan_default_cue,
+            next_step_batching_cue=next_step_batching_cue,
         ),
         plans=[
             OrchestrationPlanItem(
@@ -1638,6 +1665,7 @@ def get_orchestration_review_status(
                 revisit_guidance=str(plan.get("revisit_guidance") or ""),
                 next_review_cue=str(plan.get("next_review_cue") or ""),
                 next_step_action_cue=_decision_next_step_cue(str(plan.get("reviewer_decision_outcome") or "")),
+                next_step_batch_cue=_decision_batch_cue(str(plan.get("reviewer_decision_outcome") or "")),
                 decision_support_state=(
                     str(plan.get("decision_support_state"))
                     if str(plan.get("decision_support_state") or "") in {"active_attention", "mostly_stable", "reopen_for_closer_review"}
