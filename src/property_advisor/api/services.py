@@ -154,6 +154,21 @@ _DECISION_SUPPORT_LABELS = {
 }
 
 
+_DECISION_OUTCOME_LABELS = {
+    "escalate_for_closer_review": "Escalate",
+    "revisit_later": "Revisit later",
+    "continue_monitoring": "Continue monitoring",
+    "close_for_now": "Closed for now",
+}
+
+_DECISION_OUTCOME_PRIORITY = {
+    "escalate_for_closer_review": 4,
+    "revisit_later": 3,
+    "continue_monitoring": 2,
+    "close_for_now": 1,
+}
+
+
 def _review_state_path(artifact_path: Path) -> Path:
     return artifact_path / "review_state.json"
 
@@ -406,6 +421,39 @@ def _build_revisit_guidance_cue(plans: list[dict[str, object]]) -> str:
         for state, count in ranked
     )
 
+
+
+
+def _format_decision_triage_cue(record: DecisionOutcomeSummary) -> str:
+    label = _DECISION_OUTCOME_LABELS.get(record.outcome, record.outcome.replace("_", " "))
+    summary = record.summary.strip()
+    compact = summary.rstrip(".") if summary else "No summary"
+    return f"{label}: {compact}"
+
+
+def _build_decision_outcome_grouping(plans: list[dict[str, object]]) -> tuple[str, dict[str, int]]:
+    counts = {
+        "escalate_for_closer_review": 0,
+        "revisit_later": 0,
+        "continue_monitoring": 0,
+        "close_for_now": 0,
+        "unrecorded": 0,
+    }
+    for plan in plans:
+        outcome = str(plan.get("reviewer_decision_outcome") or "").strip()
+        if outcome in counts and outcome != "unrecorded":
+            counts[outcome] += 1
+        else:
+            counts["unrecorded"] += 1
+
+    ranked_known = sorted(
+        ((key, value) for key, value in counts.items() if key != "unrecorded" and value > 0),
+        key=lambda item: (-_DECISION_OUTCOME_PRIORITY[item[0]], -item[1], item[0]),
+    )
+    compact = [f"{_DECISION_OUTCOME_LABELS[key]} ×{value}" for key, value in ranked_known[:3]]
+    if counts["unrecorded"] > 0:
+        compact.append(f"No recorded outcome ×{counts['unrecorded']}")
+    return (" · ".join(compact) if compact else "No decision outcomes recorded yet.", counts)
 
 def _read_source(repository: object) -> Literal["mock", "postgres", "fallback_mock"]:
     source = getattr(repository, "last_source", "mock")
@@ -1071,7 +1119,8 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
                 advisory=advisory_context,
                 comparables=comparables_context,
                 orchestration=f"{orchestration.summary.current_state}; review_required={orchestration.summary.review_required_count}",
-                latest_decision=_latest_decision_for_watchlist(orchestration, item.suburb_slug),
+                latest_decision=(latest_decision := _latest_decision_for_watchlist(orchestration, item.suburb_slug)),
+                latest_decision_triage_cue=(_format_decision_triage_cue(latest_decision) if latest_decision else None),
                 updated_at=datetime.now(timezone.utc),
             )
         }
@@ -1266,6 +1315,7 @@ def get_orchestration_review_status(
     )
 
     now = datetime.now(timezone.utc)
+    decision_outcome_cue, decision_outcome_breakdown = _build_decision_outcome_grouping(plans)
     if latest_event_at is None:
         freshness = "empty"
     elif now - latest_event_at <= timedelta(hours=24):
@@ -1288,6 +1338,7 @@ def get_orchestration_review_status(
             + (f" Active follow-up states: {state_cue}." if state_cue else "")
             + (f" Carry-forward summary: {carry_forward_summary}." if carry_forward_summary else "")
             + (f" Revisit guidance: {revisit_guidance_cue}." if revisit_guidance_cue else "")
+            + (f" Outcome triage: {decision_outcome_cue}." if decision_outcome_cue else "")
         )
     elif plans:
         current_state = "auto_progressing"
@@ -1299,6 +1350,7 @@ def get_orchestration_review_status(
             + (f" Active follow-up states: {state_cue}." if state_cue else "")
             + (f" Carry-forward summary: {carry_forward_summary}." if carry_forward_summary else "")
             + (f" Revisit guidance: {revisit_guidance_cue}." if revisit_guidance_cue else "")
+            + (f" Outcome triage: {decision_outcome_cue}." if decision_outcome_cue else "")
         )
     else:
         current_state = "idle"
@@ -1316,6 +1368,8 @@ def get_orchestration_review_status(
             queued_count=queued_count,
             pending_count=len(plans),
             next_action=next_action,
+            decision_outcome_cue=decision_outcome_cue,
+            decision_outcome_breakdown=decision_outcome_breakdown,
         ),
         plans=[
             OrchestrationPlanItem(

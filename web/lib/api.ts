@@ -278,6 +278,8 @@ export type OrchestrationReviewResponse = {
     queued_count: number;
     pending_count: number;
     next_action: string;
+    decision_outcome_cue: string;
+    decision_outcome_breakdown: Record<string, number>;
   };
   plans: OrchestrationPlanItem[];
 };
@@ -310,6 +312,7 @@ export type WatchlistEntry = {
     comparables: string;
     orchestration: string;
     latest_decision?: DecisionOutcomeSummary | null;
+    latest_decision_triage_cue?: string | null;
     updated_at: string;
   } | null;
 };

@@ -123,6 +123,21 @@ function buildLowNoiseFollowUpEmphasis(plans: OrchestrationPlanItem[]): string {
   return compactLines.join(" · ");
 }
 
+
+function formatOutcomeBreakdown(breakdown: Record<string, number>): string {
+  const order = [
+    ["escalate_for_closer_review", "Escalate"],
+    ["revisit_later", "Revisit later"],
+    ["continue_monitoring", "Continue monitoring"],
+    ["close_for_now", "Closed for now"],
+    ["unrecorded", "No recorded outcome"],
+  ] as const;
+  const compact = order
+    .filter(([key]) => (breakdown[key] ?? 0) > 0)
+    .map(([key, label]) => `${label} ×${breakdown[key]}`);
+  return compact.length > 0 ? compact.join(" · ") : "No decision outcomes recorded yet.";
+}
+
 function buildGroupedFollowUpCue(plans: OrchestrationPlanItem[]): string {
   const reviewFirst = plans.filter((plan) => plan.requires_human_review && plan.reviewer_action_state !== "closed");
   if (reviewFirst.length === 0) {
@@ -219,6 +234,8 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           </p>
           <p className="lede compact">Follow-up emphasis: {lowNoiseFollowUpEmphasis}</p>
           <p className="lede compact">Grouped follow-up cue: {groupedFollowUpCue}</p>
+          <p className="lede compact">Decision-outcome triage: {summary.decision_outcome_cue}</p>
+          <p className="lede compact">Outcome groups: {formatOutcomeBreakdown(summary.decision_outcome_breakdown)}</p>
           <p className="lede compact">
             Revisit decision support: {decisionSupportCounts.activeAttention} active · {decisionSupportCounts.mostlyStable} mostly stable · {decisionSupportCounts.reopen} re-open.
           </p>

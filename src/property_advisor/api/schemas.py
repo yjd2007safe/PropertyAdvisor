@@ -266,6 +266,7 @@ class WatchlistContextSummary(BaseModel):
     comparables: str
     orchestration: str
     latest_decision: Optional[DecisionOutcomeSummary] = None
+    latest_decision_triage_cue: Optional[str] = None
     updated_at: datetime
 
 
@@ -377,6 +378,8 @@ class OrchestrationReviewSummary(BaseModel):
     queued_count: int
     pending_count: int
     next_action: str
+    decision_outcome_cue: str = ""
+    decision_outcome_breakdown: Dict[str, int] = Field(default_factory=dict)
 
 
 class OrchestrationReviewResponse(BaseModel):

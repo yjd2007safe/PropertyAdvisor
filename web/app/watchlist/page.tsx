@@ -167,7 +167,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           <section className="panel">
             <table className="data-table">
               <thead>
-                <tr><th>Suburb</th><th>Status</th><th>Strategy</th><th>Target band</th><th>Latest alert</th><th>Actions</th><th>Detail</th></tr>
+                <tr><th>Suburb</th><th>Status</th><th>Strategy</th><th>Target band</th><th>Latest alert</th><th>Decision triage</th><th>Actions</th><th>Detail</th></tr>
               </thead>
               <tbody>
                 {watchlist.items.map((entry) => (
@@ -177,6 +177,9 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                     <td>{entry.strategy}</td>
                     <td>{formatCurrency(entry.target_buy_range_min)} - {formatCurrency(entry.target_buy_range_max)}</td>
                     <td>{entry.alerts[0] ? <AlertBadge tone={entry.alerts[0].severity}>{entry.alerts[0].title}</AlertBadge> : "No alerts"}</td>
+                    <td>
+                      <span className="meta-label">{entry.latest_context?.latest_decision_triage_cue ?? "No decision cue yet"}</span>
+                    </td>
                     <td>
                       <form method="POST" action="/watchlist/actions">
                         <input type="hidden" name="suburb_slug" value={entry.suburb_slug} />
@@ -216,6 +219,9 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                 <li><strong>Orchestration:</strong> {detail.item.latest_context.orchestration}</li>
                 {detail.item.latest_context.latest_decision ? (
                   <li><strong>Latest decision:</strong> {detail.item.latest_context.latest_decision.summary} ({detail.item.latest_context.latest_decision.outcome})</li>
+                ) : null}
+                {detail.item.latest_context.latest_decision_triage_cue ? (
+                  <li><strong>Triage cue:</strong> {detail.item.latest_context.latest_decision_triage_cue}</li>
                 ) : null}
               </ul>
             ) : null}
