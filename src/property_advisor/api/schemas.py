@@ -275,6 +275,7 @@ class WatchlistContextSummary(BaseModel):
     latest_decision_triage_cue: Optional[str] = None
     latest_decision_next_step_cue: Optional[str] = None
     latest_decision_batch_cue: Optional[str] = None
+    latest_decision_rationale_cue: Optional[str] = None
     updated_at: datetime
 
 
@@ -315,6 +316,7 @@ class WatchlistGroup(BaseModel):
     entries: List[WatchlistEntry]
     action_required: int
     high_alerts: int
+    compact_rationale_cue: str = ""
 
 
 class WatchlistResponse(BaseModel):
@@ -381,6 +383,7 @@ class OrchestrationPlanItem(BaseModel):
     next_step_action_cue: str = ""
     next_step_batch_cue: str = ""
     decision_support_state: Literal["active_attention", "mostly_stable", "reopen_for_closer_review"] = "active_attention"
+    compact_rationale_cue: str = ""
     message: Optional[str] = None
 
 
