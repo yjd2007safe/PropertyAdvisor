@@ -277,9 +277,11 @@ export type OrchestrationReviewResponse = {
     auto_continue_count: number;
     queued_count: number;
     pending_count: number;
+    total_pending_count: number;
     next_action: string;
     decision_outcome_cue: string;
     decision_outcome_breakdown: Record<string, number>;
+    active_decision_outcome_filter?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | "unrecorded" | null;
   };
   plans: OrchestrationPlanItem[];
 };
@@ -329,6 +331,9 @@ export type WatchlistResponse = {
     by_status: Record<string, number>;
     by_strategy: Record<string, number>;
     action_counts: Record<string, number>;
+    latest_outcome_breakdown: Record<string, number>;
+    active_latest_outcome_filter?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | null;
+    latest_outcome_focus_cue: string;
     investor_brief: string;
   };
   summary_cards: SummaryCard[];
@@ -351,8 +356,13 @@ export const getWatchlist = (params?: {
   strategy?: "yield" | "owner-occupier" | "balanced";
   state?: string;
   watch_status?: "active" | "review" | "paused" | "archived";
+  latest_outcome?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review";
   group_by?: "none" | "state" | "strategy";
 }) => getJson<WatchlistResponse>(`/api/watchlist${buildSearch(params ?? {})}`);
+
+export const getOrchestrationReview = (params?: {
+  outcome_focus?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | "unrecorded";
+}) => getJson<OrchestrationReviewResponse>(`/api/orchestration/review${buildSearch(params ?? {})}`);
 
 export const getWatchlistDetail = (suburb_slug: string) =>
   getJson<{ generated_at: string; mode: "mock" | "postgres"; data_source: DataSourceStatus; item: WatchlistEntry }>(`/api/watchlist/${suburb_slug}`);
@@ -379,8 +389,6 @@ export function formatTimestampUTC(value?: string | null): string {
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString("en-AU", { timeZone: "UTC", hour12: false }) + " UTC";
 }
-
-export const getOrchestrationReview = () => getJson<OrchestrationReviewResponse>("/api/orchestration/review");
 
 export const postOrchestrationReviewAction = (payload: {
   event_id: string;

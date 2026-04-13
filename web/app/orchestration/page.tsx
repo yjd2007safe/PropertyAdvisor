@@ -4,7 +4,10 @@ import { ApiError, getOrchestrationReview, type OrchestrationPlanItem } from "..
 import { EmptyState, MetricCard, PageIntro, SectionTitle } from "../../components/sections";
 
 type OrchestrationReviewPageProps = {
-  searchParams?: Promise<{ view?: "actionable" | "all" }>;
+  searchParams?: Promise<{
+    view?: "actionable" | "all";
+    outcome_focus?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | "unrecorded";
+  }>;
 };
 
 function parseTimestamp(value?: string | null): number {
@@ -73,11 +76,12 @@ function formatDecisionSupportState(state: OrchestrationPlanItem["decision_suppo
   return "Needs active attention";
 }
 
-function formatDecisionOutcome(outcome?: OrchestrationPlanItem["reviewer_decision_outcome"]): string {
+function formatDecisionOutcome(outcome?: OrchestrationPlanItem["reviewer_decision_outcome"] | "unrecorded" | null): string {
   if (outcome === "continue_monitoring") return "Continue monitoring";
   if (outcome === "revisit_later") return "Revisit later";
   if (outcome === "close_for_now") return "Close for now";
   if (outcome === "escalate_for_closer_review") return "Escalate for closer review";
+  if (outcome === "unrecorded") return "No recorded outcome";
   return "No recorded outcome";
 }
 
@@ -181,7 +185,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
   const selectedView = params.view === "all" ? "all" : "actionable";
 
   try {
-    const review = await getOrchestrationReview();
+    const review = await getOrchestrationReview({ outcome_focus: params.outcome_focus });
     const summary = review.summary;
     const actionablePlans = review.plans.filter((plan) => plan.requires_human_review);
     const visiblePlans = selectedView === "all" ? review.plans : actionablePlans;
@@ -224,8 +228,17 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           <div className="inline-links">
             <a href="/orchestration?view=actionable">Actionable queue</a> · <a href="/orchestration?view=all">All events</a>
           </div>
+          <p className="meta-label">Outcome focus</p>
+          <div className="inline-links">
+            <a href={`/orchestration?view=${selectedView}`}>All outcomes</a> · <a href={`/orchestration?view=${selectedView}&outcome_focus=escalate_for_closer_review`}>Escalate</a> ·{" "}
+            <a href={`/orchestration?view=${selectedView}&outcome_focus=revisit_later`}>Revisit later</a> ·{" "}
+            <a href={`/orchestration?view=${selectedView}&outcome_focus=continue_monitoring`}>Continue monitoring</a> ·{" "}
+            <a href={`/orchestration?view=${selectedView}&outcome_focus=close_for_now`}>Close for now</a> ·{" "}
+            <a href={`/orchestration?view=${selectedView}&outcome_focus=unrecorded`}>No recorded outcome</a>
+          </div>
           {!params.view ? <p className="lede compact">Weekly default: Actionable queue first to keep repeat reviews focused on items that require manual attention.</p> : null}
           {selectedView === "actionable" && hiddenPlanCount > 0 ? <p className="lede compact">Showing {visiblePlans.length} actionable items ({hiddenPlanCount} auto-continue events hidden).</p> : null}
+          {summary.active_decision_outcome_filter ? <p className="lede compact">Active outcome filter: {formatDecisionOutcome(summary.active_decision_outcome_filter)} ({summary.pending_count} of {summary.total_pending_count} items).</p> : null}
           <p className="lede compact">
             Review snapshot: {sortedVisiblePlans.length} visible · {queuedVisibleCount} queued for delivery · Most recent event {formatTimestamp(mostRecentVisibleAt)}.
           </p>
@@ -293,6 +306,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                             <form key={action} method="post" action="/orchestration/actions">
                               <input type="hidden" name="event_id" value={plan.event_id} />
                               <input type="hidden" name="view" value={selectedView} />
+                              <input type="hidden" name="outcome_focus" value={params.outcome_focus ?? ""} />
                               <input type="hidden" name="action" value={action} />
                               <button type="submit">{action === "acknowledge" ? "Acknowledge" : "Close follow-up"}</button>
                             </form>

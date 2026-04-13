@@ -291,6 +291,9 @@ class WatchlistSummary(BaseModel):
     by_status: Dict[str, int]
     by_strategy: Dict[str, int]
     action_counts: Dict[str, int]
+    latest_outcome_breakdown: Dict[str, int] = Field(default_factory=dict)
+    active_latest_outcome_filter: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review"]] = None
+    latest_outcome_focus_cue: str = ""
     investor_brief: str
 
 
@@ -377,9 +380,11 @@ class OrchestrationReviewSummary(BaseModel):
     auto_continue_count: int
     queued_count: int
     pending_count: int
+    total_pending_count: int
     next_action: str
     decision_outcome_cue: str = ""
     decision_outcome_breakdown: Dict[str, int] = Field(default_factory=dict)
+    active_decision_outcome_filter: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review", "unrecorded"]] = None
 
 
 class OrchestrationReviewResponse(BaseModel):

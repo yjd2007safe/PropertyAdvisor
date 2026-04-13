@@ -10,6 +10,7 @@ type WatchlistPageProps = {
     strategy?: "yield" | "owner-occupier" | "balanced";
     state?: string;
     watch_status?: "active" | "review" | "paused" | "archived";
+    latest_outcome?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review";
     group_by?: "none" | "state" | "strategy";
     alert_severity?: "info" | "watch" | "high";
     detail_slug?: string;
@@ -21,7 +22,7 @@ type WatchlistPageProps = {
 export default async function WatchlistPage({ searchParams }: WatchlistPageProps) {
   const params = (await searchParams) ?? {};
   const defaultGroupBy = params.group_by ?? "strategy";
-  const hasActiveFilters = Boolean(params.suburb_slug || params.strategy || params.state || params.watch_status || params.alert_severity || params.detail_slug || params.group_by);
+  const hasActiveFilters = Boolean(params.suburb_slug || params.strategy || params.state || params.watch_status || params.latest_outcome || params.alert_severity || params.detail_slug || params.group_by);
   const currentSearch = new URLSearchParams(
     Object.entries(params).flatMap(([key, value]) => (value ? [[key, value]] : []))
   );
@@ -42,6 +43,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
         strategy: params.strategy,
         state: params.state,
         watch_status: params.watch_status,
+        latest_outcome: params.latest_outcome,
         group_by: defaultGroupBy
       }),
       getWatchlistAlerts(params.alert_severity),
@@ -116,16 +118,26 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                 <option value="watch">Watch</option>
                 <option value="high">High</option>
               </select>
+              <select name="latest_outcome" defaultValue={params.latest_outcome ?? ""}>
+                <option value="">All latest outcomes</option>
+                <option value="escalate_for_closer_review">Escalate for closer review</option>
+                <option value="revisit_later">Revisit later</option>
+                <option value="continue_monitoring">Continue monitoring</option>
+                <option value="close_for_now">Close for now</option>
+              </select>
               <button type="submit">Apply filters</button>
             </div>
           </form>
           <p className="meta-label">Saved review views</p>
           <div className="inline-links">
-            <a href={withUpdatedSearch("/watchlist", currentSearch, { watch_status: "active", alert_severity: "watch", group_by: "strategy" })}>Active weekly queue</a> ·{" "}
-            <a href={withUpdatedSearch("/watchlist", currentSearch, { watch_status: "review", alert_severity: "high", group_by: "none" })}>Needs review + high alerts</a> ·{" "}
-            <a href={withUpdatedSearch("/watchlist", currentSearch, { suburb_slug: null, strategy: null, state: null, watch_status: null, alert_severity: null, group_by: "strategy", detail_slug: null })}>Reset view</a>
+            <a href={withUpdatedSearch("/watchlist", currentSearch, { watch_status: "active", alert_severity: "watch", group_by: "strategy", latest_outcome: "continue_monitoring" })}>Active weekly queue</a> ·{" "}
+            <a href={withUpdatedSearch("/watchlist", currentSearch, { watch_status: "review", alert_severity: "high", group_by: "none", latest_outcome: "escalate_for_closer_review" })}>Needs review + escalation</a> ·{" "}
+            <a href={withUpdatedSearch("/watchlist", currentSearch, { suburb_slug: null, strategy: null, state: null, watch_status: null, latest_outcome: null, alert_severity: null, group_by: "strategy", detail_slug: null })}>Reset view</a>
           </div>
           {!hasActiveFilters ? <p className="lede compact">Weekly default: grouped by strategy so recurring triage queues are visible first.</p> : null}
+          <p className="lede compact">
+            Latest-outcome focus: {watchlist.summary.latest_outcome_focus_cue} · Escalate {watchlist.summary.latest_outcome_breakdown.escalate_for_closer_review ?? 0} · Revisit {watchlist.summary.latest_outcome_breakdown.revisit_later ?? 0} · Continue {watchlist.summary.latest_outcome_breakdown.continue_monitoring ?? 0} · Closed {watchlist.summary.latest_outcome_breakdown.close_for_now ?? 0} · No record {watchlist.summary.latest_outcome_breakdown.unrecorded ?? 0}
+          </p>
         </section>
 
         <section className="card-grid two-up">
