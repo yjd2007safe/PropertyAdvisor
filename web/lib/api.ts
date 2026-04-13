@@ -265,6 +265,7 @@ export type OrchestrationPlanItem = {
   next_step_action_cue: string;
   next_step_batch_cue: string;
   decision_support_state: "active_attention" | "mostly_stable" | "reopen_for_closer_review";
+  compact_rationale_cue: string;
   message?: string | null;
 };
 
@@ -328,6 +329,7 @@ export type WatchlistEntry = {
     latest_decision_triage_cue?: string | null;
     latest_decision_next_step_cue?: string | null;
     latest_decision_batch_cue?: string | null;
+    latest_decision_rationale_cue?: string | null;
     updated_at: string;
   } | null;
 };
@@ -362,7 +364,7 @@ export type WatchlistResponse = {
   workflow_links: WorkflowLink[];
   workflow_snapshot: WorkflowSnapshot;
   items: WatchlistEntry[];
-  groups: { key: string; label: string; entries: WatchlistEntry[]; action_required: number; high_alerts: number }[];
+  groups: { key: string; label: string; entries: WatchlistEntry[]; action_required: number; high_alerts: number; compact_rationale_cue: string }[];
 };
 
 export const getSuburbsOverview = () => getJson<SuburbsOverviewResponse>("/api/suburbs/overview");
