@@ -159,6 +159,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
             Latest-outcome focus: {watchlist.summary.latest_outcome_focus_cue} · Escalate {watchlist.summary.latest_outcome_breakdown.escalate_for_closer_review ?? 0} · Revisit {watchlist.summary.latest_outcome_breakdown.revisit_later ?? 0} · Continue {watchlist.summary.latest_outcome_breakdown.continue_monitoring ?? 0} · Closed {watchlist.summary.latest_outcome_breakdown.close_for_now ?? 0} · No record {watchlist.summary.latest_outcome_breakdown.unrecorded ?? 0}
           </p>
           <p className="lede compact">Action-oriented scan default: {watchlist.summary.next_step_scan_cue}</p>
+          <p className="lede compact">Compact follow-up groups: {watchlist.summary.compact_follow_up_grouping_cue}</p>
           <p className="lede compact">Compact next-step batches: {watchlist.summary.next_step_batching_cue}</p>
         </section>
 

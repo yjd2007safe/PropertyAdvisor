@@ -305,6 +305,7 @@ class WatchlistSummary(BaseModel):
     latest_outcome_focus_cue: str = ""
     next_step_scan_cue: str = ""
     next_step_batching_cue: str = ""
+    compact_follow_up_grouping_cue: str = ""
     investor_brief: str
 
 
@@ -401,6 +402,7 @@ class OrchestrationReviewSummary(BaseModel):
     active_decision_outcome_filter: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review", "unrecorded"]] = None
     action_scan_default_cue: str = ""
     next_step_batching_cue: str = ""
+    compact_follow_up_grouping_cue: str = ""
 
 
 class OrchestrationReviewResponse(BaseModel):

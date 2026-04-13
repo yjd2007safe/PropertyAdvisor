@@ -292,6 +292,7 @@ export type OrchestrationReviewResponse = {
     active_decision_outcome_filter?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | "unrecorded" | null;
     action_scan_default_cue: string;
     next_step_batching_cue: string;
+    compact_follow_up_grouping_cue: string;
   };
   plans: OrchestrationPlanItem[];
 };
@@ -354,6 +355,7 @@ export type WatchlistResponse = {
     latest_outcome_focus_cue: string;
     next_step_scan_cue: string;
     next_step_batching_cue: string;
+    compact_follow_up_grouping_cue: string;
     investor_brief: string;
   };
   summary_cards: SummaryCard[];

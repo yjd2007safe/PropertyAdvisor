@@ -266,6 +266,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           <p className="lede compact">Grouped follow-up cue: {groupedFollowUpCue}</p>
           <p className="lede compact">Decision-outcome triage: {summary.decision_outcome_cue}</p>
           <p className="lede compact">Action-oriented scan default: {summary.action_scan_default_cue}</p>
+          <p className="lede compact">Compact follow-up groups: {summary.compact_follow_up_grouping_cue}</p>
           <p className="lede compact">Compact next-step batches: {summary.next_step_batching_cue}</p>
           <p className="lede compact">Outcome groups: {formatOutcomeBreakdown(summary.decision_outcome_breakdown)}</p>
           <p className="lede compact">
