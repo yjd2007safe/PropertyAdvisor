@@ -191,6 +191,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                 <h4>{group.label}</h4>
                 <p className="lede compact">{group.entries.map((entry) => entry.suburb_name).join(", ")}</p>
                 <p className="lede compact">Action required: {group.action_required} · High alerts: {group.high_alerts}</p>
+                <p className="meta-label">{group.compact_rationale_cue}</p>
               </div>
             ))}
           </section>
@@ -216,6 +217,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                       <span className="meta-label">{entry.latest_context?.latest_decision_triage_cue ?? "No decision cue yet"}</span>
                       <div className="meta-label">{entry.latest_context?.latest_decision_next_step_cue ?? "Capture a latest decision outcome to unlock a next-step cue."}</div>
                       <div className="meta-label">{entry.latest_context?.latest_decision_batch_cue ?? "No batching cue yet."}</div>
+                      <div className="meta-label">{entry.latest_context?.latest_decision_rationale_cue ?? "Evidence hint unavailable."}</div>
                     </td>
                     <td>
                       <form method="POST" action="/watchlist/actions">
@@ -265,6 +267,9 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                 ) : null}
                 {detail.item.latest_context.latest_decision_batch_cue ? (
                   <li><strong>Batch cue:</strong> {detail.item.latest_context.latest_decision_batch_cue}</li>
+                ) : null}
+                {detail.item.latest_context.latest_decision_rationale_cue ? (
+                  <li><strong>Evidence hint:</strong> {detail.item.latest_context.latest_decision_rationale_cue}</li>
                 ) : null}
               </ul>
             ) : null}

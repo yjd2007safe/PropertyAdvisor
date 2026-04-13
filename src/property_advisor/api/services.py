@@ -550,18 +550,39 @@ def _build_compact_rationale_language_cue(breakdown: dict[str, int]) -> str:
     return " ".join(compact) if compact else "No rationale cues yet; follow default outcome ordering."
 
 
+def _build_compact_evidence_hint(
+    *,
+    outcome: Optional[str],
+    emphasis_reason: str,
+    grouping_reason: Optional[str] = None,
+) -> str:
+    normalized_outcome = (outcome or "").strip() or "unrecorded"
+    outcome_label = "No recorded outcome" if normalized_outcome == "unrecorded" else _DECISION_OUTCOME_LABELS.get(
+        normalized_outcome,
+        normalized_outcome.replace("_", " "),
+    )
+    compact_parts = [f"Evidence hint: {outcome_label}"]
+    if emphasis_reason.strip():
+        compact_parts.append(emphasis_reason.strip().rstrip("."))
+    if grouping_reason and grouping_reason.strip():
+        compact_parts.append(grouping_reason.strip().rstrip("."))
+    return " · ".join(compact_parts) + "."
+
+
 def _build_plan_compact_rationale_cue(plan: dict[str, object]) -> str:
     outcome = str(plan.get("reviewer_decision_outcome") or "").strip() or "unrecorded"
-    label = "No recorded outcome" if outcome == "unrecorded" else _DECISION_OUTCOME_LABELS.get(outcome, outcome.replace("_", " "))
     action_state = str(plan.get("reviewer_action_state") or "pending")
     decision_support_state = str(plan.get("decision_support_state") or "active_attention")
     if decision_support_state == "active_attention":
-        emphasis = "active attention"
+        emphasis = "row stays emphasized for active attention"
     elif decision_support_state == "reopen_for_closer_review":
-        emphasis = "recheck soon"
+        emphasis = "row stays emphasized to recheck soon"
     else:
-        emphasis = "weekly monitor"
-    return f"{label} · {action_state.replace('_', ' ')} · {emphasis}."
+        emphasis = "row is grouped into weekly monitor"
+    return _build_compact_evidence_hint(
+        outcome=outcome,
+        emphasis_reason=f"{emphasis}; reviewer state={action_state.replace('_', ' ')}",
+    )
 
 
 def _build_decision_outcome_grouping(plans: list[dict[str, object]]) -> tuple[str, dict[str, int]]:
@@ -1157,6 +1178,12 @@ def _build_watchlist_groups(group_by: Literal["none", "state", "strategy"], item
             if (entry.latest_context.latest_decision.outcome if entry.latest_context and entry.latest_context.latest_decision else "unrecorded")
             in _ACTIONABLE_DECISION_OUTCOMES
         )
+        top_entry = prioritized_entries[0] if prioritized_entries else None
+        top_outcome = (
+            top_entry.latest_context.latest_decision.outcome
+            if top_entry and top_entry.latest_context and top_entry.latest_context.latest_decision
+            else "unrecorded"
+        )
         ranked_groups.append(
             (
                 actionable_outcomes,
@@ -1166,10 +1193,10 @@ def _build_watchlist_groups(group_by: Literal["none", "state", "strategy"], item
                     entries=prioritized_entries,
                     action_required=sum(1 for entry in prioritized_entries if entry.watch_status in {"review", "paused"}),
                     high_alerts=sum(1 for entry in prioritized_entries for alert in entry.alerts if alert.severity == "high"),
-                    compact_rationale_cue=(
-                        f"Grouped by {group_by}; emphasizes actionable outcomes and review/paused rows first."
-                        if group_by in {"state", "strategy"}
-                        else "Ungrouped scan; emphasizes actionable outcomes and review/paused rows first."
+                    compact_rationale_cue=_build_compact_evidence_hint(
+                        outcome=top_outcome,
+                        emphasis_reason="group emphasizes actionable outcomes plus review/paused rows first",
+                        grouping_reason=f"grouped by {group_by}",
                     ),
                 ),
             )
@@ -1377,6 +1404,12 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
         comparables_context = (
             f"{comparables.summary.count} comps, avg ${comparables.summary.average_price:,}, state={comparables.summary.sample_state}"
         )
+    latest_decision = _latest_decision_for_watchlist(orchestration, item.suburb_slug)
+    high_alert_count = sum(1 for alert in item.alerts if alert.severity == "high")
+    if item.watch_status in {"review", "paused"} or high_alert_count > 0:
+        emphasis_reason = "row stays emphasized because status/alerts still need active follow-up"
+    else:
+        emphasis_reason = "row is grouped for monitor-later treatment"
 
     return item.model_copy(
         update={
@@ -1384,16 +1417,18 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
                 advisory=advisory_context,
                 comparables=comparables_context,
                 orchestration=f"{orchestration.summary.current_state}; review_required={orchestration.summary.review_required_count}",
-                latest_decision=(latest_decision := _latest_decision_for_watchlist(orchestration, item.suburb_slug)),
+                latest_decision=latest_decision,
                 latest_decision_triage_cue=(_format_decision_triage_cue(latest_decision) if latest_decision else None),
                 latest_decision_next_step_cue=(
                     _decision_next_step_cue(latest_decision.outcome if latest_decision else None)
                 ),
                 latest_decision_batch_cue=_decision_batch_cue(latest_decision.outcome if latest_decision else None),
-                latest_decision_rationale_cue=(
-                    f"{_DECISION_OUTCOME_LABELS.get(latest_decision.outcome, latest_decision.outcome.replace('_', ' '))} keeps this row near the top."
-                    if latest_decision
-                    else "No recorded outcome keeps this row visible until a reviewer outcome is captured."
+                latest_decision_rationale_cue=_build_compact_evidence_hint(
+                    outcome=(latest_decision.outcome if latest_decision else None),
+                    emphasis_reason=emphasis_reason,
+                    grouping_reason=(
+                        f"high alerts={high_alert_count}, watch status={item.watch_status}"
+                    ),
                 ),
                 updated_at=datetime.now(timezone.utc),
             )

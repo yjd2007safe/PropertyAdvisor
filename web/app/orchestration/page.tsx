@@ -312,6 +312,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                       {formatDecisionSupportState(plan.decision_support_state)}
                       <div className="meta-label">{plan.next_review_cue || "No cue provided."}</div>
                       <div className="meta-label">Guidance: {plan.revisit_guidance || "No guidance provided."}</div>
+                      <div className="meta-label">{plan.compact_rationale_cue || "Evidence hint unavailable."}</div>
                     </td>
                     <td>
                       {formatDecisionOutcome(plan.reviewer_decision_outcome)}
