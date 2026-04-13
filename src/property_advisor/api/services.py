@@ -551,9 +551,9 @@ def _build_compact_rationale_language_cue(breakdown: dict[str, int]) -> str:
 
 
 _REASON_LABELS = {
-    "active_follow_up": "Reason label: Active follow-up",
-    "near_term_recheck": "Reason label: Near-term recheck",
-    "weekly_monitor": "Reason label: Weekly monitor",
+    "active_follow_up": "Reason: Active follow-up",
+    "near_term_recheck": "Reason: Near-term recheck",
+    "weekly_monitor": "Reason: Weekly monitor",
 }
 
 
@@ -572,7 +572,7 @@ def _build_compact_evidence_hint(
         normalized_outcome,
         normalized_outcome.replace("_", " "),
     )
-    compact_parts = [f"Evidence hint: {outcome_label}"]
+    compact_parts = [f"Hint: {outcome_label}"]
     if emphasis_reason.strip():
         compact_parts.append(emphasis_reason.strip().rstrip("."))
     if grouping_reason and grouping_reason.strip():
@@ -585,11 +585,11 @@ def _build_plan_compact_rationale_cue(plan: dict[str, object]) -> str:
     action_state = str(plan.get("reviewer_action_state") or "pending")
     decision_support_state = str(plan.get("decision_support_state") or "active_attention")
     if decision_support_state == "active_attention":
-        emphasis = f"{_reason_label_phrase('active_follow_up')}; highlighted now because it still needs active follow-up"
+        emphasis = f"{_reason_label_phrase('active_follow_up')}; prioritize now for active follow-up"
     elif decision_support_state == "reopen_for_closer_review":
-        emphasis = f"{_reason_label_phrase('near_term_recheck')}; highlighted now because it needs a near-term recheck"
+        emphasis = f"{_reason_label_phrase('near_term_recheck')}; recheck soon"
     else:
-        emphasis = f"{_reason_label_phrase('weekly_monitor')}; grouped later because it is in weekly monitor mode"
+        emphasis = f"{_reason_label_phrase('weekly_monitor')}; queue later in weekly monitor"
     return _build_compact_evidence_hint(
         outcome=outcome,
         emphasis_reason=f"{emphasis}; reviewer state={action_state.replace('_', ' ')}",
@@ -1208,7 +1208,7 @@ def _build_watchlist_groups(group_by: Literal["none", "state", "strategy"], item
                         outcome=top_outcome,
                         emphasis_reason=(
                             f"{_reason_label_phrase('active_follow_up')}; "
-                            "highlighted first because this group still has actionable/review follow-up rows"
+                            "prioritize first: actionable/review follow-up rows"
                         ),
                         grouping_reason=f"grouped by {group_by}",
                     ),
@@ -1421,9 +1421,9 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
     latest_decision = _latest_decision_for_watchlist(orchestration, item.suburb_slug)
     high_alert_count = sum(1 for alert in item.alerts if alert.severity == "high")
     if item.watch_status in {"review", "paused"} or high_alert_count > 0:
-        emphasis_reason = f"{_reason_label_phrase('active_follow_up')}; highlighted now because status/alerts still need active follow-up"
+        emphasis_reason = f"{_reason_label_phrase('active_follow_up')}; prioritize now for status/alert follow-up"
     else:
-        emphasis_reason = f"{_reason_label_phrase('weekly_monitor')}; grouped later because it is in monitor-later treatment"
+        emphasis_reason = f"{_reason_label_phrase('weekly_monitor')}; queue later in monitor-later treatment"
 
     return item.model_copy(
         update={
