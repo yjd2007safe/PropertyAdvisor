@@ -160,3 +160,28 @@ def test_orchestration_review_status_auto_progressing_includes_follow_up_state_c
     assert "outcome triage" in status.summary.next_action.lower()
     assert "no recorded outcome" in status.summary.decision_outcome_cue.lower()
     assert "revisit after resume: interrupted runs should be rechecked after auto-resume" in status.summary.next_action.lower()
+
+
+def test_orchestration_review_supports_outcome_focus_filter(tmp_path: Path) -> None:
+    _write_artifact(
+        tmp_path,
+        event_type="ready_for_evaluation",
+        event_id="evt-review",
+        created_at="2026-03-29T09:30:00+00:00",
+    )
+    _write_artifact(
+        tmp_path,
+        event_type="completed",
+        event_id="evt-progress",
+        created_at="2026-03-29T10:00:00+00:00",
+    )
+    apply_orchestration_review_action(
+        OrchestrationReviewActionRequest(event_id="evt-review", action="acknowledge"),
+        artifact_path=tmp_path,
+    )
+
+    focused = get_orchestration_review_status(artifact_path=tmp_path, outcome_focus="escalate_for_closer_review")
+    assert focused.summary.active_decision_outcome_filter == "escalate_for_closer_review"
+    assert focused.summary.pending_count == 1
+    assert focused.summary.total_pending_count == 2
+    assert all(plan.reviewer_decision_outcome == "escalate_for_closer_review" for plan in focused.plans)

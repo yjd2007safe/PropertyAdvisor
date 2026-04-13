@@ -169,6 +169,15 @@ _DECISION_OUTCOME_PRIORITY = {
 }
 
 
+_DECISION_OUTCOME_FILTER_VALUES = {
+    "continue_monitoring",
+    "revisit_later",
+    "close_for_now",
+    "escalate_for_closer_review",
+    "unrecorded",
+}
+
+
 def _review_state_path(artifact_path: Path) -> Path:
     return artifact_path / "review_state.json"
 
@@ -454,6 +463,14 @@ def _build_decision_outcome_grouping(plans: list[dict[str, object]]) -> tuple[st
     if counts["unrecorded"] > 0:
         compact.append(f"No recorded outcome ×{counts['unrecorded']}")
     return (" · ".join(compact) if compact else "No decision outcomes recorded yet.", counts)
+
+
+def _filter_plans_by_decision_outcome(plans: list[dict[str, object]], outcome_focus: Optional[str]) -> list[dict[str, object]]:
+    if not outcome_focus or outcome_focus not in _DECISION_OUTCOME_FILTER_VALUES:
+        return plans
+    if outcome_focus == "unrecorded":
+        return [plan for plan in plans if not str(plan.get("reviewer_decision_outcome") or "").strip()]
+    return [plan for plan in plans if str(plan.get("reviewer_decision_outcome") or "").strip() == outcome_focus]
 
 def _read_source(repository: object) -> Literal["mock", "postgres", "fallback_mock"]:
     source = getattr(repository, "last_source", "mock")
@@ -995,6 +1012,7 @@ def get_watchlist(
     strategy: Optional[str] = None,
     state: Optional[str] = None,
     watch_status: Optional[str] = None,
+    latest_outcome: Optional[str] = None,
     group_by: Literal["none", "state", "strategy"] = "none",
     dal: DataAccessLayer = _DAL,
 ) -> WatchlistResponse:
@@ -1006,12 +1024,37 @@ def get_watchlist(
             watch_status=watch_status,
         )
     )
+    enriched_items = [_enrich_watchlist_entry_context(item, dal=dal) for item in items]
+    latest_outcome_breakdown = {
+        "escalate_for_closer_review": 0,
+        "revisit_later": 0,
+        "continue_monitoring": 0,
+        "close_for_now": 0,
+        "unrecorded": 0,
+    }
+    for item in enriched_items:
+        outcome = str(
+            item.latest_context.latest_decision.outcome
+            if item.latest_context and item.latest_context.latest_decision
+            else ""
+        ).strip()
+        if outcome in latest_outcome_breakdown and outcome != "unrecorded":
+            latest_outcome_breakdown[outcome] += 1
+        else:
+            latest_outcome_breakdown["unrecorded"] += 1
+
+    if latest_outcome and latest_outcome in _DECISION_OUTCOME_FILTER_VALUES and latest_outcome != "unrecorded":
+        enriched_items = [
+            item
+            for item in enriched_items
+            if item.latest_context and item.latest_context.latest_decision and item.latest_context.latest_decision.outcome == latest_outcome
+        ]
+
     alert_counts = {"info": 0, "watch": 0, "high": 0}
     by_status = {"active": 0, "review": 0, "paused": 0, "archived": 0}
     by_strategy = {"yield": 0, "owner-occupier": 0, "balanced": 0}
     action_counts = {"needs_review": 0, "ready_to_progress": 0, "on_hold": 0, "archived": 0}
-
-    for item in items:
+    for item in enriched_items:
         by_status[item.watch_status] += 1
         by_strategy[item.strategy] += 1
         if item.watch_status == "review":
@@ -1022,11 +1065,8 @@ def get_watchlist(
             action_counts["on_hold"] += 1
         else:
             action_counts["archived"] += 1
-
         for alert in item.alerts:
             alert_counts[alert.severity] += 1
-
-    enriched_items = [_enrich_watchlist_entry_context(item, dal=dal) for item in items]
 
     summary = WatchlistSummary(
         total_entries=len(enriched_items),
@@ -1036,6 +1076,15 @@ def get_watchlist(
         by_status=by_status,
         by_strategy=by_strategy,
         action_counts=action_counts,
+        latest_outcome_breakdown=latest_outcome_breakdown,
+        active_latest_outcome_filter=(
+            latest_outcome if latest_outcome in _DECISION_OUTCOME_FILTER_VALUES and latest_outcome != "unrecorded" else None
+        ),
+        latest_outcome_focus_cue=(
+            _DECISION_OUTCOME_LABELS.get(latest_outcome, latest_outcome.replace("_", " "))
+            if latest_outcome and latest_outcome in _DECISION_OUTCOME_FILTER_VALUES and latest_outcome != "unrecorded"
+            else "All latest outcomes"
+        ),
         investor_brief=(
             "Focus this week on review and paused suburbs with high-severity pricing alerts; archive only after outcomes are captured."
             if alert_counts["high"] > 0
@@ -1258,6 +1307,7 @@ def get_orchestration_review_status(
     *,
     artifact_path: Path = Path(".dev_pipeline/notifications"),
     limit: int = 10,
+    outcome_focus: Optional[str] = None,
 ) -> OrchestrationReviewResponse:
     state_path = artifact_path / "bridge_state.json"
     state_payload: dict[str, object] = {}
@@ -1296,10 +1346,11 @@ def get_orchestration_review_status(
                 }
             )
 
-    plans = _build_orchestration_queue(records)
-    plans = _apply_reviewer_action_state(plans, _load_review_state(artifact_path))
-    if limit > 0:
-        plans = plans[:limit]
+    all_plans = _build_orchestration_queue(records)
+    all_plans = _apply_reviewer_action_state(all_plans, _load_review_state(artifact_path))
+    decision_outcome_cue, decision_outcome_breakdown = _build_decision_outcome_grouping(all_plans)
+    filtered_plans = _filter_plans_by_decision_outcome(all_plans, outcome_focus)
+    plans = filtered_plans[:limit] if limit > 0 else filtered_plans
 
     review_required_count = sum(1 for plan in plans if plan.get("requires_human_review"))
     auto_continue_count = sum(1 for plan in plans if plan.get("auto_continue"))
@@ -1315,7 +1366,6 @@ def get_orchestration_review_status(
     )
 
     now = datetime.now(timezone.utc)
-    decision_outcome_cue, decision_outcome_breakdown = _build_decision_outcome_grouping(plans)
     if latest_event_at is None:
         freshness = "empty"
     elif now - latest_event_at <= timedelta(hours=24):
@@ -1339,6 +1389,11 @@ def get_orchestration_review_status(
             + (f" Carry-forward summary: {carry_forward_summary}." if carry_forward_summary else "")
             + (f" Revisit guidance: {revisit_guidance_cue}." if revisit_guidance_cue else "")
             + (f" Outcome triage: {decision_outcome_cue}." if decision_outcome_cue else "")
+            + (
+                f" Active outcome focus: {outcome_focus.replace('_', ' ')} ({len(plans)} of {len(all_plans)} visible)."
+                if outcome_focus and outcome_focus in _DECISION_OUTCOME_FILTER_VALUES
+                else ""
+            )
         )
     elif plans:
         current_state = "auto_progressing"
@@ -1351,6 +1406,11 @@ def get_orchestration_review_status(
             + (f" Carry-forward summary: {carry_forward_summary}." if carry_forward_summary else "")
             + (f" Revisit guidance: {revisit_guidance_cue}." if revisit_guidance_cue else "")
             + (f" Outcome triage: {decision_outcome_cue}." if decision_outcome_cue else "")
+            + (
+                f" Active outcome focus: {outcome_focus.replace('_', ' ')} ({len(plans)} of {len(all_plans)} visible)."
+                if outcome_focus and outcome_focus in _DECISION_OUTCOME_FILTER_VALUES
+                else ""
+            )
         )
     else:
         current_state = "idle"
@@ -1367,9 +1427,13 @@ def get_orchestration_review_status(
             auto_continue_count=auto_continue_count,
             queued_count=queued_count,
             pending_count=len(plans),
+            total_pending_count=len(all_plans),
             next_action=next_action,
             decision_outcome_cue=decision_outcome_cue,
             decision_outcome_breakdown=decision_outcome_breakdown,
+            active_decision_outcome_filter=(
+                outcome_focus if outcome_focus and outcome_focus in _DECISION_OUTCOME_FILTER_VALUES else None
+            ),
         ),
         plans=[
             OrchestrationPlanItem(

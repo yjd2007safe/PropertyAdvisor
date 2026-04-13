@@ -75,8 +75,10 @@ def comparables(
 
 
 @router.get("/orchestration/review", response_model=OrchestrationReviewResponse)
-def orchestration_review() -> OrchestrationReviewResponse:
-    return get_orchestration_review_status()
+def orchestration_review(
+    outcome_focus: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review", "unrecorded"]] = Query(default=None),
+) -> OrchestrationReviewResponse:
+    return get_orchestration_review_status(outcome_focus=outcome_focus)
 
 
 @router.post("/orchestration/review/actions", response_model=OrchestrationReviewActionResponse)
@@ -93,6 +95,7 @@ def watchlist(
     strategy: Optional[Literal["yield", "owner-occupier", "balanced"]] = Query(default=None),
     state: Optional[str] = Query(default=None, min_length=2, max_length=3),
     watch_status: Optional[Literal["active", "review", "paused", "archived"]] = Query(default=None),
+    latest_outcome: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review"]] = Query(default=None),
     group_by: Literal["none", "state", "strategy"] = Query(default="none"),
 ) -> WatchlistResponse:
     return get_watchlist(
@@ -100,6 +103,7 @@ def watchlist(
         strategy=strategy,
         state=state,
         watch_status=watch_status,
+        latest_outcome=latest_outcome,
         group_by=group_by,
     )
 

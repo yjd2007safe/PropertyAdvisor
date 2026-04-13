@@ -96,6 +96,30 @@ def test_watchlist_action_upsert_feeds_watchlist_context() -> None:
     assert response.items[0].latest_context.latest_decision_triage_cue is None or ":" in response.items[0].latest_context.latest_decision_triage_cue
 
 
+def test_watchlist_supports_latest_outcome_focus_filter() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    baseline = get_watchlist(dal=dal)
+    selected_outcome = next(
+        (
+            outcome
+            for outcome in ("escalate_for_closer_review", "revisit_later", "continue_monitoring", "close_for_now")
+            if baseline.summary.latest_outcome_breakdown.get(outcome, 0) > 0
+        ),
+        "continue_monitoring",
+    )
+    focused = get_watchlist(latest_outcome=selected_outcome, dal=dal)
+    assert focused.summary.active_latest_outcome_filter == selected_outcome
+    assert focused.summary.latest_outcome_focus_cue
+    assert focused.summary.total_entries <= baseline.summary.total_entries
+    if focused.items:
+        assert all(
+            item.latest_context
+            and item.latest_context.latest_decision
+            and item.latest_context.latest_decision.outcome == selected_outcome
+            for item in focused.items
+        )
+
+
 def test_service_comparables_empty_state() -> None:
     dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     response = get_comparables(query="empty", dal=dal)
