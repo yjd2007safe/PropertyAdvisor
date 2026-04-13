@@ -53,6 +53,9 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "carry-forward summary" in status.summary.next_action.lower()
     assert "outcome triage" in status.summary.next_action.lower()
     assert "no recorded outcome" in status.summary.decision_outcome_cue.lower()
+    assert status.summary.latest_outcome_distribution
+    assert status.summary.latest_outcome_distribution[0].outcome in {"escalate_for_closer_review", "revisit_later", "unrecorded"}
+    assert any(item.outcome == "unrecorded" and item.is_actionable for item in status.summary.latest_outcome_distribution)
     assert "awaiting operator outcome: waiting on explicit review outcome before continuing this session" in status.summary.next_action.lower()
     assert status.plans[0].event_id == "evt-review"
     assert status.plans[0].requires_human_review is True

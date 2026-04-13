@@ -281,6 +281,12 @@ export type OrchestrationReviewResponse = {
     next_action: string;
     decision_outcome_cue: string;
     decision_outcome_breakdown: Record<string, number>;
+    latest_outcome_distribution: Array<{
+      outcome: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | "unrecorded";
+      label: string;
+      count: number;
+      is_actionable: boolean;
+    }>;
     active_decision_outcome_filter?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | "unrecorded" | null;
   };
   plans: OrchestrationPlanItem[];
@@ -332,6 +338,12 @@ export type WatchlistResponse = {
     by_strategy: Record<string, number>;
     action_counts: Record<string, number>;
     latest_outcome_breakdown: Record<string, number>;
+    latest_outcome_distribution: Array<{
+      outcome: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | "unrecorded";
+      label: string;
+      count: number;
+      is_actionable: boolean;
+    }>;
     active_latest_outcome_filter?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | null;
     latest_outcome_focus_cue: string;
     investor_brief: string;

@@ -17,9 +17,21 @@ function parseTimestamp(value?: string | null): number {
 }
 
 function sortPlansForReview(plans: OrchestrationPlanItem[]): OrchestrationPlanItem[] {
+  const outcomePriority: Record<string, number> = {
+    escalate_for_closer_review: 5,
+    revisit_later: 4,
+    unrecorded: 3,
+    continue_monitoring: 2,
+    close_for_now: 1,
+  };
   return [...plans].sort((left, right) => {
     if (left.requires_human_review !== right.requires_human_review) {
       return left.requires_human_review ? -1 : 1;
+    }
+    const leftOutcome = left.reviewer_decision_outcome ?? "unrecorded";
+    const rightOutcome = right.reviewer_decision_outcome ?? "unrecorded";
+    if ((outcomePriority[leftOutcome] ?? 0) !== (outcomePriority[rightOutcome] ?? 0)) {
+      return (outcomePriority[rightOutcome] ?? 0) - (outcomePriority[leftOutcome] ?? 0);
     }
     const rightTs = parseTimestamp(right.queued_at ?? right.created_at);
     const leftTs = parseTimestamp(left.queued_at ?? left.created_at);
@@ -237,6 +249,11 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
             <a href={`/orchestration?view=${selectedView}&outcome_focus=unrecorded`}>No recorded outcome</a>
           </div>
           {!params.view ? <p className="lede compact">Weekly default: Actionable queue first to keep repeat reviews focused on items that require manual attention.</p> : null}
+          <p className="lede compact">
+            Latest-outcome summary: {summary.latest_outcome_distribution.length > 0
+              ? summary.latest_outcome_distribution.map((item) => `${item.label} ×${item.count}${item.is_actionable ? " (actionable)" : ""}`).join(" · ")
+              : "No decision outcomes recorded yet."}
+          </p>
           {selectedView === "actionable" && hiddenPlanCount > 0 ? <p className="lede compact">Showing {visiblePlans.length} actionable items ({hiddenPlanCount} auto-continue events hidden).</p> : null}
           {summary.active_decision_outcome_filter ? <p className="lede compact">Active outcome filter: {formatDecisionOutcome(summary.active_decision_outcome_filter)} ({summary.pending_count} of {summary.total_pending_count} items).</p> : null}
           <p className="lede compact">
