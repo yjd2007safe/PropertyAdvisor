@@ -274,6 +274,7 @@ class WatchlistContextSummary(BaseModel):
     latest_decision: Optional[DecisionOutcomeSummary] = None
     latest_decision_triage_cue: Optional[str] = None
     latest_decision_next_step_cue: Optional[str] = None
+    latest_decision_batch_cue: Optional[str] = None
     updated_at: datetime
 
 
@@ -303,6 +304,7 @@ class WatchlistSummary(BaseModel):
     active_latest_outcome_filter: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review"]] = None
     latest_outcome_focus_cue: str = ""
     next_step_scan_cue: str = ""
+    next_step_batching_cue: str = ""
     investor_brief: str
 
 
@@ -376,6 +378,7 @@ class OrchestrationPlanItem(BaseModel):
     revisit_guidance: str = ""
     next_review_cue: str = ""
     next_step_action_cue: str = ""
+    next_step_batch_cue: str = ""
     decision_support_state: Literal["active_attention", "mostly_stable", "reopen_for_closer_review"] = "active_attention"
     message: Optional[str] = None
 
@@ -397,6 +400,7 @@ class OrchestrationReviewSummary(BaseModel):
     latest_outcome_distribution: List[DecisionOutcomeDistributionItem] = Field(default_factory=list)
     active_decision_outcome_filter: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review", "unrecorded"]] = None
     action_scan_default_cue: str = ""
+    next_step_batching_cue: str = ""
 
 
 class OrchestrationReviewResponse(BaseModel):
