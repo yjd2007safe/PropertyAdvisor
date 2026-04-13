@@ -135,8 +135,13 @@ def test_watchlist_defaults_to_strategy_grouping_and_outcome_priority_sort() -> 
         label in response.summary.compact_follow_up_grouping_cue.lower()
         for label in ("active-intervention", "outcome-capture", "monitor-later")
     )
+    assert any(
+        label in response.summary.compact_follow_up_grouping_cue.lower()
+        for label in ("highlighted first", "highlighted next")
+    )
     assert response.groups
     assert response.groups[0].compact_rationale_cue
+    assert "highlighted first because this group still has actionable/review follow-up rows" in response.groups[0].compact_rationale_cue.lower()
     if len(response.items) < 2:
         return
 

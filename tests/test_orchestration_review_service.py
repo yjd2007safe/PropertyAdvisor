@@ -60,6 +60,10 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
         label in status.summary.compact_follow_up_grouping_cue.lower()
         for label in ("active-intervention", "outcome-capture", "monitor-later")
     )
+    assert any(
+        label in status.summary.compact_follow_up_grouping_cue.lower()
+        for label in ("highlighted first", "highlighted next")
+    )
     assert status.summary.latest_outcome_distribution
     assert status.summary.latest_outcome_distribution[0].outcome in {"escalate_for_closer_review", "revisit_later", "unrecorded"}
     assert any(item.outcome == "unrecorded" and item.is_actionable for item in status.summary.latest_outcome_distribution)
@@ -77,6 +81,7 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "capture a reviewer outcome" in status.plans[0].next_step_action_cue.lower()
     assert "batch" in status.plans[0].next_step_batch_cue.lower()
     assert "evidence hint:" in status.plans[0].compact_rationale_cue.lower()
+    assert "highlighted now because it still needs active follow-up" in status.plans[0].compact_rationale_cue.lower()
     assert "review outcome" in status.plans[0].revisit_reason.lower()
     assert status.plans[1].follow_up_state == "revisit_downstream_surfaces"
     assert status.plans[1].decision_support_state == "mostly_stable"

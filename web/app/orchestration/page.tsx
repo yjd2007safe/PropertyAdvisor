@@ -266,7 +266,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           <p className="lede compact">Grouped follow-up cue: {groupedFollowUpCue}</p>
           <p className="lede compact">Decision-outcome triage: {summary.decision_outcome_cue}</p>
           <p className="lede compact">Action-oriented scan default: {summary.action_scan_default_cue}</p>
-          <p className="lede compact">Compact follow-up groups: {summary.compact_follow_up_grouping_cue}</p>
+          <p className="lede compact">Why items are highlighted/grouped: {summary.compact_follow_up_grouping_cue}</p>
           <p className="lede compact">Compact next-step batches: {summary.next_step_batching_cue}</p>
           <p className="lede compact">Outcome groups: {formatOutcomeBreakdown(summary.decision_outcome_breakdown)}</p>
           <p className="lede compact">
@@ -312,7 +312,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                       {formatDecisionSupportState(plan.decision_support_state)}
                       <div className="meta-label">{plan.next_review_cue || "No cue provided."}</div>
                       <div className="meta-label">Guidance: {plan.revisit_guidance || "No guidance provided."}</div>
-                      <div className="meta-label">{plan.compact_rationale_cue || "Evidence hint unavailable."}</div>
+                      <div className="meta-label">{plan.compact_rationale_cue || "Why this row is highlighted/grouped is unavailable."}</div>
                     </td>
                     <td>
                       {formatDecisionOutcome(plan.reviewer_decision_outcome)}

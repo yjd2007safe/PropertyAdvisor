@@ -159,7 +159,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
             Latest-outcome focus: {watchlist.summary.latest_outcome_focus_cue} · Escalate {watchlist.summary.latest_outcome_breakdown.escalate_for_closer_review ?? 0} · Revisit {watchlist.summary.latest_outcome_breakdown.revisit_later ?? 0} · Continue {watchlist.summary.latest_outcome_breakdown.continue_monitoring ?? 0} · Closed {watchlist.summary.latest_outcome_breakdown.close_for_now ?? 0} · No record {watchlist.summary.latest_outcome_breakdown.unrecorded ?? 0}
           </p>
           <p className="lede compact">Action-oriented scan default: {watchlist.summary.next_step_scan_cue}</p>
-          <p className="lede compact">Compact follow-up groups: {watchlist.summary.compact_follow_up_grouping_cue}</p>
+          <p className="lede compact">Why items are highlighted/grouped: {watchlist.summary.compact_follow_up_grouping_cue}</p>
           <p className="lede compact">Compact next-step batches: {watchlist.summary.next_step_batching_cue}</p>
         </section>
 
@@ -217,7 +217,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                       <span className="meta-label">{entry.latest_context?.latest_decision_triage_cue ?? "No decision cue yet"}</span>
                       <div className="meta-label">{entry.latest_context?.latest_decision_next_step_cue ?? "Capture a latest decision outcome to unlock a next-step cue."}</div>
                       <div className="meta-label">{entry.latest_context?.latest_decision_batch_cue ?? "No batching cue yet."}</div>
-                      <div className="meta-label">{entry.latest_context?.latest_decision_rationale_cue ?? "Evidence hint unavailable."}</div>
+                      <div className="meta-label">{entry.latest_context?.latest_decision_rationale_cue ?? "Why this row is highlighted/grouped is unavailable."}</div>
                     </td>
                     <td>
                       <form method="POST" action="/watchlist/actions">

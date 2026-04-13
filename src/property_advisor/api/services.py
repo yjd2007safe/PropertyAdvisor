@@ -542,11 +542,11 @@ def _build_compact_rationale_language_cue(breakdown: dict[str, int]) -> str:
     monitor_later = int(breakdown.get("continue_monitoring", 0)) + int(breakdown.get("close_for_now", 0))
     compact: list[str] = []
     if active_intervention > 0:
-        compact.append("Escalate/Revisit lead because they need active intervention.")
+        compact.append("Highlighted first: Escalate/Revisit items still need active follow-up.")
     if outcome_capture > 0:
-        compact.append("Unrecorded outcomes stay visible so reviewer intent is explicit.")
+        compact.append("Highlighted next: unrecorded outcomes still need a reviewer outcome.")
     if monitor_later > 0:
-        compact.append("Continue/Closed rows trail in low-noise monitor passes.")
+        compact.append("Grouped later: Continue/Closed rows move to low-noise weekly follow-up.")
     return " ".join(compact) if compact else "No rationale cues yet; follow default outcome ordering."
 
 
@@ -574,11 +574,11 @@ def _build_plan_compact_rationale_cue(plan: dict[str, object]) -> str:
     action_state = str(plan.get("reviewer_action_state") or "pending")
     decision_support_state = str(plan.get("decision_support_state") or "active_attention")
     if decision_support_state == "active_attention":
-        emphasis = "row stays emphasized for active attention"
+        emphasis = "highlighted now because it still needs active follow-up"
     elif decision_support_state == "reopen_for_closer_review":
-        emphasis = "row stays emphasized to recheck soon"
+        emphasis = "highlighted now because it needs a near-term recheck"
     else:
-        emphasis = "row is grouped into weekly monitor"
+        emphasis = "grouped later because it is in weekly monitor mode"
     return _build_compact_evidence_hint(
         outcome=outcome,
         emphasis_reason=f"{emphasis}; reviewer state={action_state.replace('_', ' ')}",
@@ -1195,7 +1195,7 @@ def _build_watchlist_groups(group_by: Literal["none", "state", "strategy"], item
                     high_alerts=sum(1 for entry in prioritized_entries for alert in entry.alerts if alert.severity == "high"),
                     compact_rationale_cue=_build_compact_evidence_hint(
                         outcome=top_outcome,
-                        emphasis_reason="group emphasizes actionable outcomes plus review/paused rows first",
+                        emphasis_reason="highlighted first because this group still has actionable/review follow-up rows",
                         grouping_reason=f"grouped by {group_by}",
                     ),
                 ),
@@ -1407,9 +1407,9 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
     latest_decision = _latest_decision_for_watchlist(orchestration, item.suburb_slug)
     high_alert_count = sum(1 for alert in item.alerts if alert.severity == "high")
     if item.watch_status in {"review", "paused"} or high_alert_count > 0:
-        emphasis_reason = "row stays emphasized because status/alerts still need active follow-up"
+        emphasis_reason = "highlighted now because status/alerts still need active follow-up"
     else:
-        emphasis_reason = "row is grouped for monitor-later treatment"
+        emphasis_reason = "grouped later because it is in monitor-later treatment"
 
     return item.model_copy(
         update={
