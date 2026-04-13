@@ -56,6 +56,10 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "no recorded outcome" in status.summary.decision_outcome_cue.lower()
     assert "default scan" in status.summary.action_scan_default_cue.lower()
     assert "batch" in status.summary.next_step_batching_cue.lower()
+    assert any(
+        label in status.summary.compact_follow_up_grouping_cue.lower()
+        for label in ("active-intervention", "outcome-capture", "monitor-later")
+    )
     assert status.summary.latest_outcome_distribution
     assert status.summary.latest_outcome_distribution[0].outcome in {"escalate_for_closer_review", "revisit_later", "unrecorded"}
     assert any(item.outcome == "unrecorded" and item.is_actionable for item in status.summary.latest_outcome_distribution)

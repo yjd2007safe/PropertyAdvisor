@@ -522,6 +522,20 @@ def _build_next_step_batching_cue(breakdown: dict[str, int]) -> str:
     return " · ".join(compact) if compact else "No next-step batching signals yet."
 
 
+def _build_compact_follow_up_grouping_cue(breakdown: dict[str, int]) -> str:
+    active_intervention = int(breakdown.get("escalate_for_closer_review", 0)) + int(breakdown.get("revisit_later", 0))
+    outcome_capture = int(breakdown.get("unrecorded", 0))
+    monitor_later = int(breakdown.get("continue_monitoring", 0)) + int(breakdown.get("close_for_now", 0))
+    compact: list[str] = []
+    if active_intervention > 0:
+        compact.append(f"Active-intervention ×{active_intervention}")
+    if outcome_capture > 0:
+        compact.append(f"Outcome-capture ×{outcome_capture}")
+    if monitor_later > 0:
+        compact.append(f"Monitor-later ×{monitor_later}")
+    return " · ".join(compact) if compact else "No compact follow-up groups yet."
+
+
 def _build_decision_outcome_grouping(plans: list[dict[str, object]]) -> tuple[str, dict[str, int]]:
     counts = {
         "escalate_for_closer_review": 0,
@@ -1250,6 +1264,7 @@ def get_watchlist(
         ),
         next_step_scan_cue=_build_action_scan_default_cue(latest_outcome_breakdown),
         next_step_batching_cue=_build_next_step_batching_cue(latest_outcome_breakdown),
+        compact_follow_up_grouping_cue=_build_compact_follow_up_grouping_cue(latest_outcome_breakdown),
         investor_brief=(
             "Focus this week on review and paused suburbs with high-severity pricing alerts; archive only after outcomes are captured."
             if alert_counts["high"] > 0
@@ -1520,6 +1535,7 @@ def get_orchestration_review_status(
     decision_outcome_cue, decision_outcome_breakdown = _build_decision_outcome_grouping(all_plans)
     action_scan_default_cue = _build_action_scan_default_cue(decision_outcome_breakdown)
     next_step_batching_cue = _build_next_step_batching_cue(decision_outcome_breakdown)
+    compact_follow_up_grouping_cue = _build_compact_follow_up_grouping_cue(decision_outcome_breakdown)
     filtered_plans = _sort_orchestration_plans_for_scan(_filter_plans_by_decision_outcome(all_plans, outcome_focus))
     plans = filtered_plans[:limit] if limit > 0 else filtered_plans
 
@@ -1610,6 +1626,7 @@ def get_orchestration_review_status(
             ),
             action_scan_default_cue=action_scan_default_cue,
             next_step_batching_cue=next_step_batching_cue,
+            compact_follow_up_grouping_cue=compact_follow_up_grouping_cue,
         ),
         plans=[
             OrchestrationPlanItem(

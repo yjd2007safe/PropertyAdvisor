@@ -130,6 +130,10 @@ def test_watchlist_defaults_to_strategy_grouping_and_outcome_priority_sort() -> 
     assert response.summary.grouped_view == "strategy"
     assert "default scan" in response.summary.next_step_scan_cue.lower()
     assert "batch" in response.summary.next_step_batching_cue.lower()
+    assert any(
+        label in response.summary.compact_follow_up_grouping_cue.lower()
+        for label in ("active-intervention", "outcome-capture", "monitor-later")
+    )
     assert response.groups
     if len(response.items) < 2:
         return
