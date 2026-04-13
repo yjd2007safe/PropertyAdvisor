@@ -188,3 +188,28 @@ def test_orchestration_review_supports_outcome_focus_filter(tmp_path: Path) -> N
     assert focused.summary.pending_count == 1
     assert focused.summary.total_pending_count == 2
     assert all(plan.reviewer_decision_outcome == "escalate_for_closer_review" for plan in focused.plans)
+
+
+def test_orchestration_review_orders_actionable_outcomes_first(tmp_path: Path) -> None:
+    _write_artifact(
+        tmp_path,
+        event_type="ready_for_evaluation",
+        event_id="evt-review",
+        created_at="2026-03-29T09:30:00+00:00",
+    )
+    _write_artifact(
+        tmp_path,
+        event_type="completed",
+        event_id="evt-progress",
+        created_at="2026-03-29T10:00:00+00:00",
+    )
+
+    apply_orchestration_review_action(
+        OrchestrationReviewActionRequest(event_id="evt-progress", action="close_follow_up"),
+        artifact_path=tmp_path,
+    )
+    status = get_orchestration_review_status(artifact_path=tmp_path, limit=10)
+
+    assert status.plans
+    assert status.plans[0].event_id == "evt-review"
+    assert status.plans[0].reviewer_decision_outcome is None

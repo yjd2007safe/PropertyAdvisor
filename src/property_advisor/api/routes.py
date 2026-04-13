@@ -96,7 +96,7 @@ def watchlist(
     state: Optional[str] = Query(default=None, min_length=2, max_length=3),
     watch_status: Optional[Literal["active", "review", "paused", "archived"]] = Query(default=None),
     latest_outcome: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review"]] = Query(default=None),
-    group_by: Literal["none", "state", "strategy"] = Query(default="none"),
+    group_by: Literal["none", "state", "strategy"] = Query(default="strategy"),
 ) -> WatchlistResponse:
     return get_watchlist(
         suburb_slug=suburb_slug,

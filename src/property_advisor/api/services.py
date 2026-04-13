@@ -165,6 +165,7 @@ _DECISION_OUTCOME_LABELS = {
 _DECISION_OUTCOME_PRIORITY = {
     "escalate_for_closer_review": 4,
     "revisit_later": 3,
+    "unrecorded": 3,
     "continue_monitoring": 2,
     "close_for_now": 1,
 }
@@ -191,6 +192,13 @@ _DECISION_OUTCOME_SUMMARY_ORDER = [
     "continue_monitoring",
     "close_for_now",
 ]
+
+_WATCHLIST_STATUS_PRIORITY = {
+    "review": 4,
+    "paused": 3,
+    "active": 2,
+    "archived": 1,
+}
 
 
 def _review_state_path(artifact_path: Path) -> Path:
@@ -302,6 +310,29 @@ def _build_orchestration_queue(records: list[dict[str, object]]) -> list[dict[st
     plans = [_build_orchestration_plan(record) for record in records]
     plans.sort(key=lambda plan: (-int(plan["priority"]), str(plan.get("queued_at") or ""), str(plan.get("created_at") or ""), str(plan.get("event_id") or "")))
     return plans
+
+
+def _decision_outcome_priority(outcome: Optional[str]) -> int:
+    normalized = (outcome or "").strip()
+    if not normalized:
+        normalized = "unrecorded"
+    return _DECISION_OUTCOME_PRIORITY.get(normalized, 0)
+
+
+def _sort_orchestration_plans_for_scan(plans: list[dict[str, object]]) -> list[dict[str, object]]:
+    return sorted(
+        plans,
+        key=lambda plan: (
+            0 if bool(plan.get("requires_human_review")) else 1,
+            -_decision_outcome_priority(str(plan.get("reviewer_decision_outcome") or "")),
+            -(
+                int(
+                    (_parse_timestamp(plan.get("queued_at")) or _parse_timestamp(plan.get("created_at")) or datetime.fromtimestamp(0, tz=timezone.utc)).timestamp()
+                )
+            ),
+            str(plan.get("event_id") or ""),
+        ),
+    )
 
 
 def _build_revisit_decision_support(plan: dict[str, object]) -> dict[str, str]:
@@ -1026,18 +1057,66 @@ def _build_watchlist_groups(group_by: Literal["none", "state", "strategy"], item
         key = item.state if group_by == "state" else item.strategy
         grouped.setdefault(key, []).append(item)
 
-    groups: List[WatchlistGroup] = []
-    for key, entries in sorted(grouped.items(), key=lambda pair: pair[0]):
-        groups.append(
-            WatchlistGroup(
-                key=key.lower(),
-                label=key,
-                entries=entries,
-                action_required=sum(1 for entry in entries if entry.watch_status in {"review", "paused"}),
-                high_alerts=sum(1 for entry in entries for alert in entry.alerts if alert.severity == "high"),
+    ranked_groups: list[tuple[int, WatchlistGroup]] = []
+    for key, entries in grouped.items():
+        prioritized_entries = _sort_watchlist_entries_for_scan(entries)
+        actionable_outcomes = sum(
+            1
+            for entry in prioritized_entries
+            if (entry.latest_context.latest_decision.outcome if entry.latest_context and entry.latest_context.latest_decision else "unrecorded")
+            in _ACTIONABLE_DECISION_OUTCOMES
+        )
+        ranked_groups.append(
+            (
+                actionable_outcomes,
+                WatchlistGroup(
+                    key=key.lower(),
+                    label=key,
+                    entries=prioritized_entries,
+                    action_required=sum(1 for entry in prioritized_entries if entry.watch_status in {"review", "paused"}),
+                    high_alerts=sum(1 for entry in prioritized_entries for alert in entry.alerts if alert.severity == "high"),
+                ),
             )
         )
-    return groups
+    return [
+        group
+        for _, group in sorted(
+            ranked_groups,
+        key=lambda group: (
+                -group[0],
+                -group[1].action_required,
+                -group[1].high_alerts,
+                group[1].label.lower(),
+        ),
+    )
+    ]
+
+
+def _sort_watchlist_entries_for_scan(items: List[WatchlistEntry]) -> List[WatchlistEntry]:
+    def _entry_timestamp(entry: WatchlistEntry) -> int:
+        latest_decision_at = (
+            entry.latest_context.latest_decision.acted_at
+            if entry.latest_context and entry.latest_context.latest_decision
+            else None
+        )
+        context_updated_at = entry.latest_context.updated_at.isoformat() if entry.latest_context else None
+        parsed = _parse_timestamp(latest_decision_at) or _parse_timestamp(context_updated_at)
+        return int(parsed.timestamp()) if parsed else 0
+
+    def _entry_outcome(entry: WatchlistEntry) -> str:
+        if entry.latest_context and entry.latest_context.latest_decision:
+            return entry.latest_context.latest_decision.outcome
+        return "unrecorded"
+
+    return sorted(
+        items,
+        key=lambda entry: (
+            -_decision_outcome_priority(_entry_outcome(entry)),
+            -_WATCHLIST_STATUS_PRIORITY.get(entry.watch_status, 0),
+            -_entry_timestamp(entry),
+            entry.suburb_slug,
+        ),
+    )
 
 
 def get_watchlist(
@@ -1046,7 +1125,7 @@ def get_watchlist(
     state: Optional[str] = None,
     watch_status: Optional[str] = None,
     latest_outcome: Optional[str] = None,
-    group_by: Literal["none", "state", "strategy"] = "none",
+    group_by: Literal["none", "state", "strategy"] = "strategy",
     dal: DataAccessLayer = _DAL,
 ) -> WatchlistResponse:
     items = dal.watchlist.list_entries(
@@ -1082,6 +1161,7 @@ def get_watchlist(
             for item in enriched_items
             if item.latest_context and item.latest_context.latest_decision and item.latest_context.latest_decision.outcome == latest_outcome
         ]
+    enriched_items = _sort_watchlist_entries_for_scan(enriched_items)
 
     alert_counts = {"info": 0, "watch": 0, "high": 0}
     by_status = {"active": 0, "review": 0, "paused": 0, "archived": 0}
@@ -1383,7 +1463,7 @@ def get_orchestration_review_status(
     all_plans = _build_orchestration_queue(records)
     all_plans = _apply_reviewer_action_state(all_plans, _load_review_state(artifact_path))
     decision_outcome_cue, decision_outcome_breakdown = _build_decision_outcome_grouping(all_plans)
-    filtered_plans = _filter_plans_by_decision_outcome(all_plans, outcome_focus)
+    filtered_plans = _sort_orchestration_plans_for_scan(_filter_plans_by_decision_outcome(all_plans, outcome_focus))
     plans = filtered_plans[:limit] if limit > 0 else filtered_plans
 
     review_required_count = sum(1 for plan in plans if plan.get("requires_human_review"))
