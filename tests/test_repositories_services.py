@@ -93,6 +93,7 @@ def test_watchlist_action_upsert_feeds_watchlist_context() -> None:
     assert response.items[0].watch_status == "archived"
     assert response.items[0].latest_context is not None
     assert "review_required=" in response.items[0].latest_context.orchestration
+    assert response.items[0].latest_context.latest_decision_triage_cue is None or ":" in response.items[0].latest_context.latest_decision_triage_cue
 
 
 def test_service_comparables_empty_state() -> None:

@@ -51,6 +51,8 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "active follow-up states" in status.summary.next_action.lower()
     assert "awaiting operator outcome ×1" in status.summary.next_action.lower()
     assert "carry-forward summary" in status.summary.next_action.lower()
+    assert "outcome triage" in status.summary.next_action.lower()
+    assert "no recorded outcome" in status.summary.decision_outcome_cue.lower()
     assert "awaiting operator outcome: waiting on explicit review outcome before continuing this session" in status.summary.next_action.lower()
     assert status.plans[0].event_id == "evt-review"
     assert status.plans[0].requires_human_review is True
@@ -120,6 +122,7 @@ def test_orchestration_review_action_closes_follow_up_and_updates_state(tmp_path
     assert closed_plan.decision_support_state == "mostly_stable"
     assert "stable for now" in closed_plan.next_review_cue.lower()
     assert "awaiting operator outcome ×1" not in refreshed.summary.next_action.lower()
+    assert refreshed.summary.decision_outcome_breakdown["continue_monitoring"] >= 1
 
 
 def test_orchestration_review_status_empty_queue(tmp_path: Path) -> None:
@@ -154,4 +157,6 @@ def test_orchestration_review_status_auto_progressing_includes_follow_up_state_c
     assert "active follow-up states" in status.summary.next_action.lower()
     assert "revisit after resume ×1" in status.summary.next_action.lower()
     assert "carry-forward summary" in status.summary.next_action.lower()
+    assert "outcome triage" in status.summary.next_action.lower()
+    assert "no recorded outcome" in status.summary.decision_outcome_cue.lower()
     assert "revisit after resume: interrupted runs should be rechecked after auto-resume" in status.summary.next_action.lower()
