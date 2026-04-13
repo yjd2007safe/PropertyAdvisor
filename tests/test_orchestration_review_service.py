@@ -52,7 +52,9 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "awaiting operator outcome ×1" in status.summary.next_action.lower()
     assert "carry-forward summary" in status.summary.next_action.lower()
     assert "outcome triage" in status.summary.next_action.lower()
+    assert "default scan" in status.summary.next_action.lower()
     assert "no recorded outcome" in status.summary.decision_outcome_cue.lower()
+    assert "default scan" in status.summary.action_scan_default_cue.lower()
     assert status.summary.latest_outcome_distribution
     assert status.summary.latest_outcome_distribution[0].outcome in {"escalate_for_closer_review", "revisit_later", "unrecorded"}
     assert any(item.outcome == "unrecorded" and item.is_actionable for item in status.summary.latest_outcome_distribution)
@@ -67,10 +69,12 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "action still open" in status.plans[0].next_review_cue.lower()
     assert "needs active attention" in status.plans[0].revisit_guidance.lower()
     assert "decision" in status.plans[0].next_step_outcome.lower()
+    assert "capture a reviewer outcome" in status.plans[0].next_step_action_cue.lower()
     assert "review outcome" in status.plans[0].revisit_reason.lower()
     assert status.plans[1].follow_up_state == "revisit_downstream_surfaces"
     assert status.plans[1].decision_support_state == "mostly_stable"
     assert "stable for now" in status.plans[1].next_review_cue.lower()
+    assert "capture a reviewer outcome" in status.plans[1].next_step_action_cue.lower()
     assert "revisit guidance" in status.summary.next_action.lower()
 
 

@@ -262,6 +262,7 @@ export type OrchestrationPlanItem = {
   reviewer_decision_record?: DecisionOutcomeSummary | null;
   revisit_guidance: string;
   next_review_cue: string;
+  next_step_action_cue: string;
   decision_support_state: "active_attention" | "mostly_stable" | "reopen_for_closer_review";
   message?: string | null;
 };
@@ -288,6 +289,7 @@ export type OrchestrationReviewResponse = {
       is_actionable: boolean;
     }>;
     active_decision_outcome_filter?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | "unrecorded" | null;
+    action_scan_default_cue: string;
   };
   plans: OrchestrationPlanItem[];
 };
@@ -321,6 +323,7 @@ export type WatchlistEntry = {
     orchestration: string;
     latest_decision?: DecisionOutcomeSummary | null;
     latest_decision_triage_cue?: string | null;
+    latest_decision_next_step_cue?: string | null;
     updated_at: string;
   } | null;
 };
@@ -346,6 +349,7 @@ export type WatchlistResponse = {
     }>;
     active_latest_outcome_filter?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | null;
     latest_outcome_focus_cue: string;
+    next_step_scan_cue: string;
     investor_brief: string;
   };
   summary_cards: SummaryCard[];
