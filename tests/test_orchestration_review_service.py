@@ -81,6 +81,7 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "capture a reviewer outcome" in status.plans[0].next_step_action_cue.lower()
     assert "batch" in status.plans[0].next_step_batch_cue.lower()
     assert "evidence hint:" in status.plans[0].compact_rationale_cue.lower()
+    assert "reason label: active follow-up" in status.plans[0].compact_rationale_cue.lower()
     assert "highlighted now because it still needs active follow-up" in status.plans[0].compact_rationale_cue.lower()
     assert "review outcome" in status.plans[0].revisit_reason.lower()
     assert status.plans[1].follow_up_state == "revisit_downstream_surfaces"
@@ -89,6 +90,7 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "capture a reviewer outcome" in status.plans[1].next_step_action_cue.lower()
     assert "batch" in status.plans[1].next_step_batch_cue.lower()
     assert "evidence hint:" in status.plans[1].compact_rationale_cue.lower()
+    assert "reason label: weekly monitor" in status.plans[1].compact_rationale_cue.lower()
     assert "revisit guidance" in status.summary.next_action.lower()
 
 
