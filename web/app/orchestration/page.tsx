@@ -265,6 +265,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           <p className="lede compact">Follow-up emphasis: {lowNoiseFollowUpEmphasis}</p>
           <p className="lede compact">Grouped follow-up cue: {groupedFollowUpCue}</p>
           <p className="lede compact">Decision-outcome triage: {summary.decision_outcome_cue}</p>
+          <p className="lede compact">Action-oriented scan default: {summary.action_scan_default_cue}</p>
           <p className="lede compact">Outcome groups: {formatOutcomeBreakdown(summary.decision_outcome_breakdown)}</p>
           <p className="lede compact">
             Revisit decision support: {decisionSupportCounts.activeAttention} active · {decisionSupportCounts.mostlyStable} mostly stable · {decisionSupportCounts.reopen} re-open.
@@ -290,7 +291,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
             />
             <table className="data-table">
               <thead>
-                <tr><th>Event</th><th>Action</th><th>Review</th><th>Queued</th><th>Outcome</th><th>Revisit later because</th><th>Revisit guidance</th><th>Decision memory</th><th>Reviewer state</th><th>Workflow closure</th></tr>
+                <tr><th>Event</th><th>Action</th><th>Review</th><th>Queued</th><th>Outcome</th><th>Next-step cue</th><th>Revisit later because</th><th>Revisit guidance</th><th>Decision memory</th><th>Reviewer state</th><th>Workflow closure</th></tr>
               </thead>
               <tbody>
                 {sortedVisiblePlans.map((plan) => (
@@ -300,6 +301,9 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                     <td>{plan.requires_human_review ? "Required" : "Not required"}</td>
                     <td>{formatTimestamp(plan.queued_at ?? plan.created_at)}</td>
                     <td>{plan.next_step_outcome}</td>
+                    <td>
+                      {plan.next_step_action_cue}
+                    </td>
                     <td>{buildActiveReason(plan)}</td>
                     <td>
                       {formatDecisionSupportState(plan.decision_support_state)}
