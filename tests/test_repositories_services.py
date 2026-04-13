@@ -97,7 +97,7 @@ def test_watchlist_action_upsert_feeds_watchlist_context() -> None:
     assert response.items[0].latest_context.latest_decision_next_step_cue
     assert response.items[0].latest_context.latest_decision_batch_cue
     assert response.items[0].latest_context.latest_decision_rationale_cue
-    assert "reason label:" in response.items[0].latest_context.latest_decision_rationale_cue.lower()
+    assert "reason:" in response.items[0].latest_context.latest_decision_rationale_cue.lower()
 
 
 def test_watchlist_supports_latest_outcome_focus_filter() -> None:
@@ -142,8 +142,8 @@ def test_watchlist_defaults_to_strategy_grouping_and_outcome_priority_sort() -> 
     )
     assert response.groups
     assert response.groups[0].compact_rationale_cue
-    assert "reason label: active follow-up" in response.groups[0].compact_rationale_cue.lower()
-    assert "highlighted first because this group still has actionable/review follow-up rows" in response.groups[0].compact_rationale_cue.lower()
+    assert "reason: active follow-up" in response.groups[0].compact_rationale_cue.lower()
+    assert "prioritize first: actionable/review follow-up rows" in response.groups[0].compact_rationale_cue.lower()
     if len(response.items) < 2:
         return
 
