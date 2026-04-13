@@ -96,6 +96,7 @@ def test_watchlist_action_upsert_feeds_watchlist_context() -> None:
     assert response.items[0].latest_context.latest_decision_triage_cue is None or ":" in response.items[0].latest_context.latest_decision_triage_cue
     assert response.items[0].latest_context.latest_decision_next_step_cue
     assert response.items[0].latest_context.latest_decision_batch_cue
+    assert response.items[0].latest_context.latest_decision_rationale_cue
 
 
 def test_watchlist_supports_latest_outcome_focus_filter() -> None:
@@ -135,6 +136,7 @@ def test_watchlist_defaults_to_strategy_grouping_and_outcome_priority_sort() -> 
         for label in ("active-intervention", "outcome-capture", "monitor-later")
     )
     assert response.groups
+    assert response.groups[0].compact_rationale_cue
     if len(response.items) < 2:
         return
 

@@ -536,6 +536,34 @@ def _build_compact_follow_up_grouping_cue(breakdown: dict[str, int]) -> str:
     return " · ".join(compact) if compact else "No compact follow-up groups yet."
 
 
+def _build_compact_rationale_language_cue(breakdown: dict[str, int]) -> str:
+    active_intervention = int(breakdown.get("escalate_for_closer_review", 0)) + int(breakdown.get("revisit_later", 0))
+    outcome_capture = int(breakdown.get("unrecorded", 0))
+    monitor_later = int(breakdown.get("continue_monitoring", 0)) + int(breakdown.get("close_for_now", 0))
+    compact: list[str] = []
+    if active_intervention > 0:
+        compact.append("Escalate/Revisit lead because they need active intervention.")
+    if outcome_capture > 0:
+        compact.append("Unrecorded outcomes stay visible so reviewer intent is explicit.")
+    if monitor_later > 0:
+        compact.append("Continue/Closed rows trail in low-noise monitor passes.")
+    return " ".join(compact) if compact else "No rationale cues yet; follow default outcome ordering."
+
+
+def _build_plan_compact_rationale_cue(plan: dict[str, object]) -> str:
+    outcome = str(plan.get("reviewer_decision_outcome") or "").strip() or "unrecorded"
+    label = "No recorded outcome" if outcome == "unrecorded" else _DECISION_OUTCOME_LABELS.get(outcome, outcome.replace("_", " "))
+    action_state = str(plan.get("reviewer_action_state") or "pending")
+    decision_support_state = str(plan.get("decision_support_state") or "active_attention")
+    if decision_support_state == "active_attention":
+        emphasis = "active attention"
+    elif decision_support_state == "reopen_for_closer_review":
+        emphasis = "recheck soon"
+    else:
+        emphasis = "weekly monitor"
+    return f"{label} · {action_state.replace('_', ' ')} · {emphasis}."
+
+
 def _build_decision_outcome_grouping(plans: list[dict[str, object]]) -> tuple[str, dict[str, int]]:
     counts = {
         "escalate_for_closer_review": 0,
@@ -1138,6 +1166,11 @@ def _build_watchlist_groups(group_by: Literal["none", "state", "strategy"], item
                     entries=prioritized_entries,
                     action_required=sum(1 for entry in prioritized_entries if entry.watch_status in {"review", "paused"}),
                     high_alerts=sum(1 for entry in prioritized_entries for alert in entry.alerts if alert.severity == "high"),
+                    compact_rationale_cue=(
+                        f"Grouped by {group_by}; emphasizes actionable outcomes and review/paused rows first."
+                        if group_by in {"state", "strategy"}
+                        else "Ungrouped scan; emphasizes actionable outcomes and review/paused rows first."
+                    ),
                 ),
             )
         )
@@ -1264,7 +1297,10 @@ def get_watchlist(
         ),
         next_step_scan_cue=_build_action_scan_default_cue(latest_outcome_breakdown),
         next_step_batching_cue=_build_next_step_batching_cue(latest_outcome_breakdown),
-        compact_follow_up_grouping_cue=_build_compact_follow_up_grouping_cue(latest_outcome_breakdown),
+        compact_follow_up_grouping_cue=(
+            f"{_build_compact_follow_up_grouping_cue(latest_outcome_breakdown)} — "
+            f"{_build_compact_rationale_language_cue(latest_outcome_breakdown)}"
+        ),
         investor_brief=(
             "Focus this week on review and paused suburbs with high-severity pricing alerts; archive only after outcomes are captured."
             if alert_counts["high"] > 0
@@ -1354,6 +1390,11 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
                     _decision_next_step_cue(latest_decision.outcome if latest_decision else None)
                 ),
                 latest_decision_batch_cue=_decision_batch_cue(latest_decision.outcome if latest_decision else None),
+                latest_decision_rationale_cue=(
+                    f"{_DECISION_OUTCOME_LABELS.get(latest_decision.outcome, latest_decision.outcome.replace('_', ' '))} keeps this row near the top."
+                    if latest_decision
+                    else "No recorded outcome keeps this row visible until a reviewer outcome is captured."
+                ),
                 updated_at=datetime.now(timezone.utc),
             )
         }
@@ -1535,7 +1576,10 @@ def get_orchestration_review_status(
     decision_outcome_cue, decision_outcome_breakdown = _build_decision_outcome_grouping(all_plans)
     action_scan_default_cue = _build_action_scan_default_cue(decision_outcome_breakdown)
     next_step_batching_cue = _build_next_step_batching_cue(decision_outcome_breakdown)
-    compact_follow_up_grouping_cue = _build_compact_follow_up_grouping_cue(decision_outcome_breakdown)
+    compact_follow_up_grouping_cue = (
+        f"{_build_compact_follow_up_grouping_cue(decision_outcome_breakdown)} — "
+        f"{_build_compact_rationale_language_cue(decision_outcome_breakdown)}"
+    )
     filtered_plans = _sort_orchestration_plans_for_scan(_filter_plans_by_decision_outcome(all_plans, outcome_focus))
     plans = filtered_plans[:limit] if limit > 0 else filtered_plans
 
@@ -1688,6 +1732,7 @@ def get_orchestration_review_status(
                     if str(plan.get("decision_support_state") or "") in {"active_attention", "mostly_stable", "reopen_for_closer_review"}
                     else "active_attention"
                 ),
+                compact_rationale_cue=_build_plan_compact_rationale_cue(plan),
                 message=plan.get("message"),
             )
             for plan in plans

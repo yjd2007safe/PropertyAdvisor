@@ -76,12 +76,14 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "decision" in status.plans[0].next_step_outcome.lower()
     assert "capture a reviewer outcome" in status.plans[0].next_step_action_cue.lower()
     assert "batch" in status.plans[0].next_step_batch_cue.lower()
+    assert "active attention" in status.plans[0].compact_rationale_cue.lower()
     assert "review outcome" in status.plans[0].revisit_reason.lower()
     assert status.plans[1].follow_up_state == "revisit_downstream_surfaces"
     assert status.plans[1].decision_support_state == "mostly_stable"
     assert "stable for now" in status.plans[1].next_review_cue.lower()
     assert "capture a reviewer outcome" in status.plans[1].next_step_action_cue.lower()
     assert "batch" in status.plans[1].next_step_batch_cue.lower()
+    assert "weekly monitor" in status.plans[1].compact_rationale_cue.lower()
     assert "revisit guidance" in status.summary.next_action.lower()
 
 
