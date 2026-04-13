@@ -122,6 +122,32 @@ def test_watchlist_supports_latest_outcome_focus_filter() -> None:
         )
 
 
+def test_watchlist_defaults_to_strategy_grouping_and_outcome_priority_sort() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    response = get_watchlist(dal=dal)
+    assert response.summary.grouped_view == "strategy"
+    assert response.groups
+    if len(response.items) < 2:
+        return
+
+    outcome_priority = {
+        "escalate_for_closer_review": 4,
+        "revisit_later": 3,
+        "unrecorded": 3,
+        "continue_monitoring": 2,
+        "close_for_now": 1,
+    }
+    observed = [
+        outcome_priority[
+            item.latest_context.latest_decision.outcome
+            if item.latest_context and item.latest_context.latest_decision
+            else "unrecorded"
+        ]
+        for item in response.items
+    ]
+    assert observed == sorted(observed, reverse=True)
+
+
 def test_service_comparables_empty_state() -> None:
     dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     response = get_comparables(query="empty", dal=dal)
