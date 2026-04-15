@@ -583,6 +583,9 @@ def _build_compact_evidence_hint(
 def _build_plan_compact_rationale_cue(plan: dict[str, object]) -> str:
     outcome = str(plan.get("reviewer_decision_outcome") or "").strip() or "unrecorded"
     action_state = str(plan.get("reviewer_action_state") or "pending")
+    follow_up_state = str(plan.get("follow_up_state") or "monitor")
+    follow_up_label = _FOLLOW_UP_STATE_LABELS.get(follow_up_state, follow_up_state.replace("_", " "))
+    next_review_cue = str(plan.get("next_review_cue") or "").strip()
     decision_support_state = str(plan.get("decision_support_state") or "active_attention")
     if decision_support_state == "active_attention":
         emphasis = f"{_reason_label_phrase('active_follow_up')}; prioritize now for active follow-up"
@@ -590,9 +593,12 @@ def _build_plan_compact_rationale_cue(plan: dict[str, object]) -> str:
         emphasis = f"{_reason_label_phrase('near_term_recheck')}; recheck soon"
     else:
         emphasis = f"{_reason_label_phrase('weekly_monitor')}; queue later in weekly monitor"
+    follow_up_intent = f"Follow-up intent: {follow_up_label}"
+    if next_review_cue:
+        follow_up_intent += f"; watch next={next_review_cue.rstrip('.')}"
     return _build_compact_evidence_hint(
         outcome=outcome,
-        emphasis_reason=f"{emphasis}; reviewer state={action_state.replace('_', ' ')}",
+        emphasis_reason=f"{emphasis}; reviewer state={action_state.replace('_', ' ')}; {follow_up_intent}",
     )
 
 
