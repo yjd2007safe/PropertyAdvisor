@@ -243,7 +243,7 @@ def _save_review_state(artifact_path: Path, event_actions: dict[str, dict[str, s
 
 
 def _build_orchestration_plan(record: dict[str, object]) -> dict[str, object]:
-    event_type = str(record.get("event_type") or "")
+    event_type = _normalize_event_type(record.get("event_type"))
     policy = dict(_DEFAULT_ORCHESTRATION_POLICY)
     policy.update(_ORCHESTRATION_POLICY.get(event_type, {}))
     outcome_framing = dict(_DEFAULT_OUTCOME_FRAMING)
@@ -480,8 +480,12 @@ def _build_revisit_guidance_cue(plans: list[dict[str, object]]) -> str:
 def _build_notification_boundary_cue(plans: list[dict[str, object]]) -> str:
     if not plans:
         return ""
-    progress_count = sum(1 for plan in plans if str(plan.get("event_type") or "") in {"completed", "evaluated"})
-    closure_count = sum(1 for plan in plans if str(plan.get("event_type") or "") == "delivered")
+    progress_count = sum(
+        1
+        for plan in plans
+        if _normalize_event_type(plan.get("event_type")) in {"completed", "evaluated"}
+    )
+    closure_count = sum(1 for plan in plans if _normalize_event_type(plan.get("event_type")) == "delivered")
     if progress_count <= 0 and closure_count <= 0:
         return ""
     return (
@@ -1596,6 +1600,10 @@ def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _normalize_event_type(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
 def get_orchestration_review_status(
     *,
     artifact_path: Path = Path(".dev_pipeline/notifications"),
@@ -1624,7 +1632,7 @@ def get_orchestration_review_status(
             artifact = json.loads(path.read_text())
             if not isinstance(artifact, dict):
                 continue
-            event_type = str(artifact.get("event_type") or "")
+            event_type = _normalize_event_type(artifact.get("event_type"))
             event_id = str(artifact.get("event_id") or "")
             if not event_id or event_type not in _ORCHESTRATION_EVENT_TYPES or event_id in delivered_state:
                 continue
