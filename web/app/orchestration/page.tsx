@@ -97,7 +97,7 @@ function formatDecisionOutcome(outcome?: OrchestrationPlanItem["reviewer_decisio
   return "No recorded outcome";
 }
 
-function buildLowNoiseFollowUpEmphasis(plans: OrchestrationPlanItem[]): string {
+function buildFollowUpSummary(plans: OrchestrationPlanItem[]): string {
   if (plans.length === 0) {
     return "No visible orchestration items in this review scope.";
   }
@@ -107,33 +107,17 @@ function buildLowNoiseFollowUpEmphasis(plans: OrchestrationPlanItem[]): string {
     return "No manual follow-up items in this review scope.";
   }
 
-  const groupedSummaries = new Map<string, { count: number; latestAt: number }>();
-  for (const plan of reviewFirst) {
-    const summary = plan.revisit_reason.trim() || plan.strategy_summary.trim();
-    const compactSummary = summary.endsWith(".") ? summary.slice(0, -1) : summary;
-    if (!compactSummary) continue;
-    const current = groupedSummaries.get(compactSummary) ?? { count: 0, latestAt: 0 };
-    current.count += 1;
-    current.latestAt = Math.max(current.latestAt, parseTimestamp(plan.queued_at ?? plan.created_at));
-    groupedSummaries.set(compactSummary, current);
-  }
-
-  if (groupedSummaries.size === 0) {
-    return "Manual review is needed, but rationale cues are low-signal; open queue rows for full context.";
-  }
-
-  const compactLines = [...groupedSummaries.entries()]
-    .sort((left, right) => {
-      if (left[1].count !== right[1].count) return right[1].count - left[1].count;
-      if (left[1].latestAt !== right[1].latestAt) return right[1].latestAt - left[1].latestAt;
-      return left[0].localeCompare(right[0]);
-    })
+  const compactLines = reviewFirst
     .slice(0, 2)
-    .map(([summary, details]) => `${summary}${details.count > 1 ? ` ×${details.count}` : ""}`);
+    .map((plan) => {
+      const reason = plan.revisit_reason.trim() || plan.strategy_summary.trim() || "No reason recorded";
+      const compactReason = reason.endsWith(".") ? reason.slice(0, -1) : reason;
+      return `${plan.event_type}: ${formatActionLabel(plan.action)} - ${compactReason}`;
+    });
 
-  const remaining = groupedSummaries.size - compactLines.length;
+  const remaining = reviewFirst.length - compactLines.length;
   if (remaining > 0) {
-    compactLines.push(`+${remaining} more follow-up reason${remaining > 1 ? "s" : ""}.`);
+    compactLines.push(`+${remaining} more manual-review events`);
   }
 
   return compactLines.join(" · ");
@@ -205,7 +189,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
     const hiddenPlanCount = review.plans.length - visiblePlans.length;
     const queuedVisibleCount = sortedVisiblePlans.filter((plan) => Boolean(plan.queued_at)).length;
     const mostRecentVisibleAt = sortedVisiblePlans[0]?.queued_at ?? sortedVisiblePlans[0]?.created_at ?? null;
-    const lowNoiseFollowUpEmphasis = buildLowNoiseFollowUpEmphasis(sortedVisiblePlans);
+    const followUpSummary = buildFollowUpSummary(sortedVisiblePlans);
     const groupedFollowUpCue = buildGroupedFollowUpCue(sortedVisiblePlans);
     const decisionSupportCounts = {
       activeAttention: sortedVisiblePlans.filter((plan) => plan.decision_support_state === "active_attention").length,
@@ -262,7 +246,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           <p className="lede compact">
             Next-step outcome framing: {sortedVisiblePlans[0]?.next_step_outcome ?? "No visible outcome memory in this review scope yet."}
           </p>
-          <p className="lede compact">Follow-up emphasis: {lowNoiseFollowUpEmphasis}</p>
+          <p className="lede compact">Follow-up summary: {followUpSummary}</p>
           <p className="lede compact">Grouped follow-up cue: {groupedFollowUpCue}</p>
           <p className="lede compact">Decision-outcome triage: {summary.decision_outcome_cue}</p>
           <p className="lede compact">Action-oriented scan default: {summary.action_scan_default_cue}</p>
