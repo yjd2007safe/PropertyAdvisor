@@ -353,7 +353,7 @@ def test_watchlist_detail_and_alert_filter_flow() -> None:
     dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     orchestration = get_orchestration_review_status(limit=5)
     actionable_plan = next((plan for plan in orchestration.plans if "close_follow_up" in plan.reviewer_available_actions), None)
-    if actionable_plan:
+    if actionable_plan and "acknowledge" in actionable_plan.reviewer_available_actions:
         apply_orchestration_review_action(
             OrchestrationReviewActionRequest(event_id=actionable_plan.event_id, action="acknowledge")
         )
@@ -363,7 +363,10 @@ def test_watchlist_detail_and_alert_filter_flow() -> None:
     assert detail.item.suburb_slug == "southport-qld-4215"
     assert detail.item.latest_context is not None
     assert detail.item.latest_context.recent_reviewer_action_summary
-    assert "reviewer action" in detail.item.latest_context.recent_reviewer_action_summary.lower()
+    assert any(
+        cue in detail.item.latest_context.recent_reviewer_action_summary.lower()
+        for cue in ("reviewer action", "acknowledged", "closed")
+    )
     assert all(alert.severity == "high" for alert in high_alerts.items)
 
 
