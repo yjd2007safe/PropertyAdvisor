@@ -271,6 +271,7 @@ class WatchlistContextSummary(BaseModel):
     advisory: str
     comparables: str
     orchestration: str
+    recent_reviewer_action_summary: Optional[str] = None
     latest_decision: Optional[DecisionOutcomeSummary] = None
     latest_decision_triage_cue: Optional[str] = None
     latest_decision_next_step_cue: Optional[str] = None
@@ -405,6 +406,7 @@ class OrchestrationReviewSummary(BaseModel):
     active_decision_outcome_filter: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review", "unrecorded"]] = None
     active_reviewer_action_state_filter: Optional[Literal["pending", "acknowledged", "closed"]] = None
     active_follow_up_state_filter: Optional[str] = None
+    recent_reviewer_action_snapshot: str = ""
     action_scan_default_cue: str = ""
     next_step_batching_cue: str = ""
     compact_follow_up_grouping_cue: str = ""

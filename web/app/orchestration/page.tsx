@@ -309,6 +309,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           <p className="lede compact">
             Review snapshot: {sortedVisiblePlans.length} visible · {queuedVisibleCount} queued for delivery · Most recent event {formatTimestamp(mostRecentVisibleAt)}.
           </p>
+          <p className="lede compact">{summary.recent_reviewer_action_snapshot}</p>
           <p className="lede compact">
             Next-step outcome framing: {sortedVisiblePlans[0]?.next_step_outcome ?? "No visible outcome memory in this review scope yet."}
           </p>

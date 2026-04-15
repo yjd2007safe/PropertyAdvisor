@@ -293,6 +293,7 @@ export type OrchestrationReviewResponse = {
     active_decision_outcome_filter?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | "unrecorded" | null;
     active_reviewer_action_state_filter?: "pending" | "acknowledged" | "closed" | null;
     active_follow_up_state_filter?: string | null;
+    recent_reviewer_action_snapshot: string;
     action_scan_default_cue: string;
     next_step_batching_cue: string;
     compact_follow_up_grouping_cue: string;
@@ -333,6 +334,7 @@ export type WatchlistEntry = {
     advisory: string;
     comparables: string;
     orchestration: string;
+    recent_reviewer_action_summary?: string | null;
     latest_decision?: DecisionOutcomeSummary | null;
     latest_decision_triage_cue?: string | null;
     latest_decision_next_step_cue?: string | null;

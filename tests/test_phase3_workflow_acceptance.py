@@ -136,6 +136,9 @@ def test_phase3_watchlist_event_follow_up_labels_are_concise() -> None:
             "Refresh advisor view",
             "Check advisor recommendation",
             "Open orchestration review",
+            "Run advisor/comparables now",
+            "Continue watchlist review loop",
+            "Resume do-now orchestration pass",
         }
     )
     assert all("follow-up" not in label.lower() for label in labels)

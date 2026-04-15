@@ -71,6 +71,7 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert status.summary.latest_outcome_distribution[0].outcome in {"escalate_for_closer_review", "revisit_later", "unrecorded"}
     assert any(item.outcome == "unrecorded" and item.is_actionable for item in status.summary.latest_outcome_distribution)
     assert "awaiting operator outcome: waiting on explicit review outcome before continuing this session" in status.summary.next_action.lower()
+    assert status.summary.recent_reviewer_action_snapshot == "No recent reviewer actions recorded yet."
     assert status.plans[0].event_id == "evt-review"
     assert status.plans[0].requires_human_review is True
     assert status.plans[0].follow_up_state == "awaiting_outcome"
@@ -164,7 +165,38 @@ def test_orchestration_review_status_empty_queue(tmp_path: Path) -> None:
     assert status.summary.freshness == "empty"
     assert status.summary.latest_event_at is None
     assert "restart review" in status.summary.next_action.lower()
+    assert status.summary.recent_reviewer_action_snapshot == "No recent reviewer actions recorded yet."
     assert status.plans == []
+
+
+def test_orchestration_review_recent_reviewer_action_snapshot_orders_latest_first(tmp_path: Path) -> None:
+    _write_artifact(
+        tmp_path,
+        event_type="ready_for_evaluation",
+        event_id="evt-newer",
+        created_at="2026-03-29T11:00:00+00:00",
+    )
+    _write_artifact(
+        tmp_path,
+        event_type="completed",
+        event_id="evt-older",
+        created_at="2026-03-29T10:00:00+00:00",
+    )
+    apply_orchestration_review_action(
+        OrchestrationReviewActionRequest(event_id="evt-older", action="acknowledge"),
+        artifact_path=tmp_path,
+    )
+    apply_orchestration_review_action(
+        OrchestrationReviewActionRequest(event_id="evt-newer", action="close_follow_up"),
+        artifact_path=tmp_path,
+    )
+
+    status = get_orchestration_review_status(artifact_path=tmp_path, limit=10)
+    snapshot = status.summary.recent_reviewer_action_snapshot
+    assert snapshot.startswith("Recent reviewer actions:")
+    assert "Closed follow-up ready_for_evaluation (evt-newer)" in snapshot
+    assert "Acknowledged completed (evt-older)" in snapshot
+    assert snapshot.index("evt-newer") < snapshot.index("evt-older")
 
 
 def test_orchestration_review_status_auto_progressing_includes_follow_up_state_cue(tmp_path: Path) -> None:
