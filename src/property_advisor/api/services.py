@@ -477,6 +477,19 @@ def _build_revisit_guidance_cue(plans: list[dict[str, object]]) -> str:
     )
 
 
+def _build_notification_boundary_cue(plans: list[dict[str, object]]) -> str:
+    if not plans:
+        return ""
+    progress_count = sum(1 for plan in plans if str(plan.get("event_type") or "") in {"completed", "evaluated"})
+    closure_count = sum(1 for plan in plans if str(plan.get("event_type") or "") == "delivered")
+    if progress_count <= 0 and closure_count <= 0:
+        return ""
+    return (
+        "Bridge validation boundary: completed/evaluated events should remain in progress notifications, "
+        f"while delivered events close the loop (progress ×{progress_count}, closure ×{closure_count})."
+    )
+
+
 
 
 def _format_decision_triage_cue(record: DecisionOutcomeSummary) -> str:
@@ -1669,11 +1682,13 @@ def get_orchestration_review_status(
         state_cue = _build_follow_up_state_cue(review_plans)
         carry_forward_summary = _build_carry_forward_summary(review_plans)
         revisit_guidance_cue = _build_revisit_guidance_cue(review_plans)
+        notification_boundary_cue = _build_notification_boundary_cue(plans)
         next_action = (
             "Review highest-priority carry-forward follow-up, apply reviewer action state, then continue the orchestration loop."
             + (f" Active follow-up states: {state_cue}." if state_cue else "")
             + (f" Carry-forward summary: {carry_forward_summary}." if carry_forward_summary else "")
             + (f" Revisit guidance: {revisit_guidance_cue}." if revisit_guidance_cue else "")
+            + (f" Notification boundaries: {notification_boundary_cue}" if notification_boundary_cue else "")
             + (f" Outcome triage: {decision_outcome_cue}." if decision_outcome_cue else "")
             + (f" {action_scan_default_cue}" if action_scan_default_cue else "")
             + (
@@ -1687,11 +1702,13 @@ def get_orchestration_review_status(
         state_cue = _build_follow_up_state_cue(plans)
         carry_forward_summary = _build_carry_forward_summary(plans)
         revisit_guidance_cue = _build_revisit_guidance_cue(plans)
+        notification_boundary_cue = _build_notification_boundary_cue(plans)
         next_action = (
             "No manual blocker active; monitor auto-progress outcomes and revisit flagged items after downstream surfaces refresh."
             + (f" Active follow-up states: {state_cue}." if state_cue else "")
             + (f" Carry-forward summary: {carry_forward_summary}." if carry_forward_summary else "")
             + (f" Revisit guidance: {revisit_guidance_cue}." if revisit_guidance_cue else "")
+            + (f" Notification boundaries: {notification_boundary_cue}" if notification_boundary_cue else "")
             + (f" Outcome triage: {decision_outcome_cue}." if decision_outcome_cue else "")
             + (f" {action_scan_default_cue}" if action_scan_default_cue else "")
             + (
