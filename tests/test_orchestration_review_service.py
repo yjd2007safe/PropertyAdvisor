@@ -80,7 +80,7 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "decision" in status.plans[0].next_step_outcome.lower()
     assert "capture a reviewer outcome" in status.plans[0].next_step_action_cue.lower()
     assert "batch" in status.plans[0].next_step_batch_cue.lower()
-    assert "hint:" in status.plans[0].compact_rationale_cue.lower()
+    assert "rationale cue:" in status.plans[0].compact_rationale_cue.lower()
     assert "reason: active follow-up" in status.plans[0].compact_rationale_cue.lower()
     assert "prioritize now for active follow-up" in status.plans[0].compact_rationale_cue.lower()
     assert "review outcome" in status.plans[0].revisit_reason.lower()
@@ -89,7 +89,7 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "stable for now" in status.plans[1].next_review_cue.lower()
     assert "capture a reviewer outcome" in status.plans[1].next_step_action_cue.lower()
     assert "batch" in status.plans[1].next_step_batch_cue.lower()
-    assert "hint:" in status.plans[1].compact_rationale_cue.lower()
+    assert "rationale cue:" in status.plans[1].compact_rationale_cue.lower()
     assert "reason: weekly monitor" in status.plans[1].compact_rationale_cue.lower()
     assert "revisit guidance" in status.summary.next_action.lower()
 

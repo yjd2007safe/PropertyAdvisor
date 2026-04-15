@@ -214,10 +214,10 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                     <td>{formatCurrency(entry.target_buy_range_min)} - {formatCurrency(entry.target_buy_range_max)}</td>
                     <td>{entry.alerts[0] ? <AlertBadge tone={entry.alerts[0].severity}>{entry.alerts[0].title}</AlertBadge> : "No alerts"}</td>
                     <td>
-                      <span className="meta-label">{entry.latest_context?.latest_decision_triage_cue ?? "No decision cue yet"}</span>
-                      <div className="meta-label">{entry.latest_context?.latest_decision_next_step_cue ?? "Capture a latest decision outcome to unlock a next-step cue."}</div>
-                      <div className="meta-label">{entry.latest_context?.latest_decision_batch_cue ?? "No batching cue yet."}</div>
-                      <div className="meta-label">{entry.latest_context?.latest_decision_rationale_cue ?? "Why this row is highlighted/grouped is unavailable."}</div>
+                      <span className="meta-label">{entry.latest_context?.latest_decision_triage_cue ?? "Triage cue: no latest decision outcome recorded yet."}</span>
+                      <div className="meta-label">{entry.latest_context?.latest_decision_next_step_cue ?? "Next-step cue: capture a latest decision outcome to unlock explicit follow-up guidance."}</div>
+                      <div className="meta-label">{entry.latest_context?.latest_decision_batch_cue ?? "Batch cue: no outcome batch assigned yet."}</div>
+                      <div className="meta-label">{entry.latest_context?.latest_decision_rationale_cue ?? "Rationale cue: why this row is highlighted/grouped is unavailable until a latest decision is captured."}</div>
                     </td>
                     <td>
                       <form method="POST" action="/watchlist/actions">
@@ -269,7 +269,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                   <li><strong>Batch cue:</strong> {detail.item.latest_context.latest_decision_batch_cue}</li>
                 ) : null}
                 {detail.item.latest_context.latest_decision_rationale_cue ? (
-                  <li><strong>Evidence hint:</strong> {detail.item.latest_context.latest_decision_rationale_cue}</li>
+                  <li><strong>Rationale cue:</strong> {detail.item.latest_context.latest_decision_rationale_cue}</li>
                 ) : null}
               </ul>
             ) : null}
