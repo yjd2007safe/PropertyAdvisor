@@ -320,6 +320,11 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           <p className="lede compact">Action-oriented scan default: {summary.action_scan_default_cue}</p>
           <p className="lede compact">Why items are highlighted/grouped: {summary.compact_follow_up_grouping_cue}</p>
           <p className="lede compact">Compact next-step batches: {summary.next_step_batching_cue}</p>
+          <p className="lede compact">Session packet summary: {summary.review_session_packet_cue}</p>
+          <p className="lede compact">
+            Packet split — Do-now {summary.review_session_packet_breakdown.do_now} · Batch-later {summary.review_session_packet_breakdown.batch_later} · Recently-closed {summary.review_session_packet_breakdown.recently_closed}.
+          </p>
+          <p className="lede compact">{summary.review_session_packet_low_volume_note}</p>
           <p className="lede compact">Outcome groups: {formatOutcomeBreakdown(summary.decision_outcome_breakdown)}</p>
           <p className="lede compact">
             Revisit decision support: {decisionSupportCounts.activeAttention} active · {decisionSupportCounts.mostlyStable} mostly stable · {decisionSupportCounts.reopen} re-open.
@@ -334,7 +339,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
         {visiblePlans.length === 0 ? (
           <EmptyState
             title={selectedView === "all" ? "No orchestration items in this review scope" : "No actionable orchestration items in this review scope"}
-            body={selectedView === "all" ? "The runtime queue is currently clear. Return after the next cycle to pick up new outcome memory and cues." : "No events currently require manual review. Switch to All events to inspect auto-continue activity and outcome memory."}
+            body={selectedView === "all" ? "The runtime queue is currently clear. Packet framing will populate as new events arrive." : "No events currently require manual review. Switch to All events to keep packet framing coherent across do-now, batch-later, and recently-closed work."}
           />
         ) : (
           <section className="panel">

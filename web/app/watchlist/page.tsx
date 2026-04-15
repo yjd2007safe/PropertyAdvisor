@@ -169,6 +169,11 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           <p className="lede compact">Action-oriented scan default: {watchlist.summary.next_step_scan_cue}</p>
           <p className="lede compact">Why items are highlighted/grouped: {watchlist.summary.compact_follow_up_grouping_cue}</p>
           <p className="lede compact">Compact next-step batches: {watchlist.summary.next_step_batching_cue}</p>
+          <p className="lede compact">Session packet summary: {watchlist.summary.review_session_packet_cue}</p>
+          <p className="lede compact">
+            Packet split — Do-now {watchlist.summary.review_session_packet_breakdown.do_now} · Batch-later {watchlist.summary.review_session_packet_breakdown.batch_later} · Recently-closed {watchlist.summary.review_session_packet_breakdown.recently_closed}.
+          </p>
+          <p className="lede compact">{watchlist.summary.review_session_packet_low_volume_note}</p>
         </section>
 
         <section className="card-grid two-up">
@@ -208,7 +213,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
         {watchlist.items.length === 0 ? (
           <EmptyState
             title="No watchlist items in this review scope"
-            body="Adjust one filter (or reset view) to bring back suburbs, outcome memory cues, and alert context."
+            body="Adjust one filter (or reset view) to bring back suburbs and restore do-now, batch-later, and recently-closed packet framing."
           />
         ) : (
           <section className="panel">
@@ -326,7 +331,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
         )}
 
         {eventFeed.items.length === 0 ? (
-          <EmptyState title="No recent watchlist events" body="As new alerts and orchestration updates arrive, this timeline will highlight what changed and what to do next." />
+          <EmptyState title="No recent watchlist events" body="As new alerts and orchestration updates arrive, this timeline will repopulate review-session packets for do-now, batch-later, and recently-closed work." />
         ) : (
           <section className="panel">
             <p className="meta-label">Recent change timeline ({eventFeed.total})</p>
