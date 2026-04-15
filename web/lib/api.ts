@@ -309,6 +309,12 @@ export type WatchlistEvent = {
   detail: string;
   suburb_slug?: string | null;
   suburb_name?: string | null;
+  latest_decision?: DecisionOutcomeSummary | null;
+  latest_decision_triage_cue?: string | null;
+  reviewer_action_state?: "pending" | "acknowledged" | "closed" | null;
+  follow_up_state?: string | null;
+  decision_support_state?: "active_attention" | "mostly_stable" | "reopen_for_closer_review" | null;
+  follow_up_posture: "do_now" | "batch_later" | "recently_closed";
   follow_up_href: string;
   follow_up_label: string;
 };

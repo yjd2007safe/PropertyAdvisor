@@ -365,10 +365,33 @@ def test_watchlist_events_prioritizes_recent_actionable_changes() -> None:
         categories = {item.category for item in response.items}
         assert "watchlist" in categories or "alert" in categories
         assert categories <= {"watchlist", "alert", "advisory", "orchestration"}
+        assert {item.follow_up_posture for item in response.items} <= {"do_now", "batch_later", "recently_closed"}
         orchestration_links = [item.follow_up_href for item in response.items if item.category == "orchestration"]
         if orchestration_links:
             assert "reviewer_action_state_focus=" in orchestration_links[0]
             assert "follow_up_state_focus=" in orchestration_links[0]
+            assert "outcome_focus=" in orchestration_links[0]
+        repeated_review_items = [item for item in response.items if item.reviewer_action_state in {"pending", "acknowledged"}]
+        if repeated_review_items:
+            assert all(item.follow_up_posture == "do_now" for item in repeated_review_items[:2])
+
+
+def test_watchlist_events_packets_include_decision_and_reviewer_context() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    response = get_watchlist_events(limit=20, dal=dal)
+    assert response.items
+    assert all(item.follow_up_posture in {"do_now", "batch_later", "recently_closed"} for item in response.items)
+    orchestration_items = [item for item in response.items if item.category == "orchestration"]
+    if orchestration_items:
+        assert all(item.reviewer_action_state is not None for item in orchestration_items)
+        assert all(item.follow_up_state is not None for item in orchestration_items)
+        assert all(item.decision_support_state is not None for item in orchestration_items)
+    decision_items = [item for item in response.items if item.latest_decision is not None]
+    if decision_items:
+        assert any(item.latest_decision_triage_cue for item in decision_items)
+    for item in response.items[:5]:
+        if item.latest_decision and item.latest_decision.outcome == "close_for_now":
+            assert item.follow_up_posture == "recently_closed"
 
 
 def test_comparables_filter_supports_price_and_distance() -> None:

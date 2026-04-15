@@ -441,6 +441,12 @@ class WatchlistEventItem(BaseModel):
     detail: str
     suburb_slug: Optional[str] = None
     suburb_name: Optional[str] = None
+    latest_decision: Optional[DecisionOutcomeSummary] = None
+    latest_decision_triage_cue: Optional[str] = None
+    reviewer_action_state: Optional[Literal["pending", "acknowledged", "closed"]] = None
+    follow_up_state: Optional[str] = None
+    decision_support_state: Optional[Literal["active_attention", "mostly_stable", "reopen_for_closer_review"]] = None
+    follow_up_posture: Literal["do_now", "batch_later", "recently_closed"] = "batch_later"
     follow_up_href: str
     follow_up_label: str
 
