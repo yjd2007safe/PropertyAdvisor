@@ -53,6 +53,9 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "carry-forward summary" in status.summary.next_action.lower()
     assert "outcome triage" in status.summary.next_action.lower()
     assert "default scan" in status.summary.next_action.lower()
+    assert "notification boundaries" in status.summary.next_action.lower()
+    assert "completed/evaluated events should remain in progress notifications" in status.summary.next_action.lower()
+    assert "progress ×1, closure ×0" in status.summary.next_action.lower()
     assert "no recorded outcome" in status.summary.decision_outcome_cue.lower()
     assert "default scan" in status.summary.action_scan_default_cue.lower()
     assert "batch" in status.summary.next_step_batching_cue.lower()
@@ -185,8 +188,31 @@ def test_orchestration_review_status_auto_progressing_includes_follow_up_state_c
     assert "revisit after resume ×1" in status.summary.next_action.lower()
     assert "carry-forward summary" in status.summary.next_action.lower()
     assert "outcome triage" in status.summary.next_action.lower()
+    assert "notification boundaries" in status.summary.next_action.lower()
+    assert "progress ×1, closure ×0" in status.summary.next_action.lower()
     assert "no recorded outcome" in status.summary.decision_outcome_cue.lower()
     assert "revisit after resume: interrupted runs should be rechecked after auto-resume" in status.summary.next_action.lower()
+
+
+def test_orchestration_review_status_includes_progress_vs_closure_boundary_cue(tmp_path: Path) -> None:
+    _write_artifact(
+        tmp_path,
+        event_type="evaluated",
+        event_id="evt-evaluated",
+        created_at="2026-03-29T11:00:00+00:00",
+    )
+    _write_artifact(
+        tmp_path,
+        event_type="delivered",
+        event_id="evt-delivered",
+        created_at="2026-03-29T11:10:00+00:00",
+    )
+
+    status = get_orchestration_review_status(artifact_path=tmp_path)
+
+    assert status.summary.current_state == "auto_progressing"
+    assert "notification boundaries" in status.summary.next_action.lower()
+    assert "progress ×1, closure ×1" in status.summary.next_action.lower()
 
 
 def test_orchestration_review_supports_outcome_focus_filter(tmp_path: Path) -> None:
