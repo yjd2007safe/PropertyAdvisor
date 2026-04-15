@@ -365,6 +365,10 @@ def test_watchlist_events_prioritizes_recent_actionable_changes() -> None:
         categories = {item.category for item in response.items}
         assert "watchlist" in categories or "alert" in categories
         assert categories <= {"watchlist", "alert", "advisory", "orchestration"}
+        orchestration_links = [item.follow_up_href for item in response.items if item.category == "orchestration"]
+        if orchestration_links:
+            assert "reviewer_action_state_focus=" in orchestration_links[0]
+            assert "follow_up_state_focus=" in orchestration_links[0]
 
 
 def test_comparables_filter_supports_price_and_distance() -> None:

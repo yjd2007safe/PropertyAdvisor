@@ -179,6 +179,10 @@ _DECISION_OUTCOME_FILTER_VALUES = {
     "unrecorded",
 }
 
+_REVIEWER_ACTION_STATE_FILTER_VALUES = {"pending", "acknowledged", "closed"}
+
+_FOLLOW_UP_STATE_FILTER_VALUES = set(_FOLLOW_UP_STATE_LABELS.keys())
+
 _ACTIONABLE_DECISION_OUTCOMES = {
     "escalate_for_closer_review",
     "revisit_later",
@@ -682,6 +686,19 @@ def _filter_plans_by_decision_outcome(plans: list[dict[str, object]], outcome_fo
         return [plan for plan in plans if not str(plan.get("reviewer_decision_outcome") or "").strip()]
     return [plan for plan in plans if str(plan.get("reviewer_decision_outcome") or "").strip() == outcome_focus]
 
+
+def _filter_plans_by_execution_state(
+    plans: list[dict[str, object]],
+    reviewer_action_state_focus: Optional[str],
+    follow_up_state_focus: Optional[str],
+) -> list[dict[str, object]]:
+    filtered = plans
+    if reviewer_action_state_focus and reviewer_action_state_focus in _REVIEWER_ACTION_STATE_FILTER_VALUES:
+        filtered = [plan for plan in filtered if str(plan.get("reviewer_action_state") or "pending") == reviewer_action_state_focus]
+    if follow_up_state_focus and follow_up_state_focus in _FOLLOW_UP_STATE_FILTER_VALUES:
+        filtered = [plan for plan in filtered if str(plan.get("follow_up_state") or "monitor") == follow_up_state_focus]
+    return filtered
+
 def _read_source(repository: object) -> Literal["mock", "postgres", "fallback_mock"]:
     source = getattr(repository, "last_source", "mock")
     if source not in {"mock", "postgres", "fallback_mock"}:
@@ -765,13 +782,16 @@ def _product_workflow_links(suburb_slug: Optional[str] = None, source_surface: O
         comparables_href = f"/comparables?query={suburb_slug}"
     if suburb_slug and source_surface:
         save_href = f"/watchlist/actions?suburb_slug={suburb_slug}&source_surface={source_surface}"
+    orchestration_href = "/orchestration"
+    if source_surface == "watchlist":
+        orchestration_href = "/orchestration?view=actionable&reviewer_action_state_focus=pending&follow_up_state_focus=awaiting_outcome"
     return [
         WorkflowLink(label="Suburb dashboard", href="/suburbs", context="Re-check suburb-level momentum and liquidity."),
         WorkflowLink(label="Property advisor", href=advisor_href, context="Convert evidence into a decision recommendation."),
         WorkflowLink(label="Comparables", href=comparables_href, context="Validate pricing fit and comp confidence."),
         WorkflowLink(label="Watchlist", href=f"/watchlist{suffix}", context="Track strategy alerts and action queue."),
         WorkflowLink(label="Save to watchlist", href=save_href, context="Capture this suburb into watchlist action review."),
-        WorkflowLink(label="Orchestration review", href="/orchestration", context="Check runtime review blockers, freshness, and operator actions."),
+        WorkflowLink(label="Orchestration review", href=orchestration_href, context="Check runtime review blockers, freshness, and operator actions."),
     ]
 
 
@@ -1566,8 +1586,12 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
                     if plan.strategy_summary
                     else f"Pending action: {plan.action}."
                 ),
-                follow_up_href="/orchestration",
-                follow_up_label="Open orchestration review",
+                follow_up_href=(
+                    f"/orchestration?view=actionable"
+                    f"&reviewer_action_state_focus={plan.reviewer_action_state}"
+                    f"&follow_up_state_focus={plan.follow_up_state}"
+                ),
+                follow_up_label="Open focused orchestration review",
             )
         )
 
@@ -1609,6 +1633,8 @@ def get_orchestration_review_status(
     artifact_path: Path = Path(".dev_pipeline/notifications"),
     limit: int = 10,
     outcome_focus: Optional[str] = None,
+    reviewer_action_state_focus: Optional[str] = None,
+    follow_up_state_focus: Optional[str] = None,
 ) -> OrchestrationReviewResponse:
     state_path = artifact_path / "bridge_state.json"
     state_payload: dict[str, object] = {}
@@ -1656,7 +1682,14 @@ def get_orchestration_review_status(
         f"{_build_compact_follow_up_grouping_cue(decision_outcome_breakdown)} — "
         f"{_build_compact_rationale_language_cue(decision_outcome_breakdown)}"
     )
-    filtered_plans = _sort_orchestration_plans_for_scan(_filter_plans_by_decision_outcome(all_plans, outcome_focus))
+    filtered_by_outcome = _filter_plans_by_decision_outcome(all_plans, outcome_focus)
+    filtered_plans = _sort_orchestration_plans_for_scan(
+        _filter_plans_by_execution_state(
+            filtered_by_outcome,
+            reviewer_action_state_focus=reviewer_action_state_focus,
+            follow_up_state_focus=follow_up_state_focus,
+        )
+    )
     plans = filtered_plans[:limit] if limit > 0 else filtered_plans
 
     review_required_count = sum(1 for plan in plans if plan.get("requires_human_review"))
@@ -1704,6 +1737,16 @@ def get_orchestration_review_status(
                 if outcome_focus and outcome_focus in _DECISION_OUTCOME_FILTER_VALUES
                 else ""
             )
+            + (
+                f" Active reviewer action state: {reviewer_action_state_focus.replace('_', ' ')}."
+                if reviewer_action_state_focus and reviewer_action_state_focus in _REVIEWER_ACTION_STATE_FILTER_VALUES
+                else ""
+            )
+            + (
+                f" Active follow-up state: {follow_up_state_focus.replace('_', ' ')}."
+                if follow_up_state_focus and follow_up_state_focus in _FOLLOW_UP_STATE_FILTER_VALUES
+                else ""
+            )
         )
     elif plans:
         current_state = "auto_progressing"
@@ -1722,6 +1765,16 @@ def get_orchestration_review_status(
             + (
                 f" Active outcome focus: {outcome_focus.replace('_', ' ')} ({len(plans)} of {len(all_plans)} visible)."
                 if outcome_focus and outcome_focus in _DECISION_OUTCOME_FILTER_VALUES
+                else ""
+            )
+            + (
+                f" Active reviewer action state: {reviewer_action_state_focus.replace('_', ' ')}."
+                if reviewer_action_state_focus and reviewer_action_state_focus in _REVIEWER_ACTION_STATE_FILTER_VALUES
+                else ""
+            )
+            + (
+                f" Active follow-up state: {follow_up_state_focus.replace('_', ' ')}."
+                if follow_up_state_focus and follow_up_state_focus in _FOLLOW_UP_STATE_FILTER_VALUES
                 else ""
             )
         )
@@ -1747,6 +1800,16 @@ def get_orchestration_review_status(
             latest_outcome_distribution=_build_outcome_distribution(decision_outcome_breakdown),
             active_decision_outcome_filter=(
                 outcome_focus if outcome_focus and outcome_focus in _DECISION_OUTCOME_FILTER_VALUES else None
+            ),
+            active_reviewer_action_state_filter=(
+                reviewer_action_state_focus
+                if reviewer_action_state_focus and reviewer_action_state_focus in _REVIEWER_ACTION_STATE_FILTER_VALUES
+                else None
+            ),
+            active_follow_up_state_filter=(
+                follow_up_state_focus
+                if follow_up_state_focus and follow_up_state_focus in _FOLLOW_UP_STATE_FILTER_VALUES
+                else None
             ),
             action_scan_default_cue=action_scan_default_cue,
             next_step_batching_cue=next_step_batching_cue,

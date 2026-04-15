@@ -291,6 +291,8 @@ export type OrchestrationReviewResponse = {
       is_actionable: boolean;
     }>;
     active_decision_outcome_filter?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | "unrecorded" | null;
+    active_reviewer_action_state_filter?: "pending" | "acknowledged" | "closed" | null;
+    active_follow_up_state_filter?: string | null;
     action_scan_default_cue: string;
     next_step_batching_cue: string;
     compact_follow_up_grouping_cue: string;
@@ -386,6 +388,8 @@ export const getWatchlist = (params?: {
 
 export const getOrchestrationReview = (params?: {
   outcome_focus?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | "unrecorded";
+  reviewer_action_state_focus?: "pending" | "acknowledged" | "closed";
+  follow_up_state_focus?: string;
 }) => getJson<OrchestrationReviewResponse>(`/api/orchestration/review${buildSearch(params ?? {})}`);
 
 export const getWatchlistDetail = (suburb_slug: string) =>

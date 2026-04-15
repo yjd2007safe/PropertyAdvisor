@@ -403,6 +403,8 @@ class OrchestrationReviewSummary(BaseModel):
     decision_outcome_breakdown: Dict[str, int] = Field(default_factory=dict)
     latest_outcome_distribution: List[DecisionOutcomeDistributionItem] = Field(default_factory=list)
     active_decision_outcome_filter: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review", "unrecorded"]] = None
+    active_reviewer_action_state_filter: Optional[Literal["pending", "acknowledged", "closed"]] = None
+    active_follow_up_state_filter: Optional[str] = None
     action_scan_default_cue: str = ""
     next_step_batching_cue: str = ""
     compact_follow_up_grouping_cue: str = ""

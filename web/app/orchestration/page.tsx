@@ -7,6 +7,8 @@ type OrchestrationReviewPageProps = {
   searchParams?: Promise<{
     view?: "actionable" | "all";
     outcome_focus?: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review" | "unrecorded";
+    reviewer_action_state_focus?: "pending" | "acknowledged" | "closed";
+    follow_up_state_focus?: string;
   }>;
 };
 
@@ -87,6 +89,20 @@ function formatReviewerState(state: OrchestrationPlanItem["reviewer_action_state
   if (state === "acknowledged") return "Acknowledged";
   if (state === "closed") return "Closed";
   return "Pending";
+}
+
+function buildOrchestrationHref(params: {
+  view: "actionable" | "all";
+  outcome_focus?: string;
+  reviewer_action_state_focus?: string;
+  follow_up_state_focus?: string;
+}): string {
+  const query = new URLSearchParams();
+  query.set("view", params.view);
+  if (params.outcome_focus) query.set("outcome_focus", params.outcome_focus);
+  if (params.reviewer_action_state_focus) query.set("reviewer_action_state_focus", params.reviewer_action_state_focus);
+  if (params.follow_up_state_focus) query.set("follow_up_state_focus", params.follow_up_state_focus);
+  return `/orchestration?${query.toString()}`;
 }
 
 function formatReviewerAction(action?: OrchestrationPlanItem["reviewer_last_action"]): string {
@@ -203,9 +219,16 @@ function buildIntentAtGlanceRollup(plans: OrchestrationPlanItem[]): string {
 export default async function OrchestrationReviewPage({ searchParams }: OrchestrationReviewPageProps) {
   const params = (await searchParams) ?? {};
   const selectedView = params.view === "all" ? "all" : "actionable";
+  const selectedOutcomeFocus = params.outcome_focus;
+  const selectedReviewerActionStateFocus = params.reviewer_action_state_focus;
+  const selectedFollowUpStateFocus = params.follow_up_state_focus;
 
   try {
-    const review = await getOrchestrationReview({ outcome_focus: params.outcome_focus });
+    const review = await getOrchestrationReview({
+      outcome_focus: selectedOutcomeFocus,
+      reviewer_action_state_focus: selectedReviewerActionStateFocus,
+      follow_up_state_focus: selectedFollowUpStateFocus
+    });
     const summary = review.summary;
     const actionablePlans = review.plans.filter((plan) => plan.requires_human_review);
     const visiblePlans = selectedView === "all" ? review.plans : actionablePlans;
@@ -247,15 +270,31 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           </ul>
           <p className="meta-label">Review scope</p>
           <div className="inline-links">
-            <a href="/orchestration?view=actionable">Actionable queue</a> · <a href="/orchestration?view=all">All events</a>
+            <a href={buildOrchestrationHref({ view: "actionable", outcome_focus: selectedOutcomeFocus, reviewer_action_state_focus: selectedReviewerActionStateFocus, follow_up_state_focus: selectedFollowUpStateFocus })}>Actionable queue</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: "all", outcome_focus: selectedOutcomeFocus, reviewer_action_state_focus: selectedReviewerActionStateFocus, follow_up_state_focus: selectedFollowUpStateFocus })}>All events</a>
           </div>
           <p className="meta-label">Outcome focus</p>
           <div className="inline-links">
-            <a href={`/orchestration?view=${selectedView}`}>All outcomes</a> · <a href={`/orchestration?view=${selectedView}&outcome_focus=escalate_for_closer_review`}>Escalate</a> ·{" "}
-            <a href={`/orchestration?view=${selectedView}&outcome_focus=revisit_later`}>Revisit later</a> ·{" "}
-            <a href={`/orchestration?view=${selectedView}&outcome_focus=continue_monitoring`}>Continue monitoring</a> ·{" "}
-            <a href={`/orchestration?view=${selectedView}&outcome_focus=close_for_now`}>Close for now</a> ·{" "}
-            <a href={`/orchestration?view=${selectedView}&outcome_focus=unrecorded`}>No recorded outcome</a>
+            <a href={buildOrchestrationHref({ view: selectedView, reviewer_action_state_focus: selectedReviewerActionStateFocus, follow_up_state_focus: selectedFollowUpStateFocus })}>All outcomes</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: "escalate_for_closer_review", reviewer_action_state_focus: selectedReviewerActionStateFocus, follow_up_state_focus: selectedFollowUpStateFocus })}>Escalate</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: "revisit_later", reviewer_action_state_focus: selectedReviewerActionStateFocus, follow_up_state_focus: selectedFollowUpStateFocus })}>Revisit later</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: "continue_monitoring", reviewer_action_state_focus: selectedReviewerActionStateFocus, follow_up_state_focus: selectedFollowUpStateFocus })}>Continue monitoring</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: "close_for_now", reviewer_action_state_focus: selectedReviewerActionStateFocus, follow_up_state_focus: selectedFollowUpStateFocus })}>Close for now</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: "unrecorded", reviewer_action_state_focus: selectedReviewerActionStateFocus, follow_up_state_focus: selectedFollowUpStateFocus })}>No recorded outcome</a>
+          </div>
+          <p className="meta-label">Execution-state focus</p>
+          <div className="inline-links">
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: selectedOutcomeFocus, follow_up_state_focus: selectedFollowUpStateFocus })}>All reviewer states</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: selectedOutcomeFocus, reviewer_action_state_focus: "pending", follow_up_state_focus: selectedFollowUpStateFocus })}>Pending</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: selectedOutcomeFocus, reviewer_action_state_focus: "acknowledged", follow_up_state_focus: selectedFollowUpStateFocus })}>Acknowledged</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: selectedOutcomeFocus, reviewer_action_state_focus: "closed", follow_up_state_focus: selectedFollowUpStateFocus })}>Closed</a>
+          </div>
+          <div className="inline-links">
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: selectedOutcomeFocus, reviewer_action_state_focus: selectedReviewerActionStateFocus })}>All follow-up states</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: selectedOutcomeFocus, reviewer_action_state_focus: selectedReviewerActionStateFocus, follow_up_state_focus: "awaiting_outcome" })}>Awaiting outcome</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: selectedOutcomeFocus, reviewer_action_state_focus: selectedReviewerActionStateFocus, follow_up_state_focus: "revisit_after_recovery" })}>Recovery revisit</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: selectedOutcomeFocus, reviewer_action_state_focus: selectedReviewerActionStateFocus, follow_up_state_focus: "revisit_after_resume" })}>Resume revisit</a> ·{" "}
+            <a href={buildOrchestrationHref({ view: selectedView, outcome_focus: selectedOutcomeFocus, reviewer_action_state_focus: selectedReviewerActionStateFocus, follow_up_state_focus: "revisit_downstream_surfaces" })}>Downstream carry-forward</a>
           </div>
           {!params.view ? <p className="lede compact">Weekly default: Actionable queue first to keep repeat reviews focused on items that require manual attention.</p> : null}
           <p className="lede compact">
@@ -265,6 +304,8 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           </p>
           {selectedView === "actionable" && hiddenPlanCount > 0 ? <p className="lede compact">Showing {visiblePlans.length} actionable items ({hiddenPlanCount} auto-continue events hidden).</p> : null}
           {summary.active_decision_outcome_filter ? <p className="lede compact">Active outcome filter: {formatDecisionOutcome(summary.active_decision_outcome_filter)} ({summary.pending_count} of {summary.total_pending_count} items).</p> : null}
+          {summary.active_reviewer_action_state_filter ? <p className="lede compact">Active reviewer action-state filter: {formatReviewerState(summary.active_reviewer_action_state_filter)}.</p> : null}
+          {summary.active_follow_up_state_filter ? <p className="lede compact">Active follow-up-state filter: {formatFollowUpStateLabel(summary.active_follow_up_state_filter)}.</p> : null}
           <p className="lede compact">
             Review snapshot: {sortedVisiblePlans.length} visible · {queuedVisibleCount} queued for delivery · Most recent event {formatTimestamp(mostRecentVisibleAt)}.
           </p>
@@ -341,7 +382,9 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                             <form key={action} method="post" action="/orchestration/actions">
                               <input type="hidden" name="event_id" value={plan.event_id} />
                               <input type="hidden" name="view" value={selectedView} />
-                              <input type="hidden" name="outcome_focus" value={params.outcome_focus ?? ""} />
+                              <input type="hidden" name="outcome_focus" value={selectedOutcomeFocus ?? ""} />
+                              <input type="hidden" name="reviewer_action_state_focus" value={selectedReviewerActionStateFocus ?? ""} />
+                              <input type="hidden" name="follow_up_state_focus" value={selectedFollowUpStateFocus ?? ""} />
                               <input type="hidden" name="action" value={action} />
                               <button type="submit">{action === "acknowledge" ? "Acknowledge" : "Close follow-up"}</button>
                             </form>

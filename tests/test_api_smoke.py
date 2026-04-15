@@ -137,7 +137,11 @@ def test_watchlist_action_route_creates_entry() -> None:
 
 
 def test_orchestration_review_shape() -> None:
-    payload = orchestration_review().model_dump(mode="json")
+    payload = orchestration_review(
+        outcome_focus=None,
+        reviewer_action_state_focus="pending",
+        follow_up_state_focus="awaiting_outcome",
+    ).model_dump(mode="json")
     assert payload["summary"]["current_state"] in {"awaiting_review", "auto_progressing", "idle"}
     assert payload["summary"]["freshness"] in {"fresh", "stale", "empty"}
     assert isinstance(payload["summary"]["review_needed"], bool)
@@ -165,4 +169,6 @@ def test_orchestration_review_shape() -> None:
     assert "compact_follow_up_grouping_cue" in payload["summary"]
     assert isinstance(payload["summary"]["decision_outcome_breakdown"], dict)
     assert isinstance(payload["summary"]["latest_outcome_distribution"], list)
+    assert "active_reviewer_action_state_filter" in payload["summary"]
+    assert "active_follow_up_state_filter" in payload["summary"]
     assert payload["summary"]["total_pending_count"] >= payload["summary"]["pending_count"]
