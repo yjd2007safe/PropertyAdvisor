@@ -20,6 +20,14 @@ type WatchlistPageProps = {
 };
 
 export default async function WatchlistPage({ searchParams }: WatchlistPageProps) {
+  const reviewStatusFallback = "Review status: not recorded yet.";
+  const nextStepCtaFallback = "Next step: record a review status to unlock next-step guidance.";
+  const reviewBatchFallback = "Review batch: pending until a review status is recorded.";
+  const reviewRationaleFallback = "Why highlighted: waiting for a recorded review status.";
+  const lowDataReviewFallback = "Low-data mode: treat review status and next-step guidance as provisional.";
+  const reviewSectionLabel = "Review status and next step";
+  const reviewActionLabel = "Save review status";
+
   const params = (await searchParams) ?? {};
   const defaultGroupBy = params.group_by ?? "strategy";
   const hasActiveFilters = Boolean(params.suburb_slug || params.strategy || params.state || params.watch_status || params.latest_outcome || params.alert_severity || params.detail_slug || params.group_by);
@@ -217,10 +225,11 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                     <td>{formatCurrency(entry.target_buy_range_min)} - {formatCurrency(entry.target_buy_range_max)}</td>
                     <td>{entry.alerts[0] ? <AlertBadge tone={entry.alerts[0].severity}>{entry.alerts[0].title}</AlertBadge> : "No alerts"}</td>
                     <td>
-                      <span className="meta-label">{entry.latest_context?.latest_decision_triage_cue ?? "Triage cue: outcome memory is not recorded yet for this suburb."}</span>
-                      <div className="meta-label">{entry.latest_context?.latest_decision_next_step_cue ?? "Next-step cue: outcome memory is not recorded yet, so next-step guidance is pending."}</div>
-                      <div className="meta-label">{entry.latest_context?.latest_decision_batch_cue ?? "Batch cue: outcome memory is not recorded yet, so batch assignment is pending."}</div>
-                      <div className="meta-label">{entry.latest_context?.latest_decision_rationale_cue ?? "Rationale cue: outcome memory is not recorded yet, so highlight/grouping reason is pending."}</div>
+                      <span className="meta-label">{entry.latest_context?.latest_decision_triage_cue ?? reviewStatusFallback}</span>
+                      <div className="meta-label">{entry.latest_context?.latest_decision_next_step_cue ?? nextStepCtaFallback}</div>
+                      <div className="meta-label">{entry.latest_context?.latest_decision_batch_cue ?? reviewBatchFallback}</div>
+                      <div className="meta-label">{entry.latest_context?.latest_decision_rationale_cue ?? reviewRationaleFallback}</div>
+                      {watchlist.data_source.status_label !== "live_db" ? <div className="meta-label">{lowDataReviewFallback}</div> : null}
                     </td>
                     <td>
                       <form method="POST" action="/watchlist/actions">
@@ -233,7 +242,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                           <option value="paused">Paused</option>
                           <option value="archived">Archived</option>
                         </select>
-                        <button type="submit">Update</button>
+                        <button type="submit">{reviewActionLabel}</button>
                       </form>
                     </td>
                     <td><a href={withFlowContext(`/watchlist?detail_slug=${entry.suburb_slug}&suburb_slug=${entry.suburb_slug}`, "watchlist", "open-detail")}>Open detail</a></td>
@@ -254,30 +263,24 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
               <a href={withFlowContext(`/advisor?query=${detail.item.suburb_slug}&query_type=slug`, "watchlist", "run-advisor")}>run advisor</a> then{" "}
               <a href={withFlowContext(`/comparables?query=${detail.item.suburb_slug}`, "watchlist", "validate-pricing")}>validate comparables</a>.
             </p>
-            {detail.item.latest_context ? (
-              <ul className="detail-list">
-                <li><strong>Advisory:</strong> {detail.item.latest_context.advisory}</li>
-                <li><strong>Comparables:</strong> {detail.item.latest_context.comparables}</li>
-                <li><strong>Orchestration:</strong> {detail.item.latest_context.orchestration}</li>
-                {detail.item.latest_context.latest_decision ? (
-                  <li><strong>Latest decision:</strong> {detail.item.latest_context.latest_decision.summary} ({detail.item.latest_context.latest_decision.outcome})</li>
-                ) : null}
-                {detail.item.latest_context.latest_decision_triage_cue ? (
-                  <li><strong>Triage cue:</strong> {detail.item.latest_context.latest_decision_triage_cue}</li>
-                ) : null}
-                {detail.item.latest_context.latest_decision_next_step_cue ? (
-                  <li><strong>Next-step cue:</strong> {detail.item.latest_context.latest_decision_next_step_cue}</li>
-                ) : null}
-                {detail.item.latest_context.latest_decision_batch_cue ? (
-                  <li><strong>Batch cue:</strong> {detail.item.latest_context.latest_decision_batch_cue}</li>
-                ) : null}
-                {detail.item.latest_context.latest_decision_rationale_cue ? (
-                  <li><strong>Rationale cue:</strong> {detail.item.latest_context.latest_decision_rationale_cue}</li>
-                ) : null}
-              </ul>
-            ) : null}
+            <p className="meta-label">{reviewSectionLabel}</p>
+            <ul className="detail-list">
+              <li><strong>Advisory:</strong> {detail.item.latest_context?.advisory ?? "No advisory context recorded yet."}</li>
+              <li><strong>Comparables:</strong> {detail.item.latest_context?.comparables ?? "No comparables context recorded yet."}</li>
+              <li><strong>Orchestration:</strong> {detail.item.latest_context?.orchestration ?? "No orchestration context recorded yet."}</li>
+              {detail.item.latest_context?.latest_decision ? (
+                <li><strong>Latest decision:</strong> {detail.item.latest_context.latest_decision.summary} ({detail.item.latest_context.latest_decision.outcome})</li>
+              ) : (
+                <li><strong>Latest decision:</strong> {reviewStatusFallback}</li>
+              )}
+              <li><strong>Review status cue:</strong> {detail.item.latest_context?.latest_decision_triage_cue ?? reviewStatusFallback}</li>
+              <li><strong>Next-step cue:</strong> {detail.item.latest_context?.latest_decision_next_step_cue ?? nextStepCtaFallback}</li>
+              <li><strong>Batch cue:</strong> {detail.item.latest_context?.latest_decision_batch_cue ?? reviewBatchFallback}</li>
+              <li><strong>Rationale cue:</strong> {detail.item.latest_context?.latest_decision_rationale_cue ?? reviewRationaleFallback}</li>
+              {watchlist.data_source.status_label !== "live_db" ? <li><strong>Low-data note:</strong> {lowDataReviewFallback}</li> : null}
+            </ul>
             <form className="query-form" method="POST" action="/watchlist/actions">
-              <label htmlFor="detail_watch_status">Update watchlist status</label>
+              <label htmlFor="detail_watch_status">{reviewActionLabel}</label>
               <div>
                 <input type="hidden" name="suburb_slug" value={detail.item.suburb_slug} />
                 <input type="hidden" name="source_surface" value="watchlist" />
@@ -294,7 +297,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                   <option value="owner-occupier">Owner-occupier</option>
                 </select>
                 <input name="notes" defaultValue={detail.item.notes} />
-                <button type="submit">Save changes</button>
+                <button type="submit">{reviewActionLabel}</button>
               </div>
             </form>
             <ul className="detail-list">
@@ -305,7 +308,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           </section>
         ) : null}
         {params.detail_slug && !detail ? (
-          <EmptyState title="Watchlist detail not found" body={`No entry exists for ${params.detail_slug}. Use the table below to pick an active suburb context.`} />
+          <EmptyState title="Watchlist detail not found" body={`No entry exists for ${params.detail_slug}. Use the review table below to choose a suburb and save review status.`} />
         ) : null}
 
         {alertFeed.items.length === 0 ? (
