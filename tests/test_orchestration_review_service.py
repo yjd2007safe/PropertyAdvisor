@@ -215,6 +215,27 @@ def test_orchestration_review_status_includes_progress_vs_closure_boundary_cue(t
     assert "progress ×1, closure ×1" in status.summary.next_action.lower()
 
 
+def test_orchestration_review_normalizes_event_type_for_boundary_validation(tmp_path: Path) -> None:
+    _write_artifact(
+        tmp_path,
+        event_type=" Evaluated ",
+        event_id="evt-evaluated",
+        created_at="2026-03-29T11:00:00+00:00",
+    )
+    _write_artifact(
+        tmp_path,
+        event_type="COMPLETED",
+        event_id="evt-completed",
+        created_at="2026-03-29T11:05:00+00:00",
+    )
+
+    status = get_orchestration_review_status(artifact_path=tmp_path)
+
+    assert status.summary.current_state == "auto_progressing"
+    assert "notification boundaries" in status.summary.next_action.lower()
+    assert "progress ×2, closure ×0" in status.summary.next_action.lower()
+
+
 def test_orchestration_review_supports_outcome_focus_filter(tmp_path: Path) -> None:
     _write_artifact(
         tmp_path,
