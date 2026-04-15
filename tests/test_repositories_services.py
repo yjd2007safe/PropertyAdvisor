@@ -14,7 +14,9 @@ from property_advisor.api.repositories import (
     select_comparable_candidates,
 )
 from property_advisor.api.services import (
+    apply_orchestration_review_action,
     get_comparables,
+    get_orchestration_review_status,
     get_property_advice,
     get_suburbs_overview,
     get_watchlist,
@@ -23,7 +25,7 @@ from property_advisor.api.services import (
     get_watchlist_events,
     upsert_watchlist_action,
 )
-from property_advisor.api.schemas import WatchlistActionRequest
+from property_advisor.api.schemas import OrchestrationReviewActionRequest, WatchlistActionRequest
 
 
 def test_data_access_layer_uses_postgres_placeholders_when_enabled() -> None:
@@ -349,10 +351,19 @@ def test_watchlist_grouping_and_alert_count_summary() -> None:
 
 def test_watchlist_detail_and_alert_filter_flow() -> None:
     dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    orchestration = get_orchestration_review_status(limit=5)
+    actionable_plan = next((plan for plan in orchestration.plans if "close_follow_up" in plan.reviewer_available_actions), None)
+    if actionable_plan:
+        apply_orchestration_review_action(
+            OrchestrationReviewActionRequest(event_id=actionable_plan.event_id, action="acknowledge")
+        )
     detail = get_watchlist_detail(suburb_slug="southport-qld-4215", dal=dal)
     high_alerts = get_watchlist_alerts(severity="high", dal=dal)
     assert detail is not None
     assert detail.item.suburb_slug == "southport-qld-4215"
+    assert detail.item.latest_context is not None
+    assert detail.item.latest_context.recent_reviewer_action_summary
+    assert "reviewer action" in detail.item.latest_context.recent_reviewer_action_summary.lower()
     assert all(alert.severity == "high" for alert in high_alerts.items)
 
 

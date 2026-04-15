@@ -268,6 +268,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
               <li><strong>Advisory:</strong> {detail.item.latest_context?.advisory ?? "No advisory context recorded yet."}</li>
               <li><strong>Comparables:</strong> {detail.item.latest_context?.comparables ?? "No comparables context recorded yet."}</li>
               <li><strong>Orchestration:</strong> {detail.item.latest_context?.orchestration ?? "No orchestration context recorded yet."}</li>
+              <li><strong>Recent reviewer action memory:</strong> {detail.item.latest_context?.recent_reviewer_action_summary ?? "No recent reviewer actions recorded yet."}</li>
               {detail.item.latest_context?.latest_decision ? (
                 <li><strong>Latest decision:</strong> {detail.item.latest_context.latest_decision.summary} ({detail.item.latest_context.latest_decision.outcome})</li>
               ) : (

@@ -481,6 +481,38 @@ def _build_revisit_guidance_cue(plans: list[dict[str, object]]) -> str:
     )
 
 
+def _reviewer_action_label(action: str) -> str:
+    if action == "acknowledge":
+        return "Acknowledged"
+    if action == "close_follow_up":
+        return "Closed follow-up"
+    return "Unknown reviewer action"
+
+
+def _build_recent_reviewer_action_snapshot(plans: list[dict[str, object]], *, max_items: int = 3) -> str:
+    action_rows: list[tuple[datetime, str]] = []
+    for plan in plans:
+        action = str(plan.get("reviewer_last_action") or "").strip()
+        acted_at_raw = str(plan.get("reviewer_last_action_at") or "").strip()
+        acted_at = _parse_timestamp(acted_at_raw)
+        if action not in {"acknowledge", "close_follow_up"} or acted_at is None:
+            continue
+        event_id = str(plan.get("event_id") or "").strip()
+        event_type = str(plan.get("event_type") or "").strip()
+        compact = f"{_reviewer_action_label(action)} {event_type} ({event_id}) at {acted_at.isoformat()}"
+        action_rows.append((acted_at, compact))
+
+    if not action_rows:
+        return "No recent reviewer actions recorded yet."
+
+    ordered = [row for _, row in sorted(action_rows, key=lambda item: item[0], reverse=True)]
+    compact = ordered[:max_items]
+    remainder = len(ordered) - len(compact)
+    if remainder > 0:
+        compact.append(f"+{remainder} older reviewer action record{'s' if remainder > 1 else ''}")
+    return "Recent reviewer actions: " + " · ".join(compact) + "."
+
+
 def _build_notification_boundary_cue(plans: list[dict[str, object]]) -> str:
     if not plans:
         return ""
@@ -1490,7 +1522,7 @@ def _classify_watchlist_follow_up_posture(
 def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer = _DAL) -> WatchlistEntry:
     advice = get_property_advice(query=item.suburb_slug, query_type="slug", dal=dal)
     comparables = get_comparables(query=item.suburb_slug, max_items=5, dal=dal)
-    orchestration = get_orchestration_review_status(limit=3)
+    orchestration = get_orchestration_review_status(limit=15)
 
     advisory_context = f"{advice.advice.recommendation} ({advice.advice.confidence}) — {advice.advice.headline}"
     if advice.advice.fallback_state and advice.advice.fallback_state != "none":
@@ -1505,6 +1537,16 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
             f"{comparables.summary.count} comps, avg ${comparables.summary.average_price:,}, state={comparables.summary.sample_state}"
         )
     latest_decision = _latest_decision_for_watchlist(orchestration, item.suburb_slug)
+    latest_plan = _latest_plan_for_watchlist(orchestration, item.suburb_slug)
+    reviewer_action_summary = "No recent reviewer actions recorded yet."
+    if latest_plan and latest_plan.reviewer_last_action and latest_plan.reviewer_last_action_at:
+        reviewer_action_summary = (
+            f"{_reviewer_action_label(latest_plan.reviewer_last_action)} in {latest_plan.event_type} "
+            f"({latest_plan.event_id}) at {latest_plan.reviewer_last_action_at}."
+        )
+    elif orchestration.summary.recent_reviewer_action_snapshot:
+        reviewer_action_summary = orchestration.summary.recent_reviewer_action_snapshot
+
     high_alert_count = sum(1 for alert in item.alerts if alert.severity == "high")
     if item.watch_status in {"review", "paused"} or high_alert_count > 0:
         emphasis_reason = f"{_reason_label_phrase('active_follow_up')}; prioritize now for status/alert follow-up"
@@ -1517,6 +1559,7 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
                 advisory=advisory_context,
                 comparables=comparables_context,
                 orchestration=f"{orchestration.summary.current_state}; review_required={orchestration.summary.review_required_count}",
+                recent_reviewer_action_summary=reviewer_action_summary,
                 latest_decision=latest_decision,
                 latest_decision_triage_cue=(_format_decision_triage_cue(latest_decision) if latest_decision else None),
                 latest_decision_next_step_cue=(
@@ -1783,6 +1826,7 @@ def get_orchestration_review_status(
         f"{_build_compact_follow_up_grouping_cue(decision_outcome_breakdown)} — "
         f"{_build_compact_rationale_language_cue(decision_outcome_breakdown)}"
     )
+    recent_reviewer_action_snapshot = _build_recent_reviewer_action_snapshot(all_plans)
     filtered_by_outcome = _filter_plans_by_decision_outcome(all_plans, outcome_focus)
     filtered_plans = _sort_orchestration_plans_for_scan(
         _filter_plans_by_execution_state(
@@ -1912,6 +1956,7 @@ def get_orchestration_review_status(
                 if follow_up_state_focus and follow_up_state_focus in _FOLLOW_UP_STATE_FILTER_VALUES
                 else None
             ),
+            recent_reviewer_action_snapshot=recent_reviewer_action_snapshot,
             action_scan_default_cue=action_scan_default_cue,
             next_step_batching_cue=next_step_batching_cue,
             compact_follow_up_grouping_cue=compact_follow_up_grouping_cue,
