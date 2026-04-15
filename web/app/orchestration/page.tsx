@@ -304,15 +304,15 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                     <td>{formatTimestamp(plan.queued_at ?? plan.created_at)}</td>
                     <td>{plan.next_step_outcome}</td>
                     <td>
-                      {plan.next_step_action_cue}
-                      <div className="meta-label">{plan.next_step_batch_cue}</div>
+                      Next-step cue: {plan.next_step_action_cue}
+                      <div className="meta-label">Batch cue: {plan.next_step_batch_cue}</div>
                     </td>
                     <td>{buildActiveReason(plan)}</td>
                     <td>
                       {formatDecisionSupportState(plan.decision_support_state)}
-                      <div className="meta-label">{plan.next_review_cue || "No cue provided."}</div>
+                      <div className="meta-label">Triage cue: {plan.next_review_cue || "No triage cue provided."}</div>
                       <div className="meta-label">Guidance: {plan.revisit_guidance || "No guidance provided."}</div>
-                      <div className="meta-label">{plan.compact_rationale_cue || "Why this row is highlighted/grouped is unavailable."}</div>
+                      <div className="meta-label">{plan.compact_rationale_cue || "Rationale cue: why this row is highlighted/grouped is unavailable."}</div>
                     </td>
                     <td>
                       {formatDecisionOutcome(plan.reviewer_decision_outcome)}

@@ -572,7 +572,7 @@ def _build_compact_evidence_hint(
         normalized_outcome,
         normalized_outcome.replace("_", " "),
     )
-    compact_parts = [f"Hint: {outcome_label}"]
+    compact_parts = [f"Rationale cue: {outcome_label}"]
     if emphasis_reason.strip():
         compact_parts.append(emphasis_reason.strip().rstrip("."))
     if grouping_reason and grouping_reason.strip():
