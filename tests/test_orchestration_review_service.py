@@ -83,6 +83,8 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "rationale cue:" in status.plans[0].compact_rationale_cue.lower()
     assert "reason: active follow-up" in status.plans[0].compact_rationale_cue.lower()
     assert "prioritize now for active follow-up" in status.plans[0].compact_rationale_cue.lower()
+    assert "follow-up intent: awaiting operator outcome" in status.plans[0].compact_rationale_cue.lower()
+    assert "watch next=action still open" in status.plans[0].compact_rationale_cue.lower()
     assert "review outcome" in status.plans[0].revisit_reason.lower()
     assert status.plans[1].follow_up_state == "revisit_downstream_surfaces"
     assert status.plans[1].decision_support_state == "mostly_stable"
@@ -91,6 +93,8 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "batch" in status.plans[1].next_step_batch_cue.lower()
     assert "rationale cue:" in status.plans[1].compact_rationale_cue.lower()
     assert "reason: weekly monitor" in status.plans[1].compact_rationale_cue.lower()
+    assert "follow-up intent: carry-forward downstream" in status.plans[1].compact_rationale_cue.lower()
+    assert "watch next=stable for now" in status.plans[1].compact_rationale_cue.lower()
     assert "revisit guidance" in status.summary.next_action.lower()
 
 

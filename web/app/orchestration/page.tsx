@@ -70,6 +70,19 @@ function buildActiveReason(plan: OrchestrationPlanItem): string {
   return `${formatFollowUpStateLabel(plan.follow_up_state)}: ${revisitReason}`;
 }
 
+function compactSentence(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return trimmed.endsWith(".") ? trimmed.slice(0, -1) : trimmed;
+}
+
+function buildFollowUpIntentGlance(plan: OrchestrationPlanItem): string {
+  const intent = formatFollowUpStateLabel(plan.follow_up_state);
+  const reason = compactSentence(plan.revisit_reason) || "No additional revisit rationale provided";
+  const nextNotice = compactSentence(plan.next_review_cue) || "No immediate next-review cue recorded";
+  return `Focus: ${intent} · Why: ${reason} · Watch next: ${nextNotice}`;
+}
+
 function formatReviewerState(state: OrchestrationPlanItem["reviewer_action_state"]): string {
   if (state === "acknowledged") return "Acknowledged";
   if (state === "closed") return "Closed";
@@ -176,6 +189,17 @@ function buildGroupedFollowUpCue(plans: OrchestrationPlanItem[]): string {
   return compactGroups.join(" · ");
 }
 
+function buildIntentAtGlanceRollup(plans: OrchestrationPlanItem[]): string {
+  const reviewFirst = plans.filter((plan) => plan.requires_human_review && plan.reviewer_action_state !== "closed");
+  if (reviewFirst.length === 0) {
+    return "No manual follow-up intent cues are active in this review scope.";
+  }
+  const compact = reviewFirst.slice(0, 3).map((plan) => `${plan.event_type}: ${buildFollowUpIntentGlance(plan)}`);
+  const remaining = reviewFirst.length - compact.length;
+  if (remaining > 0) compact.push(`+${remaining} more`);
+  return compact.join(" · ");
+}
+
 export default async function OrchestrationReviewPage({ searchParams }: OrchestrationReviewPageProps) {
   const params = (await searchParams) ?? {};
   const selectedView = params.view === "all" ? "all" : "actionable";
@@ -191,6 +215,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
     const mostRecentVisibleAt = sortedVisiblePlans[0]?.queued_at ?? sortedVisiblePlans[0]?.created_at ?? null;
     const followUpSummary = buildFollowUpSummary(sortedVisiblePlans);
     const groupedFollowUpCue = buildGroupedFollowUpCue(sortedVisiblePlans);
+    const intentAtGlance = buildIntentAtGlanceRollup(sortedVisiblePlans);
     const decisionSupportCounts = {
       activeAttention: sortedVisiblePlans.filter((plan) => plan.decision_support_state === "active_attention").length,
       mostlyStable: sortedVisiblePlans.filter((plan) => plan.decision_support_state === "mostly_stable").length,
@@ -247,6 +272,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
             Next-step outcome framing: {sortedVisiblePlans[0]?.next_step_outcome ?? "No visible outcome memory in this review scope yet."}
           </p>
           <p className="lede compact">Follow-up summary: {followUpSummary}</p>
+          <p className="lede compact">Follow-up intent at a glance: {intentAtGlance}</p>
           <p className="lede compact">Grouped follow-up cue: {groupedFollowUpCue}</p>
           <p className="lede compact">Decision-outcome triage: {summary.decision_outcome_cue}</p>
           <p className="lede compact">Action-oriented scan default: {summary.action_scan_default_cue}</p>
@@ -283,7 +309,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                 {sortedVisiblePlans.map((plan) => (
                   <tr key={plan.event_id}>
                     <td>{plan.event_type}<div className="meta-label">{plan.event_id}</div>{plan.is_carry_forward_follow_up ? <div className="meta-label">Carry-forward follow-up</div> : null}</td>
-                    <td>{plan.action}<div className="meta-label">{plan.bucket} · {formatFollowUpStateLabel(plan.follow_up_state)}</div></td>
+                    <td>{plan.action}<div className="meta-label">{plan.bucket} · {formatFollowUpStateLabel(plan.follow_up_state)}</div><div className="meta-label">{buildFollowUpIntentGlance(plan)}</div></td>
                     <td>{plan.requires_human_review ? "Required" : "Not required"}</td>
                     <td>{formatTimestamp(plan.queued_at ?? plan.created_at)}</td>
                     <td>{plan.next_step_outcome}</td>
