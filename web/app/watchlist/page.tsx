@@ -198,7 +198,10 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
         ) : null}
 
         {watchlist.items.length === 0 ? (
-          <EmptyState title="No watchlist entries for current filters" body="Relax one filter to bring back candidate suburbs and alert context." />
+          <EmptyState
+            title="No watchlist items in this review scope"
+            body="Adjust one filter (or reset view) to bring back suburbs, outcome memory cues, and alert context."
+          />
         ) : (
           <section className="panel">
             <table className="data-table">
@@ -214,10 +217,10 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                     <td>{formatCurrency(entry.target_buy_range_min)} - {formatCurrency(entry.target_buy_range_max)}</td>
                     <td>{entry.alerts[0] ? <AlertBadge tone={entry.alerts[0].severity}>{entry.alerts[0].title}</AlertBadge> : "No alerts"}</td>
                     <td>
-                      <span className="meta-label">{entry.latest_context?.latest_decision_triage_cue ?? "Triage cue: no latest decision outcome recorded yet."}</span>
-                      <div className="meta-label">{entry.latest_context?.latest_decision_next_step_cue ?? "Next-step cue: capture a latest decision outcome to unlock explicit follow-up guidance."}</div>
-                      <div className="meta-label">{entry.latest_context?.latest_decision_batch_cue ?? "Batch cue: no outcome batch assigned yet."}</div>
-                      <div className="meta-label">{entry.latest_context?.latest_decision_rationale_cue ?? "Rationale cue: why this row is highlighted/grouped is unavailable until a latest decision is captured."}</div>
+                      <span className="meta-label">{entry.latest_context?.latest_decision_triage_cue ?? "Triage cue: outcome memory is not recorded yet for this suburb."}</span>
+                      <div className="meta-label">{entry.latest_context?.latest_decision_next_step_cue ?? "Next-step cue: outcome memory is not recorded yet, so next-step guidance is pending."}</div>
+                      <div className="meta-label">{entry.latest_context?.latest_decision_batch_cue ?? "Batch cue: outcome memory is not recorded yet, so batch assignment is pending."}</div>
+                      <div className="meta-label">{entry.latest_context?.latest_decision_rationale_cue ?? "Rationale cue: outcome memory is not recorded yet, so highlight/grouping reason is pending."}</div>
                     </td>
                     <td>
                       <form method="POST" action="/watchlist/actions">

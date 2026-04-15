@@ -99,12 +99,12 @@ function formatDecisionOutcome(outcome?: OrchestrationPlanItem["reviewer_decisio
 
 function buildLowNoiseFollowUpEmphasis(plans: OrchestrationPlanItem[]): string {
   if (plans.length === 0) {
-    return "No visible events to review.";
+    return "No visible orchestration items in this review scope.";
   }
 
   const reviewFirst = plans.filter((plan) => plan.requires_human_review && plan.reviewer_action_state !== "closed");
   if (reviewFirst.length === 0) {
-    return "No manual follow-up needed in this scope.";
+    return "No manual follow-up items in this review scope.";
   }
 
   const groupedSummaries = new Map<string, { count: number; latestAt: number }>();
@@ -119,7 +119,7 @@ function buildLowNoiseFollowUpEmphasis(plans: OrchestrationPlanItem[]): string {
   }
 
   if (groupedSummaries.size === 0) {
-    return "Manual review needed: open the queue for detailed rationale.";
+    return "Manual review is needed, but rationale cues are low-signal; open queue rows for full context.";
   }
 
   const compactLines = [...groupedSummaries.entries()]
@@ -157,7 +157,7 @@ function formatOutcomeBreakdown(breakdown: Record<string, number>): string {
 function buildGroupedFollowUpCue(plans: OrchestrationPlanItem[]): string {
   const reviewFirst = plans.filter((plan) => plan.requires_human_review && plan.reviewer_action_state !== "closed");
   if (reviewFirst.length === 0) {
-    return "No manual-review groups in this scope.";
+    return "No manual-review groups in this review scope.";
   }
 
   const grouped = new Map<string, { count: number; latestAt: number; eventTypes: string[] }>();
@@ -260,7 +260,7 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
             Review snapshot: {sortedVisiblePlans.length} visible · {queuedVisibleCount} queued for delivery · Most recent event {formatTimestamp(mostRecentVisibleAt)}.
           </p>
           <p className="lede compact">
-            Next-step outcome framing: {sortedVisiblePlans[0]?.next_step_outcome ?? "No visible outcomes pending."}
+            Next-step outcome framing: {sortedVisiblePlans[0]?.next_step_outcome ?? "No visible outcome memory in this review scope yet."}
           </p>
           <p className="lede compact">Follow-up emphasis: {lowNoiseFollowUpEmphasis}</p>
           <p className="lede compact">Grouped follow-up cue: {groupedFollowUpCue}</p>
@@ -281,8 +281,8 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
 
         {visiblePlans.length === 0 ? (
           <EmptyState
-            title={selectedView === "all" ? "No pending orchestration events" : "No actionable orchestration events"}
-            body={selectedView === "all" ? "The runtime queue is currently clear. Return after the next notification cycle." : "No events currently require manual review. Switch to All events if you want to inspect auto-continue queue activity."}
+            title={selectedView === "all" ? "No orchestration items in this review scope" : "No actionable orchestration items in this review scope"}
+            body={selectedView === "all" ? "The runtime queue is currently clear. Return after the next cycle to pick up new outcome memory and cues." : "No events currently require manual review. Switch to All events to inspect auto-continue activity and outcome memory."}
           />
         ) : (
           <section className="panel">
@@ -310,13 +310,13 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
                     <td>{buildActiveReason(plan)}</td>
                     <td>
                       {formatDecisionSupportState(plan.decision_support_state)}
-                      <div className="meta-label">Triage cue: {plan.next_review_cue || "No triage cue provided."}</div>
-                      <div className="meta-label">Guidance: {plan.revisit_guidance || "No guidance provided."}</div>
-                      <div className="meta-label">{plan.compact_rationale_cue || "Rationale cue: why this row is highlighted/grouped is unavailable."}</div>
+                      <div className="meta-label">Triage cue: {plan.next_review_cue || "Outcome memory is low-signal here, so no triage cue is recorded yet."}</div>
+                      <div className="meta-label">Guidance: {plan.revisit_guidance || "Outcome memory is low-signal here, so revisit guidance is not recorded yet."}</div>
+                      <div className="meta-label">{plan.compact_rationale_cue || "Rationale cue: outcome memory is low-signal here, so highlight/grouping reason is not recorded yet."}</div>
                     </td>
                     <td>
                       {formatDecisionOutcome(plan.reviewer_decision_outcome)}
-                      <div className="meta-label">{plan.reviewer_decision_summary || "No decision summary recorded yet."}</div>
+                      <div className="meta-label">{plan.reviewer_decision_summary || "Outcome memory is not recorded yet for this row."}</div>
                     </td>
                     <td>
                       {formatReviewerState(plan.reviewer_action_state)}
