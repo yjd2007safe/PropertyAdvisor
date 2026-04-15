@@ -77,8 +77,14 @@ def comparables(
 @router.get("/orchestration/review", response_model=OrchestrationReviewResponse)
 def orchestration_review(
     outcome_focus: Optional[Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review", "unrecorded"]] = Query(default=None),
+    reviewer_action_state_focus: Optional[Literal["pending", "acknowledged", "closed"]] = Query(default=None),
+    follow_up_state_focus: Optional[str] = Query(default=None),
 ) -> OrchestrationReviewResponse:
-    return get_orchestration_review_status(outcome_focus=outcome_focus)
+    return get_orchestration_review_status(
+        outcome_focus=outcome_focus,
+        reviewer_action_state_focus=reviewer_action_state_focus,
+        follow_up_state_focus=follow_up_state_focus,
+    )
 
 
 @router.post("/orchestration/review/actions", response_model=OrchestrationReviewActionResponse)
