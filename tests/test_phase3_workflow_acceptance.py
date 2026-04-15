@@ -75,6 +75,9 @@ def test_phase3_workflow_smoke_main_user_journey() -> None:
     assert watchlist.workflow_snapshot.next_href.startswith("/advisor")
     assert watchlist.workflow_snapshot.next_step
     assert watchlist.data_source.source in {"mock", "postgres", "fallback_mock"}
+    assert watchlist.summary.review_session_packet_cue.startswith("Review-session packets:")
+    assert set(watchlist.summary.review_session_packet_breakdown.keys()) == {"do_now", "batch_later", "recently_closed"}
+    assert watchlist.summary.review_session_packet_low_volume_note
 
     alerts = get_watchlist_alerts(severity="high", dal=dal)
     assert alerts.generated_at is not None
@@ -117,6 +120,7 @@ def test_phase3_workflow_smoke_thin_data_and_empty_states() -> None:
     assert watchlist_empty.workflow_snapshot.stage == "watchlist"
     assert watchlist_empty.workflow_snapshot.next_href.startswith("/advisor")
     assert watchlist_empty.summary.investor_brief
+    assert watchlist_empty.summary.review_session_packet_breakdown == {"do_now": 0, "batch_later": 0, "recently_closed": 0}
 
     no_alerts = get_watchlist_alerts(severity="critical", dal=dal)
     assert no_alerts.total == 0
@@ -137,6 +141,8 @@ def test_phase3_watchlist_event_follow_up_labels_are_concise() -> None:
             "Check advisor recommendation",
             "Open orchestration review",
             "Run advisor/comparables now",
+            "Refresh advisor context",
+            "Open detail in current review pass",
             "Continue watchlist review loop",
             "Resume do-now orchestration pass",
         }

@@ -347,6 +347,9 @@ def test_watchlist_grouping_and_alert_count_summary() -> None:
     assert response.summary.by_status["review"] >= 1
     assert any(group.key == "balanced" for group in response.groups)
     assert response.summary_cards
+    assert response.summary.review_session_packet_cue.startswith("Review-session packets:")
+    assert response.summary.review_session_packet_breakdown["do_now"] >= 1
+    assert "packet framing" in response.summary.review_session_packet_low_volume_note.lower()
 
 
 def test_watchlist_detail_and_alert_filter_flow() -> None:

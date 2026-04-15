@@ -308,6 +308,9 @@ class WatchlistSummary(BaseModel):
     next_step_scan_cue: str = ""
     next_step_batching_cue: str = ""
     compact_follow_up_grouping_cue: str = ""
+    review_session_packet_cue: str = ""
+    review_session_packet_low_volume_note: str = ""
+    review_session_packet_breakdown: Dict[str, int] = Field(default_factory=dict)
     investor_brief: str
 
 
@@ -410,6 +413,9 @@ class OrchestrationReviewSummary(BaseModel):
     action_scan_default_cue: str = ""
     next_step_batching_cue: str = ""
     compact_follow_up_grouping_cue: str = ""
+    review_session_packet_cue: str = ""
+    review_session_packet_low_volume_note: str = ""
+    review_session_packet_breakdown: Dict[str, int] = Field(default_factory=dict)
 
 
 class OrchestrationReviewResponse(BaseModel):

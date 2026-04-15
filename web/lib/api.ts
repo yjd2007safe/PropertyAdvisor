@@ -297,6 +297,9 @@ export type OrchestrationReviewResponse = {
     action_scan_default_cue: string;
     next_step_batching_cue: string;
     compact_follow_up_grouping_cue: string;
+    review_session_packet_cue: string;
+    review_session_packet_low_volume_note: string;
+    review_session_packet_breakdown: Record<"do_now" | "batch_later" | "recently_closed", number>;
   };
   plans: OrchestrationPlanItem[];
 };
@@ -368,6 +371,9 @@ export type WatchlistResponse = {
     next_step_scan_cue: string;
     next_step_batching_cue: string;
     compact_follow_up_grouping_cue: string;
+    review_session_packet_cue: string;
+    review_session_packet_low_volume_note: string;
+    review_session_packet_breakdown: Record<"do_now" | "batch_later" | "recently_closed", number>;
     investor_brief: string;
   };
   summary_cards: SummaryCard[];

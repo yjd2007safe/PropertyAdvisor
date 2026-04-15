@@ -59,6 +59,12 @@ def test_orchestration_review_status_flags_manual_review(tmp_path: Path) -> None
     assert "no recorded outcome" in status.summary.decision_outcome_cue.lower()
     assert "default scan" in status.summary.action_scan_default_cue.lower()
     assert "batch" in status.summary.next_step_batching_cue.lower()
+    assert status.summary.review_session_packet_cue.startswith("Review-session packets:")
+    assert "do-now" in status.summary.review_session_packet_cue.lower()
+    assert "batch-later" in status.summary.review_session_packet_cue.lower()
+    assert "recently-closed" in status.summary.review_session_packet_cue.lower()
+    assert status.summary.review_session_packet_breakdown["do_now"] >= 1
+    assert "packet framing" in status.summary.review_session_packet_low_volume_note.lower()
     assert any(
         label in status.summary.compact_follow_up_grouping_cue.lower()
         for label in ("active-intervention", "outcome-capture", "monitor-later")
@@ -166,6 +172,8 @@ def test_orchestration_review_status_empty_queue(tmp_path: Path) -> None:
     assert status.summary.latest_event_at is None
     assert "restart review" in status.summary.next_action.lower()
     assert status.summary.recent_reviewer_action_snapshot == "No recent reviewer actions recorded yet."
+    assert status.summary.review_session_packet_breakdown == {"do_now": 0, "batch_later": 0, "recently_closed": 0}
+    assert "queue is empty" in status.summary.review_session_packet_low_volume_note.lower()
     assert status.plans == []
 
 

@@ -711,6 +711,29 @@ def _build_outcome_distribution(breakdown: dict[str, int]) -> list[DecisionOutco
     return distribution
 
 
+def _build_review_session_packet_cue(
+    *,
+    do_now: int,
+    batch_later: int,
+    recently_closed: int,
+) -> tuple[str, str]:
+    total = do_now + batch_later + recently_closed
+    if total <= 0:
+        return (
+            "Review-session packets: do-now ×0 · batch-later ×0 · recently-closed ×0.",
+            "Queue is empty; packet framing will populate as new review work arrives.",
+        )
+    if total <= 2:
+        return (
+            f"Review-session packets: do-now ×{do_now} · batch-later ×{batch_later} · recently-closed ×{recently_closed}.",
+            "Low-volume queue: keep packet framing explicit, then clear this pass in one compact sweep.",
+        )
+    return (
+        f"Review-session packets: do-now ×{do_now} · batch-later ×{batch_later} · recently-closed ×{recently_closed}.",
+        "Packet framing keeps this session readable: handle do-now first, batch-later second, then verify recently-closed.",
+    )
+
+
 def _filter_plans_by_decision_outcome(plans: list[dict[str, object]], outcome_focus: Optional[str]) -> list[dict[str, object]]:
     if not outcome_focus or outcome_focus not in _DECISION_OUTCOME_FILTER_VALUES:
         return plans
@@ -1393,6 +1416,23 @@ def get_watchlist(
         for alert in item.alerts:
             alert_counts[alert.severity] += 1
 
+    watchlist_packet_breakdown = {"do_now": 0, "batch_later": 0, "recently_closed": 0}
+    for item in enriched_items:
+        latest_decision = item.latest_context.latest_decision if item.latest_context else None
+        posture = _classify_watchlist_follow_up_posture(
+            watch_status=item.watch_status,
+            high_alert_count=sum(1 for alert in item.alerts if alert.severity == "high"),
+            outcome=(latest_decision.outcome if latest_decision else None),
+            reviewer_action_state=None,
+            decision_support_state=None,
+        )
+        watchlist_packet_breakdown[posture] += 1
+    watchlist_packet_cue, watchlist_packet_low_volume_note = _build_review_session_packet_cue(
+        do_now=watchlist_packet_breakdown["do_now"],
+        batch_later=watchlist_packet_breakdown["batch_later"],
+        recently_closed=watchlist_packet_breakdown["recently_closed"],
+    )
+
     summary = WatchlistSummary(
         total_entries=len(enriched_items),
         active_entries=by_status["active"],
@@ -1417,6 +1457,9 @@ def get_watchlist(
             f"{_build_compact_follow_up_grouping_cue(latest_outcome_breakdown)} — "
             f"{_build_compact_rationale_language_cue(latest_outcome_breakdown)}"
         ),
+        review_session_packet_cue=watchlist_packet_cue,
+        review_session_packet_low_volume_note=watchlist_packet_low_volume_note,
+        review_session_packet_breakdown=watchlist_packet_breakdown,
         investor_brief=(
             "Focus this week on review and paused suburbs with high-severity pricing alerts; archive only after outcomes are captured."
             if alert_counts["high"] > 0
@@ -1515,6 +1558,19 @@ def _classify_watchlist_follow_up_posture(
     if normalized_outcome in {"escalate_for_closer_review", "revisit_later"}:
         return "do_now"
     if normalized_watch_status in {"review", "paused"} or high_alert_count > 0:
+        return "do_now"
+    return "batch_later"
+
+
+def _classify_orchestration_follow_up_posture(plan: dict[str, object]) -> Literal["do_now", "batch_later", "recently_closed"]:
+    reviewer_action_state = str(plan.get("reviewer_action_state") or "pending").strip()
+    decision_support_state = str(plan.get("decision_support_state") or "active_attention").strip()
+    outcome = str(plan.get("reviewer_decision_outcome") or "").strip()
+    if reviewer_action_state == "closed" or outcome == "close_for_now":
+        return "recently_closed"
+    if decision_support_state in {"active_attention", "reopen_for_closer_review"}:
+        return "do_now"
+    if bool(plan.get("requires_human_review")):
         return "do_now"
     return "batch_later"
 
@@ -1835,6 +1891,14 @@ def get_orchestration_review_status(
             follow_up_state_focus=follow_up_state_focus,
         )
     )
+    review_session_packet_breakdown = {"do_now": 0, "batch_later": 0, "recently_closed": 0}
+    for plan in filtered_plans:
+        review_session_packet_breakdown[_classify_orchestration_follow_up_posture(plan)] += 1
+    review_session_packet_cue, review_session_packet_low_volume_note = _build_review_session_packet_cue(
+        do_now=review_session_packet_breakdown["do_now"],
+        batch_later=review_session_packet_breakdown["batch_later"],
+        recently_closed=review_session_packet_breakdown["recently_closed"],
+    )
     plans = filtered_plans[:limit] if limit > 0 else filtered_plans
 
     review_required_count = sum(1 for plan in plans if plan.get("requires_human_review"))
@@ -1960,6 +2024,9 @@ def get_orchestration_review_status(
             action_scan_default_cue=action_scan_default_cue,
             next_step_batching_cue=next_step_batching_cue,
             compact_follow_up_grouping_cue=compact_follow_up_grouping_cue,
+            review_session_packet_cue=review_session_packet_cue,
+            review_session_packet_low_volume_note=review_session_packet_low_volume_note,
+            review_session_packet_breakdown=review_session_packet_breakdown,
         ),
         plans=[
             OrchestrationPlanItem(
