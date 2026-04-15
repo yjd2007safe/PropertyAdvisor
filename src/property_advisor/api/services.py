@@ -1444,6 +1444,49 @@ def _latest_decision_for_watchlist(orchestration: OrchestrationReviewResponse, s
     return next((plan.reviewer_decision_record for plan in orchestration.plans if plan.reviewer_decision_record is not None), None)
 
 
+def _latest_plan_for_watchlist(orchestration: OrchestrationReviewResponse, suburb_slug: str) -> Optional[OrchestrationPlanItem]:
+    suburb_token = suburb_slug.strip().lower()
+    for plan in orchestration.plans:
+        plan_text = " ".join(
+            [
+                plan.event_id,
+                plan.event_type,
+                plan.strategy_summary,
+                plan.revisit_reason,
+                plan.message or "",
+                plan.reviewer_decision_summary or "",
+                plan.reviewer_decision_record.summary if plan.reviewer_decision_record else "",
+                plan.reviewer_decision_record.rationale if plan.reviewer_decision_record else "",
+            ]
+        ).lower()
+        if suburb_token and suburb_token in plan_text:
+            return plan
+    return orchestration.plans[0] if orchestration.plans else None
+
+
+def _classify_watchlist_follow_up_posture(
+    *,
+    watch_status: Optional[str],
+    high_alert_count: int,
+    outcome: Optional[str],
+    reviewer_action_state: Optional[str],
+    decision_support_state: Optional[str],
+) -> Literal["do_now", "batch_later", "recently_closed"]:
+    normalized_outcome = (outcome or "").strip()
+    normalized_reviewer_state = (reviewer_action_state or "").strip()
+    normalized_decision_state = (decision_support_state or "").strip()
+    normalized_watch_status = (watch_status or "").strip()
+    if normalized_outcome == "close_for_now" or normalized_reviewer_state == "closed":
+        return "recently_closed"
+    if normalized_decision_state in {"active_attention", "reopen_for_closer_review"}:
+        return "do_now"
+    if normalized_outcome in {"escalate_for_closer_review", "revisit_later"}:
+        return "do_now"
+    if normalized_watch_status in {"review", "paused"} or high_alert_count > 0:
+        return "do_now"
+    return "batch_later"
+
+
 def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer = _DAL) -> WatchlistEntry:
     advice = get_property_advice(query=item.suburb_slug, query_type="slug", dal=dal)
     comparables = get_comparables(query=item.suburb_slug, max_items=5, dal=dal)
@@ -1526,8 +1569,19 @@ def get_watchlist_alerts(severity: Optional[str] = None, dal: DataAccessLayer = 
 def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> WatchlistEventsResponse:
     entries = dal.watchlist.list_entries(WatchlistQuery())
     events: list[WatchlistEventItem] = []
+    orchestration = get_orchestration_review_status(limit=30)
 
     for entry in entries:
+        latest_decision = _latest_decision_for_watchlist(orchestration, entry.suburb_slug)
+        latest_plan = _latest_plan_for_watchlist(orchestration, entry.suburb_slug)
+        high_alert_count = sum(1 for alert in entry.alerts if alert.severity == "high")
+        event_posture = _classify_watchlist_follow_up_posture(
+            watch_status=entry.watch_status,
+            high_alert_count=high_alert_count,
+            outcome=(latest_decision.outcome if latest_decision else None),
+            reviewer_action_state=(latest_plan.reviewer_action_state if latest_plan else None),
+            decision_support_state=(latest_plan.decision_support_state if latest_plan else None),
+        )
         if entry.alerts:
             latest_alert = sorted(entry.alerts, key=lambda alert: alert.observed_at, reverse=True)[0]
             events.append(
@@ -1539,8 +1593,17 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
                     detail=f"{latest_alert.detail} (severity: {latest_alert.severity})",
                     suburb_slug=entry.suburb_slug,
                     suburb_name=entry.suburb_name,
-                    follow_up_href=f"/watchlist?detail_slug={entry.suburb_slug}",
-                    follow_up_label="Review suburb detail",
+                    latest_decision=latest_decision,
+                    latest_decision_triage_cue=(_format_decision_triage_cue(latest_decision) if latest_decision else None),
+                    reviewer_action_state=(latest_plan.reviewer_action_state if latest_plan else None),
+                    follow_up_state=(latest_plan.follow_up_state if latest_plan else None),
+                    decision_support_state=(latest_plan.decision_support_state if latest_plan else None),
+                    follow_up_posture=event_posture,
+                    follow_up_href=(
+                        f"/watchlist?group_by=strategy&detail_slug={entry.suburb_slug}&suburb_slug={entry.suburb_slug}"
+                        f"&latest_outcome={(latest_decision.outcome if latest_decision else 'unrecorded')}"
+                    ),
+                    follow_up_label="Open detail in current review pass",
                 )
             )
 
@@ -1553,8 +1616,17 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
                 detail=f"Strategy={entry.strategy}; target band ${entry.target_buy_range_min:,}-${entry.target_buy_range_max:,}.",
                 suburb_slug=entry.suburb_slug,
                 suburb_name=entry.suburb_name,
-                follow_up_href=f"/advisor?query={entry.suburb_slug}&query_type=slug",
-                follow_up_label="Refresh advisor view",
+                latest_decision=latest_decision,
+                latest_decision_triage_cue=(_format_decision_triage_cue(latest_decision) if latest_decision else None),
+                reviewer_action_state=(latest_plan.reviewer_action_state if latest_plan else None),
+                follow_up_state=(latest_plan.follow_up_state if latest_plan else None),
+                decision_support_state=(latest_plan.decision_support_state if latest_plan else None),
+                follow_up_posture=event_posture,
+                follow_up_href=(
+                    f"/watchlist?group_by=strategy&detail_slug={entry.suburb_slug}&suburb_slug={entry.suburb_slug}"
+                    f"&latest_outcome={(latest_decision.outcome if latest_decision else 'unrecorded')}"
+                ),
+                follow_up_label="Continue watchlist review loop",
             )
         )
 
@@ -1567,14 +1639,32 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
                 detail=f"Re-check recommendation for {entry.strategy} strategy before progressing this suburb.",
                 suburb_slug=entry.suburb_slug,
                 suburb_name=entry.suburb_name,
-                follow_up_href=f"/advisor?query={entry.suburb_slug}&query_type=slug",
-                follow_up_label="Check advisor recommendation",
+                latest_decision=latest_decision,
+                latest_decision_triage_cue=(_format_decision_triage_cue(latest_decision) if latest_decision else None),
+                reviewer_action_state=(latest_plan.reviewer_action_state if latest_plan else None),
+                follow_up_state=(latest_plan.follow_up_state if latest_plan else None),
+                decision_support_state=(latest_plan.decision_support_state if latest_plan else None),
+                follow_up_posture=event_posture,
+                follow_up_href=(
+                    f"/advisor?query={entry.suburb_slug}&query_type=slug&from=watchlist_events"
+                    f"&intent={(event_posture if event_posture != 'recently_closed' else 'monitor')}"
+                ),
+                follow_up_label=(
+                    "Run advisor/comparables now" if event_posture == "do_now" else "Refresh advisor context"
+                ),
             )
         )
 
-    orchestration = get_orchestration_review_status(limit=3)
     for plan in orchestration.plans:
         occurred_at = _parse_timestamp(plan.queued_at or plan.created_at) or datetime.now(timezone.utc)
+        latest_decision = plan.reviewer_decision_record
+        follow_up_posture = _classify_watchlist_follow_up_posture(
+            watch_status=None,
+            high_alert_count=0,
+            outcome=(latest_decision.outcome if latest_decision else None),
+            reviewer_action_state=plan.reviewer_action_state,
+            decision_support_state=plan.decision_support_state,
+        )
         events.append(
             WatchlistEventItem(
                 event_id=f"orchestration:{plan.event_id}",
@@ -1586,12 +1676,23 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
                     if plan.strategy_summary
                     else f"Pending action: {plan.action}."
                 ),
+                latest_decision=latest_decision,
+                latest_decision_triage_cue=(_format_decision_triage_cue(latest_decision) if latest_decision else None),
+                reviewer_action_state=plan.reviewer_action_state,
+                follow_up_state=plan.follow_up_state,
+                decision_support_state=plan.decision_support_state,
+                follow_up_posture=follow_up_posture,
                 follow_up_href=(
                     f"/orchestration?view=actionable"
                     f"&reviewer_action_state_focus={plan.reviewer_action_state}"
                     f"&follow_up_state_focus={plan.follow_up_state}"
+                    f"&outcome_focus={(latest_decision.outcome if latest_decision else 'unrecorded')}"
                 ),
-                follow_up_label="Open focused orchestration review",
+                follow_up_label=(
+                    "Resume do-now orchestration pass"
+                    if follow_up_posture == "do_now"
+                    else ("Review recently closed orchestration item" if follow_up_posture == "recently_closed" else "Open batch-later orchestration pass")
+                ),
             )
         )
 
