@@ -1,5 +1,6 @@
 import psycopg
 
+import property_advisor.api.services as services_module
 from property_advisor.api.data_access import DataAccessLayer
 from property_advisor.api.db import DatabaseConfig, DatabaseSessionFactory
 from property_advisor.api.repositories import (
@@ -164,6 +165,7 @@ def test_mock_alert_event_repository_upsert_is_idempotent_by_event_key() -> None
     listed = repo.list_events(event_keys=[request.event_key])
     assert first.event_key == second.event_key
     assert second.occurrence_count == 2
+    assert second.change_state == "unchanged"
     assert listed[0].occurrence_count == 2
 
 
@@ -195,8 +197,11 @@ def test_postgres_alert_event_repository_maps_rows_on_upsert(monkeypatch) -> Non
                 "2026-01-03T10:00:00+00:00",
                 "open",
                 "new",
+                "changed",
                 {"source": "watchlist_evidence_alert"},
                 3,
+                "2026-01-03T09:00:00+00:00",
+                "2026-01-03T10:00:00+00:00",
             )
 
     class _Conn:
@@ -230,6 +235,7 @@ def test_postgres_alert_event_repository_maps_rows_on_upsert(monkeypatch) -> Non
     assert records
     assert records[0].event_key == "watchlist-evidence:test-key"
     assert records[0].occurrence_count == 3
+    assert records[0].change_state == "changed"
     assert any("insert into alert_events" in statement for statement in statements)
 
 
@@ -243,6 +249,62 @@ def test_persist_watchlist_alert_events_enriches_alert_history_context() -> None
     assert persisted_alerts
     assert all(alert.event_status in {"open", "dismissed", "archived", None} for alert in persisted_alerts)
     assert all((alert.event_occurrence_count or 0) >= 1 for alert in persisted_alerts)
+    assert all(alert.event_change_state in {"new", "unchanged", "changed", None} for alert in persisted_alerts)
+
+
+def test_evidence_fingerprint_is_stable_and_changes_on_meaningful_input() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    item = dal.watchlist.list_entries(WatchlistQuery(suburb_slug="southport-qld-4215"))[0]
+    advice = get_property_advice(query=item.suburb_slug, query_type="slug", dal=dal)
+    comparables = get_comparables(query=item.suburb_slug, max_items=5, dal=dal)
+    alert = services_module._build_evidence_watchlist_alerts(item=item, advice=advice, comparables=comparables)[0]
+    first = services_module._build_evidence_fingerprint_payload(
+        item=item,
+        alert=alert,
+        advice=advice,
+        comparables=comparables,
+    )
+    second = services_module._build_evidence_fingerprint_payload(
+        item=item,
+        alert=alert,
+        advice=advice,
+        comparables=comparables,
+    )
+    changed_advice = advice.model_copy(
+        update={"advice": advice.advice.model_copy(update={"confidence": "high", "recommendation": "consider"})}
+    )
+    third = services_module._build_evidence_fingerprint_payload(
+        item=item,
+        alert=alert,
+        advice=changed_advice,
+        comparables=comparables,
+    )
+    assert first["fingerprint"] == second["fingerprint"]
+    assert third["fingerprint"] != first["fingerprint"]
+
+
+def test_persist_watchlist_alert_events_marks_changed_lifecycle_state(monkeypatch) -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    persist_watchlist_alert_events(suburb_slug="southport-qld-4215", dal=dal)
+    baseline = get_watchlist(suburb_slug="southport-qld-4215", dal=dal)
+    baseline_alert = next(alert for alert in baseline.items[0].alerts if alert.event_key)
+    assert baseline_alert.event_change_state in {"new", "unchanged", "changed"}
+
+    original_get_property_advice = services_module.get_property_advice
+
+    def _patched_get_property_advice(*args, **kwargs):
+        response = original_get_property_advice(*args, **kwargs)
+        return response.model_copy(
+            update={"advice": response.advice.model_copy(update={"confidence": "high", "recommendation": "consider"})}
+        )
+
+    monkeypatch.setattr(services_module, "get_property_advice", _patched_get_property_advice)
+    persist_watchlist_alert_events(suburb_slug="southport-qld-4215", dal=dal)
+    updated = get_watchlist(suburb_slug="southport-qld-4215", dal=dal)
+    changed_alert = next(alert for alert in updated.items[0].alerts if alert.event_key == baseline_alert.event_key)
+    assert changed_alert.event_occurrence_count is not None and changed_alert.event_occurrence_count >= 2
+    assert changed_alert.event_change_state == "changed"
+    assert changed_alert.event_change_summary and "changed evidence alert" in changed_alert.event_change_summary.lower()
 
 
 def test_watchlist_supports_latest_outcome_focus_filter() -> None:

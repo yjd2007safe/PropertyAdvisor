@@ -31,4 +31,5 @@ def test_domain_scaffold_smoke_flow() -> None:
     advisory = build_advisory_snapshot(normalized, comparables, market)
 
     assert advisory["property"]["external_id"] == "listing-123"
-    assert evaluate_alerts(advisory) == []
+    alerts = evaluate_alerts(advisory)
+    assert {alert["metric"] for alert in alerts} >= {"confidence", "comparable_sample_size"}

@@ -7,7 +7,7 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from statistics import mean
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from property_advisor.alerts import evaluate_alerts
 from property_advisor.api.data_access import DataAccessLayer
@@ -1628,7 +1628,81 @@ def _build_alert_event_key(suburb_slug: str, alert: WatchlistAlert) -> str:
     return f"watchlist-evidence:{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:20]}"
 
 
-def _build_alert_event_request(item: WatchlistEntry, alert: WatchlistAlert) -> AlertEventUpsertRequest:
+def _build_evidence_fingerprint_payload(
+    *,
+    item: WatchlistEntry,
+    alert: WatchlistAlert,
+    advice: PropertyAdvisorResponse,
+    comparables: ComparablesResponse,
+) -> Dict[str, Any]:
+    evidence_context = {
+        "recommendation": advice.advice.recommendation,
+        "confidence": advice.advice.confidence,
+        "fallback_state": advice.advice.fallback_state,
+        "freshness": advice.advice.freshness,
+        "comparable_sample_size": comparables.summary.count,
+        "comparable_sample_state": comparables.summary.sample_state,
+        "comparable_price_position": advice.comparable_snapshot.price_position,
+        "market_demand_signal": advice.market_context.demand_signal,
+        "market_supply_signal": advice.market_context.supply_signal,
+    }
+    fingerprint_seed = {
+        "suburb_slug": item.suburb_slug,
+        "metric": alert.metric,
+        "severity": alert.severity,
+        "title": alert.title,
+        "evidence": evidence_context,
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_seed, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:24]
+    return {
+        "source": "watchlist_evidence_alert",
+        "suburb_slug": item.suburb_slug,
+        "suburb_name": item.suburb_name,
+        "metric": alert.metric,
+        "severity": alert.severity,
+        "fingerprint": fingerprint,
+        "evidence_context": evidence_context,
+    }
+
+
+def _classify_evidence_change(
+    *,
+    current_payload: Dict[str, Any],
+    persisted_event: Optional[object],
+) -> tuple[str, List[str]]:
+    if persisted_event is None:
+        return ("new", [])
+    previous_payload = getattr(persisted_event, "payload", {}) or {}
+    previous_fingerprint = str(previous_payload.get("fingerprint") or "")
+    current_fingerprint = str(current_payload.get("fingerprint") or "")
+    if previous_fingerprint and previous_fingerprint == current_fingerprint:
+        return ("unchanged", [])
+    previous_context = previous_payload.get("evidence_context", {})
+    current_context = current_payload.get("evidence_context", {})
+    if not isinstance(previous_context, dict) or not isinstance(current_context, dict):
+        return ("changed", [])
+    changed_fields = [
+        key
+        for key in sorted(current_context.keys())
+        if previous_context.get(key) != current_context.get(key)
+    ]
+    return ("changed", changed_fields)
+
+
+def _build_alert_event_request(
+    item: WatchlistEntry,
+    alert: WatchlistAlert,
+    *,
+    payload: Dict[str, Any],
+    previous_event: Optional[object],
+) -> AlertEventUpsertRequest:
+    change_state, changed_fields = _classify_evidence_change(current_payload=payload, persisted_event=previous_event)
+    payload_with_change = dict(payload)
+    payload_with_change["change_state"] = change_state
+    if changed_fields:
+        payload_with_change["changed_fields"] = changed_fields
     return AlertEventUpsertRequest(
         event_key=_build_alert_event_key(item.suburb_slug, alert),
         alert_rule_id=None,
@@ -1642,13 +1716,10 @@ def _build_alert_event_request(item: WatchlistEntry, alert: WatchlistAlert) -> A
         observed_at=alert.observed_at,
         status="open",
         action_state="new",
-        payload={
-            "source": "watchlist_evidence_alert",
-            "suburb_slug": item.suburb_slug,
-            "suburb_name": item.suburb_name,
-            "metric": alert.metric,
-            "severity": alert.severity,
-        },
+        change_state=change_state,
+        last_changed_at=alert.observed_at if change_state in {"new", "changed"} else None,
+        last_seen_at=alert.observed_at,
+        payload=payload_with_change,
     )
 
 
@@ -1657,17 +1728,50 @@ def _attach_event_context_to_alert(
     item: WatchlistEntry,
     alert: WatchlistAlert,
     event_lookup: Dict[str, object],
+    fingerprint_payload: Dict[str, Any],
 ) -> WatchlistAlert:
     event_key = _build_alert_event_key(item.suburb_slug, alert)
     event = event_lookup.get(event_key)
+    live_change_state, changed_fields = _classify_evidence_change(current_payload=fingerprint_payload, persisted_event=event)
+    persisted_state = str(getattr(event, "change_state", "")).strip() if event is not None else ""
+    display_state = persisted_state or live_change_state
+    if event is not None and not changed_fields:
+        event_payload = getattr(event, "payload", {}) or {}
+        if isinstance(event_payload, dict):
+            payload_changed_fields = event_payload.get("changed_fields", [])
+            if isinstance(payload_changed_fields, list):
+                changed_fields = [str(field) for field in payload_changed_fields]
+    prefix = {
+        "new": "New evidence alert",
+        "changed": "Changed evidence alert",
+        "unchanged": "Stable evidence alert",
+    }.get(display_state, "Evidence alert")
+    change_summary = (
+        f"{prefix}; changed fields: {', '.join(changed_fields)}."
+        if changed_fields
+        else f"{prefix}; no new field-level deltas."
+    )
     if event is None:
-        return alert.model_copy(update={"event_key": event_key})
+        return alert.model_copy(
+            update={
+                "event_key": event_key,
+                "event_change_state": live_change_state,
+                "event_change_summary": change_summary,
+                "detail": f"{prefix}: {alert.detail}",
+            }
+        )
     return alert.model_copy(
         update={
             "event_key": event_key,
             "event_status": str(getattr(event, "status", "open")),
+            "event_action_state": str(getattr(event, "action_state", "new")),
             "event_occurrence_count": int(getattr(event, "occurrence_count", 1)),
             "event_last_observed_at": str(getattr(event, "observed_at", alert.observed_at)),
+            "event_change_state": display_state,
+            "event_last_changed_at": (str(getattr(event, "last_changed_at")) if getattr(event, "last_changed_at", None) else None),
+            "event_last_seen_at": (str(getattr(event, "last_seen_at")) if getattr(event, "last_seen_at", None) else None),
+            "event_change_summary": change_summary,
+            "detail": f"{prefix}: {alert.detail}",
         }
     )
 
@@ -1685,6 +1789,17 @@ def _merge_watchlist_alerts(existing: List[WatchlistAlert], evidence: List[Watch
     return merged
 
 
+def _summarize_evidence_change_states(current_alerts: List[WatchlistAlert]) -> str:
+    counts = {"new": 0, "changed": 0, "unchanged": 0}
+    for alert in current_alerts:
+        state = (alert.event_change_state or "").strip()
+        if state in counts:
+            counts[state] += 1
+    return (
+        f"evidence lifecycle: new={counts['new']}, changed={counts['changed']}, continuing={counts['unchanged']}"
+    )
+
+
 def _enrich_watchlist_entry_context(
     item: WatchlistEntry,
     dal: DataAccessLayer = _DAL,
@@ -1695,22 +1810,48 @@ def _enrich_watchlist_entry_context(
     comparables = get_comparables(query=item.suburb_slug, max_items=5, dal=dal)
     orchestration = get_orchestration_review_status(limit=15)
     evidence_alerts = _build_evidence_watchlist_alerts(item=item, advice=advice, comparables=comparables)
-    requests = [_build_alert_event_request(item, alert) for alert in evidence_alerts]
-    event_records = (
-        dal.alert_events.upsert_events(requests)
-        if persist_evidence_events and requests
-        else dal.alert_events.list_events(suburb_slug=item.suburb_slug, event_keys=[request.event_key for request in requests], limit=100)
+    payload_by_key = {
+        _build_alert_event_key(item.suburb_slug, alert): _build_evidence_fingerprint_payload(
+            item=item,
+            alert=alert,
+            advice=advice,
+            comparables=comparables,
+        )
+        for alert in evidence_alerts
+    }
+    existing_records = (
+        dal.alert_events.list_events(suburb_slug=item.suburb_slug, event_keys=list(payload_by_key.keys()), limit=100)
+        if payload_by_key
+        else []
     )
+    existing_lookup = {record.event_key: record for record in existing_records}
+    requests = [
+        _build_alert_event_request(
+            item,
+            alert,
+            payload=payload_by_key[_build_alert_event_key(item.suburb_slug, alert)],
+            previous_event=existing_lookup.get(_build_alert_event_key(item.suburb_slug, alert)),
+        )
+        for alert in evidence_alerts
+    ]
+    event_records = dal.alert_events.upsert_events(requests) if persist_evidence_events and requests else existing_records
     event_lookup = {record.event_key: record for record in event_records}
     evidence_with_context = [
-        _attach_event_context_to_alert(item=item, alert=alert, event_lookup=event_lookup)
+        _attach_event_context_to_alert(
+            item=item,
+            alert=alert,
+            event_lookup=event_lookup,
+            fingerprint_payload=payload_by_key[_build_alert_event_key(item.suburb_slug, alert)],
+        )
         for alert in evidence_alerts
     ]
     combined_alerts = _merge_watchlist_alerts(item.alerts, evidence_with_context)
+    evidence_lifecycle_summary = _summarize_evidence_change_states(evidence_with_context)
 
     advisory_context = f"{advice.advice.recommendation} ({advice.advice.confidence}) — {advice.advice.headline}"
     if advice.advice.fallback_state and advice.advice.fallback_state != "none":
         advisory_context = f"{advisory_context} | thin-data: {advice.advice.fallback_state}"
+    advisory_context = f"{advisory_context} | {evidence_lifecycle_summary}"
 
     if comparables.summary.sample_state in {"empty", "low"}:
         comparables_context = (

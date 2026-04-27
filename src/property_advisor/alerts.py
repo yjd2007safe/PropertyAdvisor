@@ -13,12 +13,12 @@ def evaluate_alerts(advisory_snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     dumps and persisted snapshot-style payloads.
     """
     observed_at = _resolve_observed_at(advisory_snapshot)
-    advice = _as_dict(advisory_snapshot.get("advice"))
-    comparable_snapshot = _as_dict(advisory_snapshot.get("comparable_snapshot"))
-    market_context = _as_dict(advisory_snapshot.get("market_context"))
+    advice = _extract_advice(advisory_snapshot)
+    comparable_snapshot = _extract_comparable_snapshot(advisory_snapshot)
+    market_context = _extract_market_context(advisory_snapshot)
 
-    recommendation = str(advice.get("recommendation") or "").strip().lower()
-    confidence = str(advice.get("confidence") or "").strip().lower()
+    recommendation = str(advice.get("recommendation") or advisory_snapshot.get("recommendation") or "").strip().lower()
+    confidence = str(advice.get("confidence") or advisory_snapshot.get("confidence") or "").strip().lower()
     fallback_state = str(advice.get("fallback_state") or "").strip().lower()
     freshness = str(advice.get("freshness") or advice.get("freshness_status") or "").strip().lower()
     sample_depth = str(advice.get("sample_depth") or "").strip().lower()
@@ -144,6 +144,42 @@ def evaluate_alerts(advisory_snapshot: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _extract_advice(snapshot: dict[str, Any]) -> dict[str, Any]:
+    advice = _as_dict(snapshot.get("advice"))
+    if advice:
+        return advice
+    return {
+        "recommendation": snapshot.get("recommendation") or snapshot.get("stance"),
+        "confidence": snapshot.get("confidence"),
+        "confidence_reasons": snapshot.get("warnings") or [],
+        "fallback_reasons": snapshot.get("fallback_notes") or [],
+    }
+
+
+def _extract_comparable_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    comparable_snapshot = _as_dict(snapshot.get("comparable_snapshot"))
+    if comparable_snapshot:
+        return comparable_snapshot
+    comparables = snapshot.get("comparables")
+    sample_size = len(comparables) if isinstance(comparables, list) else None
+    return {
+        "sample_size": sample_size,
+        "price_position": snapshot.get("price_position"),
+        "summary": snapshot.get("summary"),
+    }
+
+
+def _extract_market_context(snapshot: dict[str, Any]) -> dict[str, Any]:
+    market_context = _as_dict(snapshot.get("market_context"))
+    if market_context:
+        return market_context
+    market_summary = _as_dict(snapshot.get("market_summary"))
+    return {
+        "demand_signal": market_summary.get("demand_signal") or market_summary.get("demand_score"),
+        "supply_signal": market_summary.get("supply_signal") or market_summary.get("supply_score"),
+    }
 
 
 def _coerce_int(value: Any) -> int:

@@ -149,6 +149,9 @@ class AlertEventUpsertRequest:
     observed_at: str
     status: Literal["open", "dismissed", "archived"] = "open"
     action_state: Literal["new", "seen", "actioned"] = "new"
+    change_state: Literal["new", "unchanged", "changed"] = "new"
+    last_changed_at: Optional[str] = None
+    last_seen_at: Optional[str] = None
     payload: Dict[str, Any] | None = None
 
 
@@ -164,8 +167,11 @@ class AlertEventRecord:
     observed_at: str
     status: str
     action_state: str
+    change_state: str
     payload: Dict[str, Any]
     occurrence_count: int = 1
+    last_changed_at: Optional[str] = None
+    last_seen_at: Optional[str] = None
 
 
 class SuburbRepository(Protocol):
@@ -861,13 +867,31 @@ class MockAlertEventRepository:
     def __init__(self):
         self._events_by_key: Dict[str, AlertEventRecord] = {}
 
+    @staticmethod
+    def _payload_fingerprint(payload: Dict[str, Any]) -> str:
+        fingerprint = payload.get("fingerprint")
+        if isinstance(fingerprint, str) and fingerprint.strip():
+            return fingerprint.strip()
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
     def upsert_events(self, events: List[AlertEventUpsertRequest]) -> List[AlertEventRecord]:
         now_iso = datetime.now(timezone.utc).isoformat()
         upserted: List[AlertEventRecord] = []
         for request in events:
             current = self._events_by_key.get(request.event_key)
             if current:
+                request_payload = dict(request.payload or {})
+                previous_fingerprint = self._payload_fingerprint(current.payload)
+                next_fingerprint = self._payload_fingerprint(request_payload)
+                changed = previous_fingerprint != next_fingerprint
                 next_observed = max(current.observed_at, request.observed_at)
+                last_seen_at = request.last_seen_at or request.observed_at or now_iso
+                next_last_seen_at = max(current.last_seen_at or current.observed_at, last_seen_at)
+                next_last_changed_at = (
+                    max(current.last_changed_at or current.observed_at, request.last_changed_at or request.observed_at)
+                    if changed
+                    else (current.last_changed_at or current.observed_at)
+                )
                 record = AlertEventRecord(
                     event_id=current.event_id,
                     event_key=current.event_key,
@@ -879,8 +903,11 @@ class MockAlertEventRepository:
                     observed_at=next_observed,
                     status=current.status,
                     action_state=current.action_state,
-                    payload=request.payload or current.payload,
+                    change_state="changed" if changed else "unchanged",
+                    payload=request_payload or current.payload,
                     occurrence_count=current.occurrence_count + 1,
+                    last_changed_at=next_last_changed_at,
+                    last_seen_at=next_last_seen_at,
                 )
             else:
                 record = AlertEventRecord(
@@ -894,8 +921,11 @@ class MockAlertEventRepository:
                     observed_at=request.observed_at or now_iso,
                     status=request.status,
                     action_state=request.action_state,
+                    change_state=request.change_state,
                     payload=request.payload or {},
                     occurrence_count=1,
+                    last_changed_at=request.last_changed_at or request.observed_at or now_iso,
+                    last_seen_at=request.last_seen_at or request.observed_at or now_iso,
                 )
             self._events_by_key[request.event_key] = record
             upserted.append(record)
@@ -1962,9 +1992,12 @@ class PostgresAlertEventRepository(MockAlertEventRepository):
                               observed_at,
                               status,
                               action_state,
+                              change_state,
+                              last_changed_at,
+                              last_seen_at,
                               payload
                             )
-                            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, coalesce(%s, 'open'), coalesce(%s, 'new'), %s)
+                            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, coalesce(%s, 'open'), coalesce(%s, 'new'), coalesce(%s, 'new'), %s, %s, %s)
                             on conflict (event_key) do update
                               set suburb_slug = coalesce(excluded.suburb_slug, alert_events.suburb_slug),
                                   suburb_id = coalesce(excluded.suburb_id, alert_events.suburb_id),
@@ -1975,9 +2008,20 @@ class PostgresAlertEventRepository(MockAlertEventRepository):
                                   detail = excluded.detail,
                                   observed_at = greatest(alert_events.observed_at, excluded.observed_at),
                                   payload = excluded.payload,
+                                  change_state = case
+                                    when coalesce(alert_events.payload->>'fingerprint', '') = coalesce(excluded.payload->>'fingerprint', '')
+                                      then 'unchanged'
+                                    else 'changed'
+                                  end,
+                                  last_changed_at = case
+                                    when coalesce(alert_events.payload->>'fingerprint', '') = coalesce(excluded.payload->>'fingerprint', '')
+                                      then alert_events.last_changed_at
+                                    else coalesce(excluded.last_changed_at, excluded.observed_at, now())
+                                  end,
+                                  last_seen_at = greatest(coalesce(alert_events.last_seen_at, alert_events.observed_at), coalesce(excluded.last_seen_at, excluded.observed_at)),
                                   occurrence_count = alert_events.occurrence_count + 1,
                                   updated_at = now()
-                            returning id, event_key, suburb_slug, severity, metric, title, detail, observed_at, status, action_state, payload, occurrence_count
+                            returning id, event_key, suburb_slug, severity, metric, title, detail, observed_at, status, action_state, change_state, payload, occurrence_count, last_changed_at, last_seen_at
                             """,
                             (
                                 request.event_key,
@@ -1992,13 +2036,16 @@ class PostgresAlertEventRepository(MockAlertEventRepository):
                                 request.observed_at,
                                 request.status,
                                 request.action_state,
+                                request.change_state,
+                                request.last_changed_at or request.observed_at,
+                                request.last_seen_at or request.observed_at,
                                 json.dumps(request.payload or {}, sort_keys=True),
                             ),
                         )
                         row = cur.fetchone() if hasattr(cur, "fetchone") else (cur.fetchall() or [None])[0]
                         if row is None:
                             continue
-                        payload_value = row[10] if len(row) > 10 else {}
+                        payload_value = row[11] if len(row) > 11 else {}
                         if isinstance(payload_value, str):
                             try:
                                 payload_value = json.loads(payload_value)
@@ -2016,8 +2063,11 @@ class PostgresAlertEventRepository(MockAlertEventRepository):
                                 observed_at=_coerce_sale_date(row[7]),
                                 status=str(row[8]),
                                 action_state=str(row[9]),
+                                change_state=str(row[10] or "new"),
                                 payload=dict(payload_value or {}),
-                                occurrence_count=int(row[11] or 1) if len(row) > 11 else 1,
+                                occurrence_count=int(row[12] or 1) if len(row) > 12 else 1,
+                                last_changed_at=(_coerce_sale_date(row[13]) if len(row) > 13 and row[13] is not None else None),
+                                last_seen_at=(_coerce_sale_date(row[14]) if len(row) > 14 and row[14] is not None else None),
                             )
                         )
             self.last_source = "postgres"
@@ -2037,7 +2087,7 @@ class PostgresAlertEventRepository(MockAlertEventRepository):
             with psycopg.connect(self.session_factory.config.url) as conn:
                 with conn.cursor() as cur:
                     query = """
-                        select id, event_key, suburb_slug, severity, metric, title, detail, observed_at, status, action_state, payload, occurrence_count
+                        select id, event_key, suburb_slug, severity, metric, title, detail, observed_at, status, action_state, change_state, payload, occurrence_count, last_changed_at, last_seen_at
                         from alert_events
                     """
                     clauses: List[str] = []
@@ -2062,7 +2112,7 @@ class PostgresAlertEventRepository(MockAlertEventRepository):
         self.last_fallback_reason = None
         output: List[AlertEventRecord] = []
         for row in rows:
-            payload_value = row[10] if len(row) > 10 else {}
+            payload_value = row[11] if len(row) > 11 else {}
             if isinstance(payload_value, str):
                 try:
                     payload_value = json.loads(payload_value)
@@ -2080,8 +2130,11 @@ class PostgresAlertEventRepository(MockAlertEventRepository):
                     observed_at=_coerce_sale_date(row[7]),
                     status=str(row[8]),
                     action_state=str(row[9]),
+                    change_state=str(row[10] or "new"),
                     payload=dict(payload_value or {}),
-                    occurrence_count=int(row[11] or 1) if len(row) > 11 else 1,
+                    occurrence_count=int(row[12] or 1) if len(row) > 12 else 1,
+                    last_changed_at=(_coerce_sale_date(row[13]) if len(row) > 13 and row[13] is not None else None),
+                    last_seen_at=(_coerce_sale_date(row[14]) if len(row) > 14 and row[14] is not None else None),
                 )
             )
         return output
