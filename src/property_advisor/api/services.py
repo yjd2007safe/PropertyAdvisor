@@ -1676,6 +1676,24 @@ def _build_evidence_fingerprint_payload(
     }
 
 
+def _build_alert_fingerprint_payload_lookup(
+    *,
+    item: WatchlistEntry,
+    alerts: List[WatchlistAlert],
+    advice: PropertyAdvisorResponse,
+    comparables: ComparablesResponse,
+) -> Dict[str, Dict[str, Any]]:
+    return {
+        _build_alert_event_key(item.suburb_slug, alert): _build_evidence_fingerprint_payload(
+            item=item,
+            alert=alert,
+            advice=advice,
+            comparables=comparables,
+        )
+        for alert in alerts
+    }
+
+
 def _classify_evidence_change(
     *,
     current_payload: Dict[str, Any],
@@ -1851,15 +1869,12 @@ def _enrich_watchlist_entry_context(
     comparables = get_comparables(query=item.suburb_slug, max_items=5, dal=dal)
     orchestration = get_orchestration_review_status(limit=15)
     evidence_alerts = _build_evidence_watchlist_alerts(item=item, advice=advice, comparables=comparables)
-    payload_by_key = {
-        _build_alert_event_key(item.suburb_slug, alert): _build_evidence_fingerprint_payload(
-            item=item,
-            alert=alert,
-            advice=advice,
-            comparables=comparables,
-        )
-        for alert in evidence_alerts
-    }
+    payload_by_key = _build_alert_fingerprint_payload_lookup(
+        item=item,
+        alerts=evidence_alerts,
+        advice=advice,
+        comparables=comparables,
+    )
     existing_records = (
         dal.alert_events.list_events(suburb_slug=item.suburb_slug, event_keys=list(payload_by_key.keys()), limit=100)
         if payload_by_key
@@ -2000,15 +2015,12 @@ def scan_watchlist_alert_events(
         if not evidence_alerts:
             continue
 
-        payload_by_key = {
-            _build_alert_event_key(entry.suburb_slug, alert): _build_evidence_fingerprint_payload(
-                item=entry,
-                alert=alert,
-                advice=advice,
-                comparables=comparables,
-            )
-            for alert in evidence_alerts
-        }
+        payload_by_key = _build_alert_fingerprint_payload_lookup(
+            item=entry,
+            alerts=evidence_alerts,
+            advice=advice,
+            comparables=comparables,
+        )
         existing_records = dal.alert_events.list_events(
             suburb_slug=entry.suburb_slug,
             event_keys=list(payload_by_key.keys()),
