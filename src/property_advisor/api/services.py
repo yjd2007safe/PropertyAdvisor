@@ -3,6 +3,7 @@ from __future__ import annotations
 """Internal MVP service layer used by HTTP routes."""
 
 import json
+import hashlib
 from datetime import datetime, timedelta, timezone
 from statistics import mean
 from pathlib import Path
@@ -12,7 +13,12 @@ from property_advisor.alerts import evaluate_alerts
 from property_advisor.api.data_access import DataAccessLayer
 from property_advisor.api.db import create_session_factory
 from property_advisor.api.mock_fixtures import PROPERTY_ADVISOR_FIXTURE
-from property_advisor.api.repositories import ComparableQuery, WatchlistQuery, WatchlistUpsertRequest
+from property_advisor.api.repositories import (
+    AlertEventUpsertRequest,
+    ComparableQuery,
+    WatchlistQuery,
+    WatchlistUpsertRequest,
+)
 from property_advisor.api.schemas import (
     DecisionOutcomeDistributionItem,
     DecisionOutcomeSummary,
@@ -1609,6 +1615,63 @@ def _build_evidence_watchlist_alerts(
     return output
 
 
+def _build_alert_event_key(suburb_slug: str, alert: WatchlistAlert) -> str:
+    seed = "|".join(
+        [
+            "phase7.slice1",
+            suburb_slug.strip().lower(),
+            alert.metric.strip().lower(),
+            alert.severity.strip().lower(),
+            alert.title.strip().lower(),
+        ]
+    )
+    return f"watchlist-evidence:{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:20]}"
+
+
+def _build_alert_event_request(item: WatchlistEntry, alert: WatchlistAlert) -> AlertEventUpsertRequest:
+    return AlertEventUpsertRequest(
+        event_key=_build_alert_event_key(item.suburb_slug, alert),
+        alert_rule_id=None,
+        suburb_slug=item.suburb_slug,
+        suburb_id=None,
+        property_id=None,
+        severity=alert.severity,
+        metric=alert.metric,
+        title=alert.title,
+        detail=alert.detail,
+        observed_at=alert.observed_at,
+        status="open",
+        action_state="new",
+        payload={
+            "source": "watchlist_evidence_alert",
+            "suburb_slug": item.suburb_slug,
+            "suburb_name": item.suburb_name,
+            "metric": alert.metric,
+            "severity": alert.severity,
+        },
+    )
+
+
+def _attach_event_context_to_alert(
+    *,
+    item: WatchlistEntry,
+    alert: WatchlistAlert,
+    event_lookup: Dict[str, object],
+) -> WatchlistAlert:
+    event_key = _build_alert_event_key(item.suburb_slug, alert)
+    event = event_lookup.get(event_key)
+    if event is None:
+        return alert.model_copy(update={"event_key": event_key})
+    return alert.model_copy(
+        update={
+            "event_key": event_key,
+            "event_status": str(getattr(event, "status", "open")),
+            "event_occurrence_count": int(getattr(event, "occurrence_count", 1)),
+            "event_last_observed_at": str(getattr(event, "observed_at", alert.observed_at)),
+        }
+    )
+
+
 def _merge_watchlist_alerts(existing: List[WatchlistAlert], evidence: List[WatchlistAlert]) -> List[WatchlistAlert]:
     merged: List[WatchlistAlert] = []
     seen: set[tuple[str, str, str]] = set()
@@ -1622,12 +1685,28 @@ def _merge_watchlist_alerts(existing: List[WatchlistAlert], evidence: List[Watch
     return merged
 
 
-def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer = _DAL) -> WatchlistEntry:
+def _enrich_watchlist_entry_context(
+    item: WatchlistEntry,
+    dal: DataAccessLayer = _DAL,
+    *,
+    persist_evidence_events: bool = False,
+) -> WatchlistEntry:
     advice = get_property_advice(query=item.suburb_slug, query_type="slug", dal=dal)
     comparables = get_comparables(query=item.suburb_slug, max_items=5, dal=dal)
     orchestration = get_orchestration_review_status(limit=15)
     evidence_alerts = _build_evidence_watchlist_alerts(item=item, advice=advice, comparables=comparables)
-    combined_alerts = _merge_watchlist_alerts(item.alerts, evidence_alerts)
+    requests = [_build_alert_event_request(item, alert) for alert in evidence_alerts]
+    event_records = (
+        dal.alert_events.upsert_events(requests)
+        if persist_evidence_events and requests
+        else dal.alert_events.list_events(suburb_slug=item.suburb_slug, event_keys=[request.event_key for request in requests], limit=100)
+    )
+    event_lookup = {record.event_key: record for record in event_records}
+    evidence_with_context = [
+        _attach_event_context_to_alert(item=item, alert=alert, event_lookup=event_lookup)
+        for alert in evidence_alerts
+    ]
+    combined_alerts = _merge_watchlist_alerts(item.alerts, evidence_with_context)
 
     advisory_context = f"{advice.advice.recommendation} ({advice.advice.confidence}) — {advice.advice.headline}"
     if advice.advice.fallback_state and advice.advice.fallback_state != "none":
@@ -1704,6 +1783,15 @@ def upsert_watchlist_action(payload: WatchlistActionRequest, dal: DataAccessLaye
     )
 
 
+def persist_watchlist_alert_events(suburb_slug: Optional[str] = None, dal: DataAccessLayer = _DAL) -> int:
+    entries = dal.watchlist.list_entries(WatchlistQuery(suburb_slug=suburb_slug))
+    persisted_count = 0
+    for entry in entries:
+        enriched = _enrich_watchlist_entry_context(entry, dal=dal, persist_evidence_events=True)
+        persisted_count += sum(1 for alert in enriched.alerts if alert.event_key)
+    return persisted_count
+
+
 def get_watchlist_alerts(severity: Optional[str] = None, dal: DataAccessLayer = _DAL) -> WatchlistAlertsResponse:
     entries = dal.watchlist.list_entries(WatchlistQuery())
     items = [alert for entry in (_enrich_watchlist_entry_context(entry, dal=dal) for entry in entries) for alert in entry.alerts]
@@ -1737,13 +1825,17 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
         )
         if entry.alerts:
             latest_alert = sorted(entry.alerts, key=lambda alert: alert.observed_at, reverse=True)[0]
+            alert_event_id = latest_alert.event_key or f"alert:{entry.suburb_slug}:{latest_alert.metric}:{latest_alert.observed_at}"
             events.append(
                 WatchlistEventItem(
-                    event_id=f"alert:{entry.suburb_slug}:{latest_alert.metric}:{latest_alert.observed_at}",
+                    event_id=alert_event_id,
                     category="alert",
                     occurred_at=_parse_timestamp(latest_alert.observed_at) or datetime.now(timezone.utc),
                 title=f"{entry.suburb_name}: advisory evidence alert — {latest_alert.title}",
-                detail=f"{latest_alert.detail} (severity: {latest_alert.severity}; metric: {latest_alert.metric})",
+                detail=(
+                    f"{latest_alert.detail} (severity: {latest_alert.severity}; metric: {latest_alert.metric}; "
+                    f"event_status: {latest_alert.event_status or 'unpersisted'})"
+                ),
                     suburb_slug=entry.suburb_slug,
                     suburb_name=entry.suburb_name,
                     latest_decision=latest_decision,

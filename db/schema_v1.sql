@@ -244,6 +244,31 @@ create table if not exists alert_rules (
 create index if not exists idx_alert_rules_watchlist_id on alert_rules(watchlist_id);
 create index if not exists idx_alert_rules_active on alert_rules(is_active);
 
+create table if not exists alert_events (
+  id uuid primary key default gen_random_uuid(),
+  event_key text not null,
+  alert_rule_id uuid references alert_rules(id) on delete set null,
+  suburb_id uuid references suburbs(id) on delete set null,
+  property_id uuid references properties(id) on delete set null,
+  suburb_slug text,
+  severity text not null, -- info | watch | high
+  metric text not null,
+  title text not null,
+  detail text not null,
+  observed_at timestamptz not null,
+  status text not null default 'open', -- open | dismissed | archived
+  action_state text not null default 'new', -- new | seen | actioned
+  payload jsonb not null default '{}'::jsonb,
+  occurrence_count integer not null default 1,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (event_key)
+);
+
+create index if not exists idx_alert_events_suburb_slug on alert_events(suburb_slug);
+create index if not exists idx_alert_events_status_observed_at on alert_events(status, observed_at desc);
+create index if not exists idx_alert_events_metric on alert_events(metric);
+
 comment on table properties is 'Canonical residential property records.';
 comment on table listings is 'External listing records linked to canonical properties.';
 comment on table listing_snapshots is 'Observed listing states over time for price/status history.';
@@ -252,3 +277,4 @@ comment on table rental_events is 'Property rental/lease history used for rental
 comment on table market_metrics is 'Suburb-level periodic market intelligence aggregates.';
 comment on table comparable_sets is 'Generated comparable result groups for a target property and purpose.';
 comment on table property_advice_snapshots is 'Historical recommendation snapshots for auditability.';
+comment on table alert_events is 'Persisted alert lifecycle/event history keyed for idempotent evidence-driven watchlist alerts.';

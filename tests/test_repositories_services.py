@@ -3,7 +3,10 @@ import psycopg
 from property_advisor.api.data_access import DataAccessLayer
 from property_advisor.api.db import DatabaseConfig, DatabaseSessionFactory
 from property_advisor.api.repositories import (
+    AlertEventUpsertRequest,
     ComparableQuery,
+    MockAlertEventRepository,
+    PostgresAlertEventRepository,
     PostgresComparableRepository,
     PostgresPropertyAdviceRepository,
     PostgresSuburbRepository,
@@ -23,6 +26,7 @@ from property_advisor.api.services import (
     get_watchlist_alerts,
     get_watchlist_detail,
     get_watchlist_events,
+    persist_watchlist_alert_events,
     upsert_watchlist_action,
 )
 from property_advisor.api.schemas import OrchestrationReviewActionRequest, WatchlistActionRequest
@@ -126,6 +130,119 @@ def test_watchlist_events_highlight_evidence_alert_text() -> None:
     assert alert_events
     assert any("advisory evidence alert" in event.title.lower() for event in alert_events)
     assert any("metric:" in event.detail.lower() for event in alert_events)
+
+
+def test_alert_event_key_is_deterministic_for_same_alert() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    persisted = persist_watchlist_alert_events(suburb_slug="southport-qld-4215", dal=dal)
+    assert persisted > 0
+    first = get_watchlist(suburb_slug="southport-qld-4215", dal=dal)
+    second = get_watchlist(suburb_slug="southport-qld-4215", dal=dal)
+    first_keys = [alert.event_key for alert in first.items[0].alerts if alert.event_key]
+    second_keys = [alert.event_key for alert in second.items[0].alerts if alert.event_key]
+    assert first_keys
+    assert first_keys == second_keys
+
+
+def test_mock_alert_event_repository_upsert_is_idempotent_by_event_key() -> None:
+    repo = MockAlertEventRepository()
+    request = AlertEventUpsertRequest(
+        event_key="watchlist-evidence:test-key",
+        alert_rule_id=None,
+        suburb_slug="southport-qld-4215",
+        suburb_id=None,
+        property_id=None,
+        severity="high",
+        metric="confidence",
+        title="Low confidence",
+        detail="Confidence degraded",
+        observed_at="2026-01-01T00:00:00+00:00",
+        payload={"reason": "sample"},
+    )
+    first = repo.upsert_events([request])[0]
+    second = repo.upsert_events([request])[0]
+    listed = repo.list_events(event_keys=[request.event_key])
+    assert first.event_key == second.event_key
+    assert second.occurrence_count == 2
+    assert listed[0].occurrence_count == 2
+
+
+def test_postgres_alert_event_repository_maps_rows_on_upsert(monkeypatch) -> None:
+    repo = PostgresAlertEventRepository(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+    statements: list[str] = []
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params):
+            statements.append(" ".join(query.split()).lower())
+
+        def fetchone(self):
+            return (
+                "evt-1",
+                "watchlist-evidence:test-key",
+                "southport-qld-4215",
+                "watch",
+                "confidence",
+                "Confidence low",
+                "Detail",
+                "2026-01-03T10:00:00+00:00",
+                "open",
+                "new",
+                {"source": "watchlist_evidence_alert"},
+                3,
+            )
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", lambda *args, **kwargs: _Conn())
+    records = repo.upsert_events(
+        [
+            AlertEventUpsertRequest(
+                event_key="watchlist-evidence:test-key",
+                alert_rule_id=None,
+                suburb_slug="southport-qld-4215",
+                suburb_id=None,
+                property_id=None,
+                severity="watch",
+                metric="confidence",
+                title="Confidence low",
+                detail="Detail",
+                observed_at="2026-01-03T10:00:00+00:00",
+                payload={"source": "watchlist_evidence_alert"},
+            )
+        ]
+    )
+    assert records
+    assert records[0].event_key == "watchlist-evidence:test-key"
+    assert records[0].occurrence_count == 3
+    assert any("insert into alert_events" in statement for statement in statements)
+
+
+def test_persist_watchlist_alert_events_enriches_alert_history_context() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    count = persist_watchlist_alert_events(suburb_slug="southport-qld-4215", dal=dal)
+    assert count > 0
+    response = get_watchlist(suburb_slug="southport-qld-4215", dal=dal)
+    assert response.items
+    persisted_alerts = [alert for alert in response.items[0].alerts if alert.event_key]
+    assert persisted_alerts
+    assert all(alert.event_status in {"open", "dismissed", "archived", None} for alert in persisted_alerts)
+    assert all((alert.event_occurrence_count or 0) >= 1 for alert in persisted_alerts)
 
 
 def test_watchlist_supports_latest_outcome_focus_filter() -> None:

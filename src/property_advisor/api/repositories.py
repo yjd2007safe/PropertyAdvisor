@@ -135,6 +135,39 @@ class WatchlistUpsertRequest:
     notes: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class AlertEventUpsertRequest:
+    event_key: str
+    alert_rule_id: Optional[str]
+    suburb_slug: Optional[str]
+    suburb_id: Optional[str]
+    property_id: Optional[str]
+    severity: Literal["info", "watch", "high"]
+    metric: str
+    title: str
+    detail: str
+    observed_at: str
+    status: Literal["open", "dismissed", "archived"] = "open"
+    action_state: Literal["new", "seen", "actioned"] = "new"
+    payload: Dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class AlertEventRecord:
+    event_id: str
+    event_key: str
+    suburb_slug: Optional[str]
+    severity: str
+    metric: str
+    title: str
+    detail: str
+    observed_at: str
+    status: str
+    action_state: str
+    payload: Dict[str, Any]
+    occurrence_count: int = 1
+
+
 class SuburbRepository(Protocol):
     def list_overview(self) -> List[SuburbOverviewItem]:
         ...
@@ -173,6 +206,14 @@ class WatchlistRepository(Protocol):
         ...
 
     def upsert_entry(self, request: WatchlistUpsertRequest) -> tuple[Literal["created", "updated"], WatchlistEntry]:
+        ...
+
+
+class AlertEventRepository(Protocol):
+    def upsert_events(self, events: List[AlertEventUpsertRequest]) -> List[AlertEventRecord]:
+        ...
+
+    def list_events(self, suburb_slug: Optional[str] = None, event_keys: Optional[List[str]] = None, limit: int = 100) -> List[AlertEventRecord]:
         ...
 
 
@@ -811,6 +852,68 @@ class MockWatchlistRepository:
         )
         self._entries[request.suburb_slug] = new_entry
         return ("created", new_entry)
+
+
+class MockAlertEventRepository:
+    last_source: Literal["mock", "postgres", "fallback_mock"] = "mock"
+    last_fallback_reason: Optional[str] = None
+
+    def __init__(self):
+        self._events_by_key: Dict[str, AlertEventRecord] = {}
+
+    def upsert_events(self, events: List[AlertEventUpsertRequest]) -> List[AlertEventRecord]:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        upserted: List[AlertEventRecord] = []
+        for request in events:
+            current = self._events_by_key.get(request.event_key)
+            if current:
+                next_observed = max(current.observed_at, request.observed_at)
+                record = AlertEventRecord(
+                    event_id=current.event_id,
+                    event_key=current.event_key,
+                    suburb_slug=request.suburb_slug or current.suburb_slug,
+                    severity=request.severity,
+                    metric=request.metric,
+                    title=request.title,
+                    detail=request.detail,
+                    observed_at=next_observed,
+                    status=current.status,
+                    action_state=current.action_state,
+                    payload=request.payload or current.payload,
+                    occurrence_count=current.occurrence_count + 1,
+                )
+            else:
+                record = AlertEventRecord(
+                    event_id=f"mock-alert-event:{request.event_key}",
+                    event_key=request.event_key,
+                    suburb_slug=request.suburb_slug,
+                    severity=request.severity,
+                    metric=request.metric,
+                    title=request.title,
+                    detail=request.detail,
+                    observed_at=request.observed_at or now_iso,
+                    status=request.status,
+                    action_state=request.action_state,
+                    payload=request.payload or {},
+                    occurrence_count=1,
+                )
+            self._events_by_key[request.event_key] = record
+            upserted.append(record)
+        self.last_source = "mock"
+        self.last_fallback_reason = None
+        return upserted
+
+    def list_events(self, suburb_slug: Optional[str] = None, event_keys: Optional[List[str]] = None, limit: int = 100) -> List[AlertEventRecord]:
+        items = list(self._events_by_key.values())
+        if suburb_slug:
+            items = [item for item in items if item.suburb_slug == suburb_slug]
+        if event_keys:
+            allowed = set(event_keys)
+            items = [item for item in items if item.event_key in allowed]
+        items.sort(key=lambda item: item.observed_at, reverse=True)
+        self.last_source = "mock"
+        self.last_fallback_reason = None
+        return items[: max(limit, 0)]
 
 
 class PostgresSuburbRepository(MockSuburbRepository):
@@ -1825,3 +1928,160 @@ class PostgresWatchlistRepository(MockWatchlistRepository):
         if severity:
             return [alert for alert in alerts if alert.severity == severity]
         return alerts
+
+
+class PostgresAlertEventRepository(MockAlertEventRepository):
+    def __init__(self, session_factory: DatabaseSessionFactory):
+        super().__init__()
+        self.session_factory = session_factory
+
+    def upsert_events(self, events: List[AlertEventUpsertRequest]) -> List[AlertEventRecord]:
+        if not events:
+            return []
+        if not self.session_factory.config.url:
+            self.last_source = "fallback_mock"
+            self.last_fallback_reason = "No database URL configured for alert_events."
+            return super().upsert_events(events)
+        try:
+            with psycopg.connect(self.session_factory.config.url) as conn:
+                with conn.cursor() as cur:
+                    upserted: List[AlertEventRecord] = []
+                    for request in events:
+                        cur.execute(
+                            """
+                            insert into alert_events (
+                              event_key,
+                              alert_rule_id,
+                              suburb_slug,
+                              suburb_id,
+                              property_id,
+                              severity,
+                              metric,
+                              title,
+                              detail,
+                              observed_at,
+                              status,
+                              action_state,
+                              payload
+                            )
+                            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, coalesce(%s, 'open'), coalesce(%s, 'new'), %s)
+                            on conflict (event_key) do update
+                              set suburb_slug = coalesce(excluded.suburb_slug, alert_events.suburb_slug),
+                                  suburb_id = coalesce(excluded.suburb_id, alert_events.suburb_id),
+                                  property_id = coalesce(excluded.property_id, alert_events.property_id),
+                                  severity = excluded.severity,
+                                  metric = excluded.metric,
+                                  title = excluded.title,
+                                  detail = excluded.detail,
+                                  observed_at = greatest(alert_events.observed_at, excluded.observed_at),
+                                  payload = excluded.payload,
+                                  occurrence_count = alert_events.occurrence_count + 1,
+                                  updated_at = now()
+                            returning id, event_key, suburb_slug, severity, metric, title, detail, observed_at, status, action_state, payload, occurrence_count
+                            """,
+                            (
+                                request.event_key,
+                                request.alert_rule_id,
+                                request.suburb_slug,
+                                request.suburb_id,
+                                request.property_id,
+                                request.severity,
+                                request.metric,
+                                request.title,
+                                request.detail,
+                                request.observed_at,
+                                request.status,
+                                request.action_state,
+                                json.dumps(request.payload or {}, sort_keys=True),
+                            ),
+                        )
+                        row = cur.fetchone() if hasattr(cur, "fetchone") else (cur.fetchall() or [None])[0]
+                        if row is None:
+                            continue
+                        payload_value = row[10] if len(row) > 10 else {}
+                        if isinstance(payload_value, str):
+                            try:
+                                payload_value = json.loads(payload_value)
+                            except json.JSONDecodeError:
+                                payload_value = {}
+                        upserted.append(
+                            AlertEventRecord(
+                                event_id=str(row[0]),
+                                event_key=str(row[1]),
+                                suburb_slug=(str(row[2]) if row[2] is not None else None),
+                                severity=str(row[3]),
+                                metric=str(row[4]),
+                                title=str(row[5]),
+                                detail=str(row[6]),
+                                observed_at=_coerce_sale_date(row[7]),
+                                status=str(row[8]),
+                                action_state=str(row[9]),
+                                payload=dict(payload_value or {}),
+                                occurrence_count=int(row[11] or 1) if len(row) > 11 else 1,
+                            )
+                        )
+            self.last_source = "postgres"
+            self.last_fallback_reason = None
+            return upserted
+        except psycopg.Error as exc:
+            self.last_source = "fallback_mock"
+            self.last_fallback_reason = f"Alert event upsert failed: {exc.__class__.__name__}"
+            return super().upsert_events(events)
+
+    def list_events(self, suburb_slug: Optional[str] = None, event_keys: Optional[List[str]] = None, limit: int = 100) -> List[AlertEventRecord]:
+        if not self.session_factory.config.url:
+            self.last_source = "fallback_mock"
+            self.last_fallback_reason = "No database URL configured for alert_events."
+            return super().list_events(suburb_slug=suburb_slug, event_keys=event_keys, limit=limit)
+        try:
+            with psycopg.connect(self.session_factory.config.url) as conn:
+                with conn.cursor() as cur:
+                    query = """
+                        select id, event_key, suburb_slug, severity, metric, title, detail, observed_at, status, action_state, payload, occurrence_count
+                        from alert_events
+                    """
+                    clauses: List[str] = []
+                    params: List[Any] = []
+                    if suburb_slug:
+                        clauses.append("suburb_slug = %s")
+                        params.append(suburb_slug)
+                    if event_keys:
+                        clauses.append("event_key = any(%s)")
+                        params.append(event_keys)
+                    if clauses:
+                        query = f"{query} where {' and '.join(clauses)}"
+                    query = f"{query} order by observed_at desc, updated_at desc limit %s"
+                    params.append(max(limit, 0))
+                    cur.execute(query, tuple(params))
+                    rows = cur.fetchall()
+        except psycopg.Error as exc:
+            self.last_source = "fallback_mock"
+            self.last_fallback_reason = f"Alert event query failed: {exc.__class__.__name__}"
+            return super().list_events(suburb_slug=suburb_slug, event_keys=event_keys, limit=limit)
+        self.last_source = "postgres"
+        self.last_fallback_reason = None
+        output: List[AlertEventRecord] = []
+        for row in rows:
+            payload_value = row[10] if len(row) > 10 else {}
+            if isinstance(payload_value, str):
+                try:
+                    payload_value = json.loads(payload_value)
+                except json.JSONDecodeError:
+                    payload_value = {}
+            output.append(
+                AlertEventRecord(
+                    event_id=str(row[0]),
+                    event_key=str(row[1]),
+                    suburb_slug=(str(row[2]) if row[2] is not None else None),
+                    severity=str(row[3]),
+                    metric=str(row[4]),
+                    title=str(row[5]),
+                    detail=str(row[6]),
+                    observed_at=_coerce_sale_date(row[7]),
+                    status=str(row[8]),
+                    action_state=str(row[9]),
+                    payload=dict(payload_value or {}),
+                    occurrence_count=int(row[11] or 1) if len(row) > 11 else 1,
+                )
+            )
+        return output

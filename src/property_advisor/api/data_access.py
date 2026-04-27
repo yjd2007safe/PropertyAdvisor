@@ -7,8 +7,11 @@ from typing import Literal
 
 from property_advisor.api.db import DatabaseSessionFactory
 from property_advisor.api.repositories import (
+    AlertEventRepository,
     ComparableRepository,
+    MockAlertEventRepository,
     PostgresComparableRepository,
+    PostgresAlertEventRepository,
     PostgresPropertyAdviceRepository,
     PostgresSuburbRepository,
     PostgresWatchlistRepository,
@@ -31,6 +34,7 @@ class DataAccessLayer:
     property_advice: PropertyAdviceRepository
     comparables: ComparableRepository
     watchlist: WatchlistRepository
+    alert_events: AlertEventRepository
 
     @classmethod
     def create(cls, session_factory: DatabaseSessionFactory) -> "DataAccessLayer":
@@ -41,6 +45,7 @@ class DataAccessLayer:
                 property_advice=PostgresPropertyAdviceRepository(session_factory),
                 comparables=PostgresComparableRepository(session_factory),
                 watchlist=PostgresWatchlistRepository(session_factory),
+                alert_events=PostgresAlertEventRepository(session_factory),
             )
 
         return cls(
@@ -49,4 +54,5 @@ class DataAccessLayer:
             property_advice=MockPropertyAdviceRepository(),
             comparables=MockComparableRepository(),
             watchlist=MockWatchlistRepository(),
+            alert_events=MockAlertEventRepository(),
         )

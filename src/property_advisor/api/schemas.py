@@ -250,6 +250,10 @@ class WatchlistAlert(BaseModel):
     detail: str
     metric: str
     observed_at: str
+    event_key: Optional[str] = None
+    event_status: Optional[str] = None
+    event_occurrence_count: Optional[int] = None
+    event_last_observed_at: Optional[str] = None
 
 
 class DecisionOutcomeSummary(BaseModel):
