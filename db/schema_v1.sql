@@ -258,6 +258,9 @@ create table if not exists alert_events (
   observed_at timestamptz not null,
   status text not null default 'open', -- open | dismissed | archived
   action_state text not null default 'new', -- new | seen | actioned
+  change_state text not null default 'new', -- new | unchanged | changed
+  last_changed_at timestamptz,
+  last_seen_at timestamptz,
   payload jsonb not null default '{}'::jsonb,
   occurrence_count integer not null default 1,
   created_at timestamptz not null default now(),
