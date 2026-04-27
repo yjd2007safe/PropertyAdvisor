@@ -102,6 +102,32 @@ def test_watchlist_action_upsert_feeds_watchlist_context() -> None:
     assert "reason:" in response.items[0].latest_context.latest_decision_rationale_cue.lower()
 
 
+def test_watchlist_enrichment_includes_evidence_driven_alerts() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    upsert_watchlist_action(
+        WatchlistActionRequest(
+            suburb_slug="no-match-suburb-qld-4999",
+            source_surface="advisor",
+            watch_status="review",
+            strategy="balanced",
+        ),
+        dal=dal,
+    )
+    response = get_watchlist(suburb_slug="no-match-suburb-qld-4999", dal=dal)
+    assert response.items
+    metrics = {alert.metric for alert in response.items[0].alerts}
+    assert "confidence" in metrics or "comparable_sample_size" in metrics
+
+
+def test_watchlist_events_highlight_evidence_alert_text() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    events = get_watchlist_events(limit=40, dal=dal)
+    alert_events = [event for event in events.items if event.category == "alert"]
+    assert alert_events
+    assert any("advisory evidence alert" in event.title.lower() for event in alert_events)
+    assert any("metric:" in event.detail.lower() for event in alert_events)
+
+
 def test_watchlist_supports_latest_outcome_focus_filter() -> None:
     dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     baseline = get_watchlist(dal=dal)
@@ -849,7 +875,7 @@ def test_postgres_seeded_southport_reads_cover_overview_comparables_and_watchlis
     assert detail is not None
     assert detail.data_source.source == "postgres"
     assert detail.item.suburb_slug == "southport-qld-4215"
-    assert detail.item.alerts[0].severity == "high"
+    assert any(alert.severity == "high" for alert in detail.item.alerts)
 
 
 def test_postgres_comparables_keeps_db_source_when_seeded_rows_exist_but_query_has_no_match(monkeypatch) -> None:
