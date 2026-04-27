@@ -304,7 +304,22 @@ export type OrchestrationReviewResponse = {
   plans: OrchestrationPlanItem[];
 };
 
-export type WatchlistAlert = { severity: "info" | "watch" | "high"; title: string; detail: string; metric: string; observed_at: string };
+export type WatchlistAlert = {
+  severity: "info" | "watch" | "high";
+  title: string;
+  detail: string;
+  metric: string;
+  observed_at: string;
+  event_key?: string | null;
+  event_status?: string | null;
+  event_action_state?: string | null;
+  event_occurrence_count?: number | null;
+  event_last_observed_at?: string | null;
+  event_change_state?: string | null;
+  event_last_changed_at?: string | null;
+  event_last_seen_at?: string | null;
+  event_change_summary?: string | null;
+};
 export type WatchlistEvent = {
   event_id: string;
   category: "watchlist" | "alert" | "advisory" | "orchestration";
@@ -333,6 +348,15 @@ export type WatchlistEntry = {
   target_buy_range_min: number;
   target_buy_range_max: number;
   alerts: WatchlistAlert[];
+  alert_event_summary?: {
+    total: number;
+    active: number;
+    unresolved: number;
+    open: number;
+    dismissed: number;
+    archived: number;
+    lifecycle: { new: number; changed: number; unchanged: number };
+  } | null;
   latest_context?: {
     advisory: string;
     comparables: string;
@@ -343,6 +367,15 @@ export type WatchlistEntry = {
     latest_decision_next_step_cue?: string | null;
     latest_decision_batch_cue?: string | null;
     latest_decision_rationale_cue?: string | null;
+    alert_event_summary?: {
+      total: number;
+      active: number;
+      unresolved: number;
+      open: number;
+      dismissed: number;
+      archived: number;
+      lifecycle: { new: number; changed: number; unchanged: number };
+    } | null;
     updated_at: string;
   } | null;
 };
@@ -374,6 +407,15 @@ export type WatchlistResponse = {
     review_session_packet_cue: string;
     review_session_packet_low_volume_note: string;
     review_session_packet_breakdown: Record<"do_now" | "batch_later" | "recently_closed", number>;
+    alert_event_summary?: {
+      total: number;
+      active: number;
+      unresolved: number;
+      open: number;
+      dismissed: number;
+      archived: number;
+      lifecycle: { new: number; changed: number; unchanged: number };
+    } | null;
     investor_brief: string;
   };
   summary_cards: SummaryCard[];

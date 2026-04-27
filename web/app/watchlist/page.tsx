@@ -27,6 +27,8 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
   const lowDataReviewFallback = "Low-data mode: treat review status and next-step guidance as provisional.";
   const reviewSectionLabel = "Review status and next step";
   const reviewActionLabel = "Save review status";
+  const scanCommand = "python -m property_advisor.alert_scan --mode auto --json";
+  const scopedScanCommand = (suburbSlug: string) => `python -m property_advisor.alert_scan --mode auto --suburb-slug ${suburbSlug} --json`;
 
   const params = (await searchParams) ?? {};
   const defaultGroupBy = params.group_by ?? "strategy";
@@ -74,6 +76,7 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
       return left.suburb_slug.localeCompare(right.suburb_slug);
     });
     const handoffContext = flowContextLabel(params.from, params.intent);
+    const alertEventSummary = watchlist.summary.alert_event_summary;
 
     return (
       <main className="section-stack">
@@ -110,6 +113,19 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           <MetricCard label="High alerts" value={watchlist.summary.alert_counts.high ?? 0} tone="highlight" />
           <MetricCard label="Ready to progress" value={watchlist.summary.action_counts.ready_to_progress ?? 0} />
         </section>
+        {alertEventSummary ? (
+          <section className="panel">
+            <p className="meta-label">Evidence alert lifecycle</p>
+            <p className="lede compact">
+              New {alertEventSummary.lifecycle.new} · Changed {alertEventSummary.lifecycle.changed} · Continuing {alertEventSummary.lifecycle.unchanged}
+              {" "}· Unresolved/actionable {alertEventSummary.unresolved} · Active {alertEventSummary.active} · Total persisted {alertEventSummary.total}
+            </p>
+            <p className="lede compact">
+              Regenerate events: <code>{scanCommand}</code>
+              {params.detail_slug ? <> · scoped: <code>{scopedScanCommand(params.detail_slug)}</code></> : null}
+            </p>
+          </section>
+        ) : null}
         {handoffContext ? <section className="panel"><p className="lede compact">{handoffContext}</p></section> : null}
 
         <section className="panel">
@@ -228,7 +244,19 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
                     <td>{entry.watch_status}</td>
                     <td>{entry.strategy}</td>
                     <td>{formatCurrency(entry.target_buy_range_min)} - {formatCurrency(entry.target_buy_range_max)}</td>
-                    <td>{entry.alerts[0] ? <AlertBadge tone={entry.alerts[0].severity}>{entry.alerts[0].title}</AlertBadge> : "No alerts"}</td>
+                    <td>
+                      {entry.alerts[0] ? (
+                        <>
+                          <AlertBadge tone={entry.alerts[0].severity}>{entry.alerts[0].title}</AlertBadge>
+                          <div className="meta-label">
+                            {(entry.alerts[0].event_change_state ?? "untracked").replace("unchanged", "continuing")} · {entry.alerts[0].event_action_state ?? "new"} · {entry.alerts[0].event_status ?? "open"}
+                          </div>
+                          <div className="meta-label">
+                            changed {entry.alerts[0].event_last_changed_at ?? "n/a"} · seen {entry.alerts[0].event_last_seen_at ?? "n/a"}
+                          </div>
+                        </>
+                      ) : "No alerts"}
+                    </td>
                     <td>
                       <span className="meta-label">{entry.latest_context?.latest_decision_triage_cue ?? reviewStatusFallback}</span>
                       <div className="meta-label">{entry.latest_context?.latest_decision_next_step_cue ?? nextStepCtaFallback}</div>
@@ -270,6 +298,11 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
             </p>
             <p className="meta-label">{reviewSectionLabel}</p>
             <ul className="detail-list">
+              {detail.item.alert_event_summary ? (
+                <li>
+                  <strong>Alert lifecycle summary:</strong> new {detail.item.alert_event_summary.lifecycle.new} · changed {detail.item.alert_event_summary.lifecycle.changed} · continuing {detail.item.alert_event_summary.lifecycle.unchanged} · unresolved/actionable {detail.item.alert_event_summary.unresolved}
+                </li>
+              ) : null}
               <li><strong>Advisory:</strong> {detail.item.latest_context?.advisory ?? "No advisory context recorded yet."}</li>
               <li><strong>Comparables:</strong> {detail.item.latest_context?.comparables ?? "No comparables context recorded yet."}</li>
               <li><strong>Orchestration:</strong> {detail.item.latest_context?.orchestration ?? "No orchestration context recorded yet."}</li>
@@ -308,7 +341,12 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
             </form>
             <ul className="detail-list">
               {detail.item.alerts.map((alert) => (
-                <li key={`${alert.metric}-${alert.observed_at}`}><AlertBadge tone={alert.severity}>{alert.severity}</AlertBadge> {alert.title} ({alert.observed_at}) — {alert.detail}</li>
+                <li key={`${alert.metric}-${alert.observed_at}`}>
+                  <AlertBadge tone={alert.severity}>{alert.severity}</AlertBadge> {alert.title} ({alert.observed_at}) — {alert.detail}
+                  <div className="meta-label">
+                    lifecycle={alert.event_change_state ?? "untracked"} · action={alert.event_action_state ?? "new"} · status={alert.event_status ?? "open"} · changed={alert.event_last_changed_at ?? "n/a"} · seen={alert.event_last_seen_at ?? "n/a"}
+                  </div>
+                </li>
               ))}
             </ul>
           </section>
