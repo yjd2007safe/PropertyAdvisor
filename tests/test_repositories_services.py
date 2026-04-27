@@ -18,6 +18,7 @@ from property_advisor.api.repositories import (
     select_comparable_candidates,
 )
 from property_advisor.api.services import (
+    apply_watchlist_alert_event_action,
     apply_orchestration_review_action,
     get_comparables,
     get_orchestration_review_status,
@@ -30,7 +31,11 @@ from property_advisor.api.services import (
     persist_watchlist_alert_events,
     upsert_watchlist_action,
 )
-from property_advisor.api.schemas import OrchestrationReviewActionRequest, WatchlistActionRequest
+from property_advisor.api.schemas import (
+    OrchestrationReviewActionRequest,
+    WatchlistActionRequest,
+    WatchlistAlertEventActionRequest,
+)
 
 
 def test_data_access_layer_uses_postgres_placeholders_when_enabled() -> None:
@@ -169,6 +174,32 @@ def test_mock_alert_event_repository_upsert_is_idempotent_by_event_key() -> None
     assert listed[0].occurrence_count == 2
 
 
+def test_mock_alert_event_repository_updates_event_state() -> None:
+    repo = MockAlertEventRepository()
+    event_key = "watchlist-evidence:test-update"
+    repo.upsert_events(
+        [
+            AlertEventUpsertRequest(
+                event_key=event_key,
+                alert_rule_id=None,
+                suburb_slug="southport-qld-4215",
+                suburb_id=None,
+                property_id=None,
+                severity="watch",
+                metric="confidence",
+                title="Confidence low",
+                detail="Detail",
+                observed_at="2026-01-02T00:00:00+00:00",
+                payload={"fingerprint": "f-1"},
+            )
+        ]
+    )
+    updated = repo.update_event_state(event_key, status="dismissed", action_state="actioned")
+    assert updated is not None
+    assert updated.status == "dismissed"
+    assert updated.action_state == "actioned"
+
+
 def test_postgres_alert_event_repository_maps_rows_on_upsert(monkeypatch) -> None:
     repo = PostgresAlertEventRepository(
         DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
@@ -239,6 +270,58 @@ def test_postgres_alert_event_repository_maps_rows_on_upsert(monkeypatch) -> Non
     assert any("insert into alert_events" in statement for statement in statements)
 
 
+def test_postgres_alert_event_repository_updates_state(monkeypatch) -> None:
+    repo = PostgresAlertEventRepository(
+        DatabaseSessionFactory(DatabaseConfig(url="postgresql://localhost/propertyadvisor", requested_mode="postgres"))
+    )
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params):
+            self.query = query
+            self.params = params
+
+        def fetchone(self):
+            return (
+                "evt-2",
+                "watchlist-evidence:test-key",
+                "southport-qld-4215",
+                "watch",
+                "confidence",
+                "Confidence low",
+                "Detail",
+                "2026-01-03T10:00:00+00:00",
+                "dismissed",
+                "actioned",
+                "changed",
+                {"source": "watchlist_evidence_alert"},
+                3,
+                "2026-01-03T09:00:00+00:00",
+                "2026-01-03T10:00:00+00:00",
+            )
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr("property_advisor.api.repositories.psycopg.connect", lambda *args, **kwargs: _Conn())
+    updated = repo.update_event_state("watchlist-evidence:test-key", status="dismissed", action_state="actioned")
+    assert updated is not None
+    assert updated.status == "dismissed"
+    assert updated.action_state == "actioned"
+
+
 def test_persist_watchlist_alert_events_enriches_alert_history_context() -> None:
     dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
     count = persist_watchlist_alert_events(suburb_slug="southport-qld-4215", dal=dal)
@@ -305,6 +388,34 @@ def test_persist_watchlist_alert_events_marks_changed_lifecycle_state(monkeypatc
     assert changed_alert.event_occurrence_count is not None and changed_alert.event_occurrence_count >= 2
     assert changed_alert.event_change_state == "changed"
     assert changed_alert.event_change_summary and "changed evidence alert" in changed_alert.event_change_summary.lower()
+
+
+def test_apply_watchlist_alert_event_action_updates_persisted_state() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    persist_watchlist_alert_events(suburb_slug="southport-qld-4215", dal=dal)
+    before = get_watchlist(suburb_slug="southport-qld-4215", dal=dal)
+    alert = next(entry_alert for entry_alert in before.items[0].alerts if entry_alert.event_key)
+    response = apply_watchlist_alert_event_action(
+        WatchlistAlertEventActionRequest(event_key=str(alert.event_key), action="dismiss"),
+        dal=dal,
+    )
+    assert response.event.event_status == "dismissed"
+    assert response.event.event_action_state == "actioned"
+    assert response.alert_event_summary is not None
+    assert response.alert_event_summary.dismissed >= 1
+
+
+def test_watchlist_response_includes_alert_event_summary_context() -> None:
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    persist_watchlist_alert_events(suburb_slug="southport-qld-4215", dal=dal)
+    response = get_watchlist(suburb_slug="southport-qld-4215", dal=dal)
+    assert response.summary.alert_event_summary is not None
+    assert response.items[0].alert_event_summary is not None
+    assert response.items[0].latest_context is not None
+    assert response.items[0].latest_context.alert_event_summary is not None
+    advisory = response.items[0].latest_context.advisory.lower()
+    assert "active events=" in advisory
+    assert "unresolved=" in advisory
 
 
 def test_watchlist_supports_latest_outcome_focus_filter() -> None:

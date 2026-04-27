@@ -9,10 +9,12 @@ from property_advisor.api.routes import (
     watchlist,
     watchlist_alerts,
     watchlist_action,
+    watchlist_alert_event_action,
     watchlist_detail,
     watchlist_events,
 )
-from property_advisor.api.schemas import WatchlistActionRequest
+from property_advisor.api.services import persist_watchlist_alert_events
+from property_advisor.api.schemas import WatchlistActionRequest, WatchlistAlertEventActionRequest
 
 
 def test_health_endpoint() -> None:
@@ -92,6 +94,7 @@ def test_watchlist_shape() -> None:
     assert "next_step_scan_cue" in payload["summary"]
     assert "next_step_batching_cue" in payload["summary"]
     assert "compact_follow_up_grouping_cue" in payload["summary"]
+    assert "alert_event_summary" in payload["summary"]
 
 
 def test_watchlist_group_and_detail_routes() -> None:
@@ -118,6 +121,22 @@ def test_watchlist_events_route() -> None:
         categories = {item["category"] for item in payload["items"]}
         assert categories <= {"watchlist", "alert", "advisory", "orchestration"}
         assert payload["items"][0]["follow_up_href"].startswith("/")
+
+
+def test_watchlist_alert_event_action_route() -> None:
+    persist_watchlist_alert_events(suburb_slug="southport-qld-4215")
+    watchlist_payload = watchlist(suburb_slug="southport-qld-4215", strategy=None, state=None, watch_status=None, group_by="none").model_dump(mode="json")
+    event_key = next(
+        (alert.get("event_key") for alert in watchlist_payload["items"][0]["alerts"] if alert.get("event_key")),
+        None,
+    )
+    if event_key is None:
+        pytest.skip("No persisted watchlist alert event key available in fixture.")
+    payload = watchlist_alert_event_action(
+        WatchlistAlertEventActionRequest(event_key=event_key, action="review")
+    ).model_dump(mode="json")
+    assert payload["event"]["event_status"] == "open"
+    assert payload["event"]["event_action_state"] in {"seen", "actioned"}
 
 
 def test_watchlist_detail_not_found() -> None:

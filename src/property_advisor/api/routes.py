@@ -17,6 +17,8 @@ from property_advisor.api.schemas import (
     WatchlistAlertsResponse,
     WatchlistActionRequest,
     WatchlistActionResponse,
+    WatchlistAlertEventActionRequest,
+    WatchlistAlertEventActionResponse,
     WatchlistDetailResponse,
     WatchlistEventsResponse,
     WatchlistResponse,
@@ -32,6 +34,7 @@ from property_advisor.api.services import (
     get_watchlist_alerts,
     get_watchlist_detail,
     get_watchlist_events,
+    apply_watchlist_alert_event_action,
     upsert_watchlist_action,
 )
 
@@ -131,6 +134,14 @@ def watchlist_events(
 @router.post("/watchlist/actions", response_model=WatchlistActionResponse)
 def watchlist_action(payload: WatchlistActionRequest) -> WatchlistActionResponse:
     return upsert_watchlist_action(payload)
+
+
+@router.post("/watchlist/alert-events/actions", response_model=WatchlistAlertEventActionResponse)
+def watchlist_alert_event_action(payload: WatchlistAlertEventActionRequest) -> WatchlistAlertEventActionResponse:
+    try:
+        return apply_watchlist_alert_event_action(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/watchlist/{suburb_slug}", response_model=WatchlistDetailResponse)
