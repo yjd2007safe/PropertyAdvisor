@@ -22,6 +22,8 @@ from property_advisor.api.repositories import (
 from property_advisor.api.schemas import (
     DecisionOutcomeDistributionItem,
     DecisionOutcomeSummary,
+    AlertScanCounts,
+    AlertScanRunResponse,
     OrchestrationPlanItem,
     OrchestrationReviewActionRequest,
     OrchestrationReviewActionResponse,
@@ -1925,12 +1927,101 @@ def upsert_watchlist_action(payload: WatchlistActionRequest, dal: DataAccessLaye
 
 
 def persist_watchlist_alert_events(suburb_slug: Optional[str] = None, dal: DataAccessLayer = _DAL) -> int:
+    return scan_watchlist_alert_events(suburb_slug=suburb_slug, dal=dal).counts.persisted
+
+
+def scan_watchlist_alert_events(
+    *,
+    suburb_slug: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: Optional[int] = None,
+    dal: DataAccessLayer = _DAL,
+) -> AlertScanRunResponse:
     entries = dal.watchlist.list_entries(WatchlistQuery(suburb_slug=suburb_slug))
+    if limit is not None:
+        entries = entries[: max(limit, 0)]
+
+    lifecycle_counts = {"new": 0, "changed": 0, "unchanged": 0}
+    alerts_scanned = 0
     persisted_count = 0
+
     for entry in entries:
-        enriched = _enrich_watchlist_entry_context(entry, dal=dal, persist_evidence_events=True)
-        persisted_count += sum(1 for alert in enriched.alerts if alert.event_key)
-    return persisted_count
+        advice = get_property_advice(query=entry.suburb_slug, query_type="slug", dal=dal)
+        comparables = get_comparables(query=entry.suburb_slug, max_items=5, dal=dal)
+        evidence_alerts = _build_evidence_watchlist_alerts(item=entry, advice=advice, comparables=comparables)
+        if severity:
+            evidence_alerts = [alert for alert in evidence_alerts if alert.severity == severity]
+        alerts_scanned += len(evidence_alerts)
+        if not evidence_alerts:
+            continue
+
+        payload_by_key = {
+            _build_alert_event_key(entry.suburb_slug, alert): _build_evidence_fingerprint_payload(
+                item=entry,
+                alert=alert,
+                advice=advice,
+                comparables=comparables,
+            )
+            for alert in evidence_alerts
+        }
+        existing_records = dal.alert_events.list_events(
+            suburb_slug=entry.suburb_slug,
+            event_keys=list(payload_by_key.keys()),
+            limit=100,
+        )
+        existing_lookup = {record.event_key: record for record in existing_records}
+        requests = [
+            _build_alert_event_request(
+                entry,
+                alert,
+                payload=payload_by_key[_build_alert_event_key(entry.suburb_slug, alert)],
+                previous_event=existing_lookup.get(_build_alert_event_key(entry.suburb_slug, alert)),
+            )
+            for alert in evidence_alerts
+        ]
+        records = dal.alert_events.upsert_events(requests)
+        persisted_count += len(records)
+        for record in records:
+            if record.change_state in lifecycle_counts:
+                lifecycle_counts[record.change_state] += 1
+
+    data_source = _resolve_data_source(
+        dal,
+        dal.alert_events,
+        "Alert scan regeneration job",
+        upstream_repositories={
+            "watchlist": dal.watchlist,
+            "property_advice": dal.property_advice,
+            "comparables": dal.comparables,
+            "suburbs": dal.suburbs,
+        },
+    )
+    fallback_repositories = sorted(
+        name for name, source in data_source.upstream_sources.items() if source == "fallback_mock"
+    )
+    if data_source.source == "fallback_mock":
+        fallback_repositories.append("alert_events")
+
+    return AlertScanRunResponse(
+        generated_at=datetime.now(timezone.utc),
+        mode=dal.mode,
+        filters={
+            "suburb_slug": suburb_slug,
+            "severity": severity,
+            "limit": limit,
+        },
+        data_source=data_source,
+        fallback_detected=bool(fallback_repositories),
+        fallback_repositories=sorted(set(fallback_repositories)),
+        counts=AlertScanCounts(
+            entries_scanned=len(entries),
+            alerts_scanned=alerts_scanned,
+            persisted=persisted_count,
+            new=lifecycle_counts["new"],
+            changed=lifecycle_counts["changed"],
+            unchanged=lifecycle_counts["unchanged"],
+        ),
+    )
 
 
 def get_watchlist_alerts(severity: Optional[str] = None, dal: DataAccessLayer = _DAL) -> WatchlistAlertsResponse:

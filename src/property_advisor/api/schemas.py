@@ -474,3 +474,22 @@ class WatchlistEventsResponse(BaseModel):
     data_source: DataSourceStatus
     total: int
     items: List[WatchlistEventItem]
+
+
+class AlertScanCounts(BaseModel):
+    entries_scanned: int
+    alerts_scanned: int
+    persisted: int
+    new: int
+    changed: int
+    unchanged: int
+
+
+class AlertScanRunResponse(BaseModel):
+    generated_at: datetime
+    mode: Literal["mock", "postgres"]
+    filters: Dict[str, object]
+    data_source: DataSourceStatus
+    fallback_detected: bool = False
+    fallback_repositories: List[str] = Field(default_factory=list)
+    counts: AlertScanCounts
