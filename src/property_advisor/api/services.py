@@ -43,10 +43,14 @@ from property_advisor.api.schemas import (
     SuburbOverviewSummary,
     SuburbsOverviewResponse,
     SummaryCard,
+    AlertEventActionSummary,
+    AlertEventLifecycleCounts,
     WatchlistAlertsResponse,
     WatchlistAlert,
     WatchlistActionRequest,
     WatchlistActionResponse,
+    WatchlistAlertEventActionRequest,
+    WatchlistAlertEventActionResponse,
     WatchlistContextSummary,
     WatchlistDetailResponse,
     WatchlistEntry,
@@ -1427,6 +1431,7 @@ def get_watchlist(
             alert_counts[alert.severity] += 1
 
     watchlist_packet_breakdown = {"do_now": 0, "batch_later": 0, "recently_closed": 0}
+    aggregate_events: List[object] = []
     for item in enriched_items:
         latest_decision = item.latest_context.latest_decision if item.latest_context else None
         posture = _classify_watchlist_follow_up_posture(
@@ -1437,6 +1442,7 @@ def get_watchlist(
             decision_support_state=None,
         )
         watchlist_packet_breakdown[posture] += 1
+        aggregate_events.extend(dal.alert_events.list_events(suburb_slug=item.suburb_slug, limit=100))
     watchlist_packet_cue, watchlist_packet_low_volume_note = _build_review_session_packet_cue(
         do_now=watchlist_packet_breakdown["do_now"],
         batch_later=watchlist_packet_breakdown["batch_later"],
@@ -1470,6 +1476,7 @@ def get_watchlist(
         review_session_packet_cue=watchlist_packet_cue,
         review_session_packet_low_volume_note=watchlist_packet_low_volume_note,
         review_session_packet_breakdown=watchlist_packet_breakdown,
+        alert_event_summary=_build_alert_event_summary(aggregate_events),
         investor_brief=(
             "Focus this week on review and paused suburbs with high-severity pricing alerts; archive only after outcomes are captured."
             if alert_counts["high"] > 0
@@ -1802,6 +1809,38 @@ def _summarize_evidence_change_states(current_alerts: List[WatchlistAlert]) -> s
     )
 
 
+def _build_alert_event_summary(events: List[object]) -> AlertEventActionSummary:
+    lifecycle = {"new": 0, "changed": 0, "unchanged": 0}
+    statuses = {"open": 0, "dismissed": 0, "archived": 0}
+    unresolved = 0
+    active = 0
+    for event in events:
+        status = str(getattr(event, "status", "")).strip()
+        action_state = str(getattr(event, "action_state", "")).strip()
+        change_state = str(getattr(event, "change_state", "")).strip()
+        if status in statuses:
+            statuses[status] += 1
+        if change_state in lifecycle:
+            lifecycle[change_state] += 1
+        if status == "open":
+            active += 1
+            if action_state != "actioned":
+                unresolved += 1
+    return AlertEventActionSummary(
+        total=len(events),
+        active=active,
+        unresolved=unresolved,
+        open=statuses["open"],
+        dismissed=statuses["dismissed"],
+        archived=statuses["archived"],
+        lifecycle=AlertEventLifecycleCounts(
+            new=lifecycle["new"],
+            changed=lifecycle["changed"],
+            unchanged=lifecycle["unchanged"],
+        ),
+    )
+
+
 def _enrich_watchlist_entry_context(
     item: WatchlistEntry,
     dal: DataAccessLayer = _DAL,
@@ -1826,6 +1865,7 @@ def _enrich_watchlist_entry_context(
         if payload_by_key
         else []
     )
+    suburb_event_summary = _build_alert_event_summary(dal.alert_events.list_events(suburb_slug=item.suburb_slug, limit=100))
     existing_lookup = {record.event_key: record for record in existing_records}
     requests = [
         _build_alert_event_request(
@@ -1853,7 +1893,10 @@ def _enrich_watchlist_entry_context(
     advisory_context = f"{advice.advice.recommendation} ({advice.advice.confidence}) — {advice.advice.headline}"
     if advice.advice.fallback_state and advice.advice.fallback_state != "none":
         advisory_context = f"{advisory_context} | thin-data: {advice.advice.fallback_state}"
-    advisory_context = f"{advisory_context} | {evidence_lifecycle_summary}"
+    advisory_context = (
+        f"{advisory_context} | {evidence_lifecycle_summary} | "
+        f"active events={suburb_event_summary.active}, unresolved={suburb_event_summary.unresolved}"
+    )
 
     if comparables.summary.sample_state in {"empty", "low"}:
         comparables_context = (
@@ -1883,6 +1926,7 @@ def _enrich_watchlist_entry_context(
     return item.model_copy(
         update={
             "alerts": combined_alerts,
+            "alert_event_summary": suburb_event_summary,
             "latest_context": WatchlistContextSummary(
                 advisory=advisory_context,
                 comparables=comparables_context,
@@ -1901,6 +1945,7 @@ def _enrich_watchlist_entry_context(
                         f"high alerts={high_alert_count}, watch status={item.watch_status}"
                     ),
                 ),
+                alert_event_summary=suburb_event_summary,
                 updated_at=datetime.now(timezone.utc),
             )
         }
@@ -2066,7 +2111,8 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
                 title=f"{entry.suburb_name}: advisory evidence alert — {latest_alert.title}",
                 detail=(
                     f"{latest_alert.detail} (severity: {latest_alert.severity}; metric: {latest_alert.metric}; "
-                    f"event_status: {latest_alert.event_status or 'unpersisted'})"
+                    f"event_status: {latest_alert.event_status or 'unpersisted'}; "
+                    f"lifecycle={latest_alert.event_change_state or 'unknown'})"
                 ),
                     suburb_slug=entry.suburb_slug,
                     suburb_name=entry.suburb_name,
@@ -2075,6 +2121,10 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
                     reviewer_action_state=(latest_plan.reviewer_action_state if latest_plan else None),
                     follow_up_state=(latest_plan.follow_up_state if latest_plan else None),
                     decision_support_state=(latest_plan.decision_support_state if latest_plan else None),
+                    alert_event_status=latest_alert.event_status,
+                    alert_event_action_state=latest_alert.event_action_state,
+                    alert_event_change_state=latest_alert.event_change_state,
+                    alert_event_occurrence_count=latest_alert.event_occurrence_count,
                     follow_up_posture=event_posture,
                     follow_up_href=(
                         f"/watchlist?group_by=strategy&detail_slug={entry.suburb_slug}&suburb_slug={entry.suburb_slug}"
@@ -2203,6 +2253,61 @@ def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
         return parsed
     except ValueError:
         return None
+
+
+def _map_watchlist_alert_event_action(action: str) -> tuple[str, str]:
+    mapping = {
+        "review": ("open", "seen"),
+        "acknowledge": ("open", "actioned"),
+        "resolve": ("archived", "actioned"),
+        "dismiss": ("dismissed", "actioned"),
+        "reopen": ("open", "seen"),
+    }
+    if action not in mapping:
+        raise ValueError(f"Unsupported watchlist alert event action '{action}'.")
+    return mapping[action]
+
+
+def apply_watchlist_alert_event_action(
+    payload: WatchlistAlertEventActionRequest,
+    dal: DataAccessLayer = _DAL,
+) -> WatchlistAlertEventActionResponse:
+    status, action_state = _map_watchlist_alert_event_action(payload.action)
+    updated = dal.alert_events.update_event_state(
+        payload.event_key,
+        status=status,  # type: ignore[arg-type]
+        action_state=action_state,  # type: ignore[arg-type]
+    )
+    if updated is None:
+        raise ValueError(f"Alert event '{payload.event_key}' not found.")
+    suburb_events = dal.alert_events.list_events(suburb_slug=updated.suburb_slug, limit=100) if updated.suburb_slug else []
+    return WatchlistAlertEventActionResponse(
+        generated_at=datetime.now(timezone.utc),
+        mode=dal.mode,
+        data_source=_resolve_data_source(
+            dal,
+            dal.alert_events,
+            "Watchlist alert event action",
+            upstream_repositories={"watchlist": dal.watchlist, "suburbs": dal.suburbs},
+        ),
+        event=WatchlistAlert(
+            severity=updated.severity,  # type: ignore[arg-type]
+            title=updated.title,
+            detail=updated.detail,
+            metric=updated.metric,
+            observed_at=updated.observed_at,
+            event_key=updated.event_key,
+            event_status=updated.status,
+            event_action_state=updated.action_state,
+            event_occurrence_count=updated.occurrence_count,
+            event_last_observed_at=updated.observed_at,
+            event_change_state=updated.change_state,
+            event_last_changed_at=updated.last_changed_at,
+            event_last_seen_at=updated.last_seen_at,
+        ),
+        suburb_slug=updated.suburb_slug,
+        alert_event_summary=_build_alert_event_summary(suburb_events) if updated.suburb_slug else None,
+    )
 
 
 def _normalize_event_type(value: object) -> str:

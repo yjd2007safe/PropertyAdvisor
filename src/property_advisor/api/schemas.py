@@ -261,6 +261,22 @@ class WatchlistAlert(BaseModel):
     event_change_summary: Optional[str] = None
 
 
+class AlertEventLifecycleCounts(BaseModel):
+    new: int = 0
+    changed: int = 0
+    unchanged: int = 0
+
+
+class AlertEventActionSummary(BaseModel):
+    total: int = 0
+    active: int = 0
+    unresolved: int = 0
+    open: int = 0
+    dismissed: int = 0
+    archived: int = 0
+    lifecycle: AlertEventLifecycleCounts = Field(default_factory=AlertEventLifecycleCounts)
+
+
 class DecisionOutcomeSummary(BaseModel):
     outcome: Literal["continue_monitoring", "revisit_later", "close_for_now", "escalate_for_closer_review"]
     summary: str
@@ -286,6 +302,7 @@ class WatchlistContextSummary(BaseModel):
     latest_decision_next_step_cue: Optional[str] = None
     latest_decision_batch_cue: Optional[str] = None
     latest_decision_rationale_cue: Optional[str] = None
+    alert_event_summary: Optional[AlertEventActionSummary] = None
     updated_at: datetime
 
 
@@ -300,6 +317,7 @@ class WatchlistEntry(BaseModel):
     target_buy_range_max: int
     alerts: List[WatchlistAlert]
     latest_context: Optional[WatchlistContextSummary] = None
+    alert_event_summary: Optional[AlertEventActionSummary] = None
 
 
 class WatchlistSummary(BaseModel):
@@ -320,6 +338,7 @@ class WatchlistSummary(BaseModel):
     review_session_packet_cue: str = ""
     review_session_packet_low_volume_note: str = ""
     review_session_packet_breakdown: Dict[str, int] = Field(default_factory=dict)
+    alert_event_summary: Optional[AlertEventActionSummary] = None
     investor_brief: str
 
 
@@ -365,6 +384,20 @@ class WatchlistActionResponse(BaseModel):
     data_source: DataSourceStatus
     action: Literal["created", "updated"]
     item: WatchlistEntry
+
+
+class WatchlistAlertEventActionRequest(BaseModel):
+    event_key: str
+    action: Literal["review", "acknowledge", "resolve", "dismiss", "reopen"]
+
+
+class WatchlistAlertEventActionResponse(BaseModel):
+    generated_at: datetime
+    mode: Literal["mock", "postgres"]
+    data_source: DataSourceStatus
+    event: WatchlistAlert
+    suburb_slug: Optional[str] = None
+    alert_event_summary: Optional[AlertEventActionSummary] = None
 
 
 
@@ -463,6 +496,10 @@ class WatchlistEventItem(BaseModel):
     reviewer_action_state: Optional[Literal["pending", "acknowledged", "closed"]] = None
     follow_up_state: Optional[str] = None
     decision_support_state: Optional[Literal["active_attention", "mostly_stable", "reopen_for_closer_review"]] = None
+    alert_event_status: Optional[str] = None
+    alert_event_action_state: Optional[str] = None
+    alert_event_change_state: Optional[str] = None
+    alert_event_occurrence_count: Optional[int] = None
     follow_up_posture: Literal["do_now", "batch_later", "recently_closed"] = "batch_later"
     follow_up_href: str
     follow_up_label: str
