@@ -8,6 +8,7 @@ from statistics import mean
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
+from property_advisor.alerts import evaluate_alerts
 from property_advisor.api.data_access import DataAccessLayer
 from property_advisor.api.db import create_session_factory
 from property_advisor.api.mock_fixtures import PROPERTY_ADVISOR_FIXTURE
@@ -35,6 +36,7 @@ from property_advisor.api.schemas import (
     SuburbsOverviewResponse,
     SummaryCard,
     WatchlistAlertsResponse,
+    WatchlistAlert,
     WatchlistActionRequest,
     WatchlistActionResponse,
     WatchlistContextSummary,
@@ -1575,10 +1577,57 @@ def _classify_orchestration_follow_up_posture(plan: dict[str, object]) -> Litera
     return "batch_later"
 
 
+def _build_evidence_watchlist_alerts(
+    *,
+    item: WatchlistEntry,
+    advice: PropertyAdvisorResponse,
+    comparables: ComparablesResponse,
+) -> List[WatchlistAlert]:
+    advisory_snapshot = advice.model_dump(mode="json")
+    advisory_snapshot["comparable_snapshot"] = {
+        "sample_size": comparables.summary.count,
+        "price_position": advice.comparable_snapshot.price_position,
+        "summary": advice.comparable_snapshot.summary,
+    }
+    raw_alerts = evaluate_alerts(advisory_snapshot)
+    output: List[WatchlistAlert] = []
+    for alert in raw_alerts:
+        try:
+            output.append(
+                WatchlistAlert.model_validate(
+                    {
+                        "severity": alert.get("severity", "info"),
+                        "title": str(alert.get("title") or "Advisory evidence alert"),
+                        "detail": str(alert.get("detail") or "Advisory evidence requires review."),
+                        "metric": str(alert.get("metric") or "advisory"),
+                        "observed_at": str(alert.get("observed_at") or advice.generated_at.isoformat()),
+                    }
+                )
+            )
+        except Exception:
+            continue
+    return output
+
+
+def _merge_watchlist_alerts(existing: List[WatchlistAlert], evidence: List[WatchlistAlert]) -> List[WatchlistAlert]:
+    merged: List[WatchlistAlert] = []
+    seen: set[tuple[str, str, str]] = set()
+    for alert in [*existing, *evidence]:
+        key = (alert.metric, alert.title, alert.observed_at)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(alert)
+    merged.sort(key=lambda alert: alert.observed_at, reverse=True)
+    return merged
+
+
 def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer = _DAL) -> WatchlistEntry:
     advice = get_property_advice(query=item.suburb_slug, query_type="slug", dal=dal)
     comparables = get_comparables(query=item.suburb_slug, max_items=5, dal=dal)
     orchestration = get_orchestration_review_status(limit=15)
+    evidence_alerts = _build_evidence_watchlist_alerts(item=item, advice=advice, comparables=comparables)
+    combined_alerts = _merge_watchlist_alerts(item.alerts, evidence_alerts)
 
     advisory_context = f"{advice.advice.recommendation} ({advice.advice.confidence}) — {advice.advice.headline}"
     if advice.advice.fallback_state and advice.advice.fallback_state != "none":
@@ -1603,7 +1652,7 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
     elif orchestration.summary.recent_reviewer_action_snapshot:
         reviewer_action_summary = orchestration.summary.recent_reviewer_action_snapshot
 
-    high_alert_count = sum(1 for alert in item.alerts if alert.severity == "high")
+    high_alert_count = sum(1 for alert in combined_alerts if alert.severity == "high")
     if item.watch_status in {"review", "paused"} or high_alert_count > 0:
         emphasis_reason = f"{_reason_label_phrase('active_follow_up')}; prioritize now for status/alert follow-up"
     else:
@@ -1611,6 +1660,7 @@ def _enrich_watchlist_entry_context(item: WatchlistEntry, dal: DataAccessLayer =
 
     return item.model_copy(
         update={
+            "alerts": combined_alerts,
             "latest_context": WatchlistContextSummary(
                 advisory=advisory_context,
                 comparables=comparables_context,
@@ -1655,7 +1705,10 @@ def upsert_watchlist_action(payload: WatchlistActionRequest, dal: DataAccessLaye
 
 
 def get_watchlist_alerts(severity: Optional[str] = None, dal: DataAccessLayer = _DAL) -> WatchlistAlertsResponse:
-    items = dal.watchlist.list_alerts(severity=severity)
+    entries = dal.watchlist.list_entries(WatchlistQuery())
+    items = [alert for entry in (_enrich_watchlist_entry_context(entry, dal=dal) for entry in entries) for alert in entry.alerts]
+    if severity:
+        items = [alert for alert in items if alert.severity == severity]
     return WatchlistAlertsResponse(
         generated_at=datetime.now(timezone.utc),
         mode=dal.mode,
@@ -1666,7 +1719,8 @@ def get_watchlist_alerts(severity: Optional[str] = None, dal: DataAccessLayer = 
 
 
 def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> WatchlistEventsResponse:
-    entries = dal.watchlist.list_entries(WatchlistQuery())
+    base_entries = dal.watchlist.list_entries(WatchlistQuery())
+    entries = [_enrich_watchlist_entry_context(entry, dal=dal) for entry in base_entries]
     events: list[WatchlistEventItem] = []
     orchestration = get_orchestration_review_status(limit=30)
 
@@ -1688,8 +1742,8 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
                     event_id=f"alert:{entry.suburb_slug}:{latest_alert.metric}:{latest_alert.observed_at}",
                     category="alert",
                     occurred_at=_parse_timestamp(latest_alert.observed_at) or datetime.now(timezone.utc),
-                    title=f"{entry.suburb_name}: {latest_alert.title}",
-                    detail=f"{latest_alert.detail} (severity: {latest_alert.severity})",
+                title=f"{entry.suburb_name}: advisory evidence alert — {latest_alert.title}",
+                detail=f"{latest_alert.detail} (severity: {latest_alert.severity}; metric: {latest_alert.metric})",
                     suburb_slug=entry.suburb_slug,
                     suburb_name=entry.suburb_name,
                     latest_decision=latest_decision,
@@ -1712,7 +1766,10 @@ def get_watchlist_events(limit: int = 12, dal: DataAccessLayer = _DAL) -> Watchl
                 category="watchlist",
                 occurred_at=datetime.now(timezone.utc),
                 title=f"{entry.suburb_name}: watchlist status is {entry.watch_status}",
-                detail=f"Strategy={entry.strategy}; target band ${entry.target_buy_range_min:,}-${entry.target_buy_range_max:,}.",
+                detail=(
+                    f"Strategy={entry.strategy}; target band ${entry.target_buy_range_min:,}-${entry.target_buy_range_max:,}; "
+                    f"evidence alerts={len(entry.alerts)}."
+                ),
                 suburb_slug=entry.suburb_slug,
                 suburb_name=entry.suburb_name,
                 latest_decision=latest_decision,
