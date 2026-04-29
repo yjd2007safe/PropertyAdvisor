@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from property_advisor.alerts import evaluate_alerts
+from property_advisor.operations_ledger import default_alert_scan_ledger_path, get_alert_scan_run_history
 from property_advisor.api.data_access import DataAccessLayer
 from property_advisor.api.db import create_session_factory
 from property_advisor.api.mock_fixtures import PROPERTY_ADVISOR_FIXTURE
@@ -24,6 +25,8 @@ from property_advisor.api.schemas import (
     DecisionOutcomeSummary,
     AlertScanCounts,
     AlertScanRunResponse,
+    AlertScanLedgerRun,
+    AlertScanLedgerSummary,
     OrchestrationPlanItem,
     OrchestrationReviewActionRequest,
     OrchestrationReviewActionResponse,
@@ -218,6 +221,32 @@ _WATCHLIST_STATUS_PRIORITY = {
     "archived": 1,
 }
 
+
+
+def _get_alert_scan_ledger_summary(limit: int = 5) -> AlertScanLedgerSummary:
+    records = get_alert_scan_run_history(default_alert_scan_ledger_path(), limit=limit)
+    runs: list[AlertScanLedgerRun] = []
+    for record in records:
+        counts = record.get("counts", {})
+        if not isinstance(counts, dict):
+            continue
+        try:
+            runs.append(
+                AlertScanLedgerRun(
+                    run_id=str(record.get("run_id") or ""),
+                    timestamp=str(record.get("timestamp") or ""),
+                    mode=str(record.get("mode") or "auto"),
+                    filters=(record.get("filters") if isinstance(record.get("filters"), dict) else {}),
+                    status=("failed" if str(record.get("status") or "success") == "failed" else "success"),
+                    error=(str(record.get("error")) if record.get("error") else None),
+                    persistence_attempted=bool(record.get("persistence_attempted")),
+                    counts=AlertScanCounts(**counts),
+                    regenerate_command=str(record.get("regenerate_command") or "python -m property_advisor.alert_scan --mode auto --json"),
+                )
+            )
+        except Exception:
+            continue
+    return AlertScanLedgerSummary(latest_run=runs[0] if runs else None, recent_runs=runs)
 
 def _review_state_path(artifact_path: Path) -> Path:
     return artifact_path / "review_state.json"
@@ -1482,6 +1511,7 @@ def get_watchlist(
             if alert_counts["high"] > 0
             else "No critical alerts detected; continue weekly monitoring cadence."
         ),
+        alert_scan_ledger=_get_alert_scan_ledger_summary(),
     )
     return WatchlistResponse(
         generated_at=datetime.now(timezone.utc),
@@ -2591,6 +2621,7 @@ def get_orchestration_review_status(
             )
             for plan in plans
         ],
+        alert_scan_ledger=_get_alert_scan_ledger_summary(),
     )
 
 

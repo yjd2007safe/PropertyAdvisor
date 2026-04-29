@@ -254,6 +254,16 @@ export default async function OrchestrationReviewPage({ searchParams }: Orchestr
           aside={<><p className="meta-label">Current state</p><h3>{summary.current_state}</h3><p>Freshness: {summary.freshness}</p></>}
         />
 
+        {review.alert_scan_ledger?.latest_run ? (
+          <section className="panel">
+            <p className="meta-label">Alert scan operations</p>
+            <p className="lede compact">
+              Latest {review.alert_scan_ledger.latest_run.status} run at {formatTimestamp(review.alert_scan_ledger.latest_run.timestamp)} · persisted {review.alert_scan_ledger.latest_run.counts.persisted} of {review.alert_scan_ledger.latest_run.counts.alerts_scanned} alerts.
+            </p>
+            <p className="lede compact">Regenerate: <code>{review.alert_scan_ledger.latest_run.regenerate_command}</code></p>
+          </section>
+        ) : null}
+
         <section className="stats-grid">
           <MetricCard label="Pending events" value={summary.pending_count} />
           <MetricCard label="Needs review" value={summary.review_required_count} tone={summary.review_needed ? "highlight" : "default"} />

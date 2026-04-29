@@ -320,6 +320,24 @@ class WatchlistEntry(BaseModel):
     alert_event_summary: Optional[AlertEventActionSummary] = None
 
 
+
+class AlertScanLedgerRun(BaseModel):
+    run_id: str
+    timestamp: str
+    mode: str
+    filters: Dict[str, object] = Field(default_factory=dict)
+    status: Literal["success", "failed"] = "success"
+    error: Optional[str] = None
+    persistence_attempted: bool = False
+    counts: AlertScanCounts
+    regenerate_command: str
+
+
+class AlertScanLedgerSummary(BaseModel):
+    latest_run: Optional[AlertScanLedgerRun] = None
+    recent_runs: List[AlertScanLedgerRun] = Field(default_factory=list)
+
+
 class WatchlistSummary(BaseModel):
     total_entries: int
     active_entries: int
@@ -340,6 +358,7 @@ class WatchlistSummary(BaseModel):
     review_session_packet_breakdown: Dict[str, int] = Field(default_factory=dict)
     alert_event_summary: Optional[AlertEventActionSummary] = None
     investor_brief: str
+    alert_scan_ledger: Optional[AlertScanLedgerSummary] = None
 
 
 class WatchlistGroup(BaseModel):
@@ -463,6 +482,7 @@ class OrchestrationReviewSummary(BaseModel):
 class OrchestrationReviewResponse(BaseModel):
     summary: OrchestrationReviewSummary
     plans: List[OrchestrationPlanItem]
+    alert_scan_ledger: Optional[AlertScanLedgerSummary] = None
 
 
 class OrchestrationReviewActionRequest(BaseModel):

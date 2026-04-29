@@ -113,6 +113,15 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
           <MetricCard label="High alerts" value={watchlist.summary.alert_counts.high ?? 0} tone="highlight" />
           <MetricCard label="Ready to progress" value={watchlist.summary.action_counts.ready_to_progress ?? 0} />
         </section>
+        {watchlist.summary.alert_scan_ledger?.latest_run ? (
+          <section className="panel">
+            <p className="meta-label">Latest alert scan run</p>
+            <p className="lede compact">
+              {watchlist.summary.alert_scan_ledger.latest_run.status} · {watchlist.summary.alert_scan_ledger.latest_run.timestamp} · entries {watchlist.summary.alert_scan_ledger.latest_run.counts.entries_scanned} · alerts {watchlist.summary.alert_scan_ledger.latest_run.counts.alerts_scanned} · persisted {watchlist.summary.alert_scan_ledger.latest_run.counts.persisted}
+            </p>
+            <p className="lede compact">Regenerate command: <code>{watchlist.summary.alert_scan_ledger.latest_run.regenerate_command}</code></p>
+          </section>
+        ) : null}
         {alertEventSummary ? (
           <section className="panel">
             <p className="meta-label">Evidence alert lifecycle</p>

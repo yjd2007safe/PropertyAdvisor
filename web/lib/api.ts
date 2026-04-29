@@ -229,6 +229,24 @@ export type ComparablesResponse = {
 };
 
 
+
+export type AlertScanLedgerRun = {
+  run_id: string;
+  timestamp: string;
+  mode: string;
+  filters: Record<string, unknown>;
+  status: "success" | "failed";
+  error?: string | null;
+  persistence_attempted: boolean;
+  counts: { entries_scanned: number; alerts_scanned: number; persisted: number; new: number; changed: number; unchanged: number };
+  regenerate_command: string;
+};
+
+export type AlertScanLedgerSummary = {
+  latest_run?: AlertScanLedgerRun | null;
+  recent_runs: AlertScanLedgerRun[];
+};
+
 export type DecisionOutcomeSummary = {
   outcome: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review";
   summary: string;
@@ -302,6 +320,7 @@ export type OrchestrationReviewResponse = {
     review_session_packet_breakdown: Record<"do_now" | "batch_later" | "recently_closed", number>;
   };
   plans: OrchestrationPlanItem[];
+  alert_scan_ledger?: AlertScanLedgerSummary | null;
 };
 
 export type WatchlistAlert = {
@@ -417,6 +436,7 @@ export type WatchlistResponse = {
       lifecycle: { new: number; changed: number; unchanged: number };
     } | null;
     investor_brief: string;
+    alert_scan_ledger?: AlertScanLedgerSummary | null;
   };
   summary_cards: SummaryCard[];
   workflow_links: WorkflowLink[];
