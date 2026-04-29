@@ -16,3 +16,6 @@ web/.next/
 error.log
 
 secrets/
+
+# Local operational runtime artifacts
+.refresh/
