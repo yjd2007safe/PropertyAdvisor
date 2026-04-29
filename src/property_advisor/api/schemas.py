@@ -331,6 +331,9 @@ class AlertScanLedgerRun(BaseModel):
     persistence_attempted: bool = False
     counts: AlertScanCounts
     regenerate_command: str
+    data_mode: Optional[str] = None
+    fallback_detected: bool = False
+    fallback_repositories: List[str] = Field(default_factory=list)
 
 
 class AlertScanLedgerSummary(BaseModel):
@@ -338,6 +341,19 @@ class AlertScanLedgerSummary(BaseModel):
     recent_runs: List[AlertScanLedgerRun] = Field(default_factory=list)
 
 
+
+
+class AlertScanHealthThresholds(BaseModel):
+    stale_after_minutes: int = 180
+
+
+class AlertScanHealthSummary(BaseModel):
+    status: Literal["healthy", "warning", "stale", "failed", "no_recent_run"]
+    reasons: List[str] = Field(default_factory=list)
+    recommended_command: str
+    age_minutes: Optional[int] = None
+    stale_after_minutes: int
+    latest_run: Optional[AlertScanLedgerRun] = None
 class WatchlistSummary(BaseModel):
     total_entries: int
     active_entries: int
@@ -359,6 +375,7 @@ class WatchlistSummary(BaseModel):
     alert_event_summary: Optional[AlertEventActionSummary] = None
     investor_brief: str
     alert_scan_ledger: Optional[AlertScanLedgerSummary] = None
+    alert_scan_health: Optional[AlertScanHealthSummary] = None
 
 
 class WatchlistGroup(BaseModel):
@@ -483,6 +500,8 @@ class OrchestrationReviewResponse(BaseModel):
     summary: OrchestrationReviewSummary
     plans: List[OrchestrationPlanItem]
     alert_scan_ledger: Optional[AlertScanLedgerSummary] = None
+    alert_scan_health: Optional[AlertScanHealthSummary] = None
+    alert_scan_health: Optional[AlertScanHealthSummary] = None
 
 
 class OrchestrationReviewActionRequest(BaseModel):

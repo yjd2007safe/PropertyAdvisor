@@ -27,6 +27,7 @@ from property_advisor.api.schemas import (
     AlertScanRunResponse,
     AlertScanLedgerRun,
     AlertScanLedgerSummary,
+    AlertScanHealthSummary,
     OrchestrationPlanItem,
     OrchestrationReviewActionRequest,
     OrchestrationReviewActionResponse,
@@ -223,6 +224,56 @@ _WATCHLIST_STATUS_PRIORITY = {
 
 
 
+_DEFAULT_ALERT_SCAN_STALE_AFTER_MINUTES = 180
+_DEFAULT_ALERT_SCAN_COMMAND = "python -m property_advisor.alert_scan --mode auto --json"
+
+def _parse_utc_timestamp(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+def _classify_alert_scan_health(
+    ledger: AlertScanLedgerSummary,
+    *,
+    stale_after_minutes: int = _DEFAULT_ALERT_SCAN_STALE_AFTER_MINUTES,
+) -> AlertScanHealthSummary:
+    latest = ledger.latest_run
+    command = latest.regenerate_command if latest else _DEFAULT_ALERT_SCAN_COMMAND
+    if latest is None:
+        return AlertScanHealthSummary(status="no_recent_run", reasons=["No alert scan run found in local ledger."], recommended_command=command, stale_after_minutes=stale_after_minutes)
+    reasons: list[str] = []
+    status = "healthy"
+    age_minutes = None
+    ts = _parse_utc_timestamp(latest.timestamp)
+    if ts is not None:
+        age_minutes = max(int((datetime.now(timezone.utc)-ts).total_seconds()//60),0)
+        if age_minutes > stale_after_minutes:
+            status = "stale"
+            reasons.append(f"Latest scan is stale ({age_minutes} minutes old; threshold {stale_after_minutes}).")
+    if latest.status == "failed":
+        status = "failed"
+        reasons.append(f"Latest scan failed: {latest.error or 'unknown error'}." )
+    if latest.counts.entries_scanned == 0 or latest.counts.persisted == 0:
+        if status == "healthy":
+            status = "warning"
+        reasons.append("Latest scan produced zero entries or zero persisted events; verify filters/data mode.")
+    if latest.mode == "auto" and latest.counts.entries_scanned > 0 and latest.counts.alerts_scanned == 0:
+        if status == "healthy":
+            status = "warning"
+        reasons.append("Latest scan found no alerts; confirm this is expected for current watchlist state.")
+    fallback_detected = bool(latest.fallback_detected or latest.fallback_repositories or (latest.data_mode and 'fallback' in latest.data_mode))
+    if fallback_detected:
+        if status == "healthy":
+            status = "warning"
+        reasons.append("Recent run indicates fallback/degraded data mode activity.")
+    if not reasons and status == "healthy":
+        reasons = ["Latest scan is fresh and successful."]
+    return AlertScanHealthSummary(status=status, reasons=reasons, recommended_command=command, age_minutes=age_minutes, stale_after_minutes=stale_after_minutes, latest_run=latest)
+
+
 def _get_alert_scan_ledger_summary(limit: int = 5) -> AlertScanLedgerSummary:
     records = get_alert_scan_run_history(default_alert_scan_ledger_path(), limit=limit)
     runs: list[AlertScanLedgerRun] = []
@@ -242,6 +293,9 @@ def _get_alert_scan_ledger_summary(limit: int = 5) -> AlertScanLedgerSummary:
                     persistence_attempted=bool(record.get("persistence_attempted")),
                     counts=AlertScanCounts(**counts),
                     regenerate_command=str(record.get("regenerate_command") or "python -m property_advisor.alert_scan --mode auto --json"),
+                    data_mode=(str(record.get("data_mode")) if record.get("data_mode") else None),
+                    fallback_detected=bool(record.get("fallback_detected")),
+                    fallback_repositories=(record.get("fallback_repositories") if isinstance(record.get("fallback_repositories"), list) else []),
                 )
             )
         except Exception:
@@ -1478,6 +1532,7 @@ def get_watchlist(
         recently_closed=watchlist_packet_breakdown["recently_closed"],
     )
 
+    ledger = _get_alert_scan_ledger_summary()
     summary = WatchlistSummary(
         total_entries=len(enriched_items),
         active_entries=by_status["active"],
@@ -1511,7 +1566,8 @@ def get_watchlist(
             if alert_counts["high"] > 0
             else "No critical alerts detected; continue weekly monitoring cadence."
         ),
-        alert_scan_ledger=_get_alert_scan_ledger_summary(),
+        alert_scan_ledger=ledger,
+        alert_scan_health=_classify_alert_scan_health(ledger),
     )
     return WatchlistResponse(
         generated_at=datetime.now(timezone.utc),
@@ -2519,6 +2575,7 @@ def get_orchestration_review_status(
         current_state = "idle"
         next_action = "No pending orchestration events. Wait for next runtime cycle, then restart review when new outcomes arrive."
 
+    ledger = _get_alert_scan_ledger_summary()
     return OrchestrationReviewResponse(
         summary=OrchestrationReviewSummary(
             current_state=current_state,
@@ -2621,7 +2678,8 @@ def get_orchestration_review_status(
             )
             for plan in plans
         ],
-        alert_scan_ledger=_get_alert_scan_ledger_summary(),
+        alert_scan_ledger=ledger,
+        alert_scan_health=_classify_alert_scan_health(ledger),
     )
 
 
