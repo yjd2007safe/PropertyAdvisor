@@ -98,3 +98,39 @@ def test_watchlist_exposes_latest_alert_scan_ledger_summary(tmp_path: Path) -> N
         assert watchlist.summary.alert_scan_ledger.latest_run.counts.persisted >= 0
     finally:
         services.default_alert_scan_ledger_path = original
+
+
+def test_watchlist_alert_scan_health_no_recent_run(tmp_path) -> None:
+    import property_advisor.api.services as services
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    empty_ledger = tmp_path / "empty.json"
+    original = services.default_alert_scan_ledger_path
+    services.default_alert_scan_ledger_path = lambda: empty_ledger
+    try:
+        watchlist = get_watchlist(dal=dal)
+        assert watchlist.summary.alert_scan_health is not None
+        assert watchlist.summary.alert_scan_health.status == "no_recent_run"
+    finally:
+        services.default_alert_scan_ledger_path = original
+
+
+def test_watchlist_alert_scan_health_failed_and_stale(tmp_path) -> None:
+    from datetime import datetime, timedelta, timezone
+    from property_advisor.operations_ledger import append_alert_scan_run_record
+    import property_advisor.api.services as services
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    ledger_path = tmp_path / "ops.json"
+    result = scan_watchlist_alert_events(suburb_slug="southport-qld-4215", dal=dal)
+    append_alert_scan_run_record(path=ledger_path, mode="mock", filters={}, result=result, persistence_attempted=True, status="failed", error="boom")
+    payload = json.loads(ledger_path.read_text())
+    payload["runs"][-1]["timestamp"] = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+    ledger_path.write_text(json.dumps(payload))
+    original = services.default_alert_scan_ledger_path
+    services.default_alert_scan_ledger_path = lambda: ledger_path
+    try:
+        orchestration = services.get_orchestration_review_status(limit=5)
+        assert orchestration.alert_scan_health is not None
+        assert orchestration.alert_scan_health.status == "failed"
+        assert any("stale" in reason.lower() for reason in orchestration.alert_scan_health.reasons)
+    finally:
+        services.default_alert_scan_ledger_path = original

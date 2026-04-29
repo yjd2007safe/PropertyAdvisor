@@ -247,6 +247,15 @@ export type AlertScanLedgerSummary = {
   recent_runs: AlertScanLedgerRun[];
 };
 
+export type AlertScanHealthSummary = {
+  status: "healthy" | "warning" | "stale" | "failed" | "no_recent_run";
+  reasons: string[];
+  recommended_command: string;
+  age_minutes?: number | null;
+  stale_after_minutes: number;
+  latest_run?: AlertScanLedgerRun | null;
+};
+
 export type DecisionOutcomeSummary = {
   outcome: "continue_monitoring" | "revisit_later" | "close_for_now" | "escalate_for_closer_review";
   summary: string;
@@ -321,6 +330,7 @@ export type OrchestrationReviewResponse = {
   };
   plans: OrchestrationPlanItem[];
   alert_scan_ledger?: AlertScanLedgerSummary | null;
+  alert_scan_health?: AlertScanHealthSummary | null;
 };
 
 export type WatchlistAlert = {
@@ -437,6 +447,7 @@ export type WatchlistResponse = {
     } | null;
     investor_brief: string;
     alert_scan_ledger?: AlertScanLedgerSummary | null;
+    alert_scan_health?: AlertScanHealthSummary | null;
   };
   summary_cards: SummaryCard[];
   workflow_links: WorkflowLink[];
