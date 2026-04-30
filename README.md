@@ -156,3 +156,19 @@ Safe rerun flow for operators:
 - `PROPERTY_ADVISOR_DATA_MODE=auto` resolves to `postgres` only when `DATABASE_URL` is present; otherwise it falls back to `mock`.
 - `PROPERTY_ADVISOR_DATA_MODE=postgres` is the explicit cutover switch once repository SQL reads are implemented.
 - Legacy `PROPERTY_ADVISOR_USE_DB=0|1` is still accepted for compatibility, but new setup should use `PROPERTY_ADVISOR_DATA_MODE`.
+
+## Alert scan local runner (Phase 8)
+
+Run a one-shot alert scan wrapper cycle:
+
+```bash
+python -m property_advisor.alert_scan_runner --mode auto --limit 25
+```
+
+Run in a foreground local loop (no cron/systemd) every 15 minutes:
+
+```bash
+python -m property_advisor.alert_scan_runner --mode auto --interval-minutes 15
+```
+
+The wrapper preserves existing alert scan ledger/health/ack behavior by delegating to `property_advisor.alert_scan`, and it prints the exact underlying scan command so operators can run the raw command directly.

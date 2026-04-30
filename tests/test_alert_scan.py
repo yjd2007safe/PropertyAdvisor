@@ -156,3 +156,32 @@ def test_alert_scan_acknowledgement_lifecycle_expired_and_superseded(tmp_path) -
       assert watchlist.summary.alert_scan_acknowledgement.status in {"superseded", "expired"}
     finally:
       services.default_alert_scan_ledger_path = original
+
+
+def test_alert_scan_runner_one_shot_executes_single_cycle(capsys) -> None:
+    from property_advisor.alert_scan_runner import main as runner_main
+
+    code = runner_main(["--mode", "mock", "--limit", "1"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "[runner] one-shot mode" in out
+    assert "[cycle 1]" in out
+    assert "regenerate_command=python -m property_advisor.alert_scan" in out
+
+
+def test_alert_scan_runner_loop_mode_honors_max_cycles_and_interval(monkeypatch, capsys) -> None:
+    from property_advisor.alert_scan_runner import main as runner_main
+
+    sleeps: list[float] = []
+
+    def _fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("property_advisor.alert_scan_runner.time.sleep", _fake_sleep)
+    code = runner_main(["--mode", "mock", "--limit", "1", "--interval-minutes", "0.01", "--max-cycles", "2"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "[runner] foreground loop mode" in out
+    assert "[cycle 1]" in out and "[cycle 2]" in out
+    assert "reached max_cycles=2" in out
+    assert sleeps == [0.6]
