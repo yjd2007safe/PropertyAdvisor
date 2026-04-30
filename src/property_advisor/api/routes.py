@@ -11,6 +11,8 @@ from property_advisor.api.schemas import (
     HealthResponse,
     OrchestrationReviewActionRequest,
     OrchestrationReviewActionResponse,
+    AlertScanAcknowledgeRequest,
+    AlertScanAcknowledgeResponse,
     OrchestrationReviewResponse,
     PropertyAdvisorResponse,
     SuburbsOverviewResponse,
@@ -25,6 +27,7 @@ from property_advisor.api.schemas import (
 )
 from property_advisor.api.services import (
     apply_orchestration_review_action,
+    acknowledge_alert_scan_health,
     get_comparables,
     get_health_status,
     get_orchestration_review_status,
@@ -143,6 +146,15 @@ def watchlist_alert_event_action(payload: WatchlistAlertEventActionRequest) -> W
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+
+
+
+@router.post("/alert-scan/acknowledge", response_model=AlertScanAcknowledgeResponse)
+def alert_scan_acknowledge(payload: AlertScanAcknowledgeRequest) -> AlertScanAcknowledgeResponse:
+    try:
+        return acknowledge_alert_scan_health(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 @router.get("/watchlist/{suburb_slug}", response_model=WatchlistDetailResponse)
 def watchlist_detail(suburb_slug: str) -> WatchlistDetailResponse:

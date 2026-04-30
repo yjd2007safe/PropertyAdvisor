@@ -354,6 +354,33 @@ class AlertScanHealthSummary(BaseModel):
     age_minutes: Optional[int] = None
     stale_after_minutes: int
     latest_run: Optional[AlertScanLedgerRun] = None
+
+
+class AlertScanAcknowledgementState(BaseModel):
+    status: Literal["active", "expired", "superseded"]
+    acknowledged_by: str
+    reason: str
+    deferred_until: Optional[str] = None
+    acknowledged_at: str
+    expires_at: Optional[str] = None
+    stale_after_minutes: int = 0
+    stale: bool = False
+    acknowledged_for_run_id: Optional[str] = None
+    stale_reason: Optional[str] = None
+
+
+class AlertScanAcknowledgeRequest(BaseModel):
+    acknowledged_by: str
+    reason: str
+    deferred_until: Optional[str] = None
+    expires_at: Optional[str] = None
+
+
+class AlertScanAcknowledgeResponse(BaseModel):
+    generated_at: datetime
+    acknowledgement: AlertScanAcknowledgementState
+    alert_scan_health: AlertScanHealthSummary
+
 class WatchlistSummary(BaseModel):
     total_entries: int
     active_entries: int
@@ -376,6 +403,7 @@ class WatchlistSummary(BaseModel):
     investor_brief: str
     alert_scan_ledger: Optional[AlertScanLedgerSummary] = None
     alert_scan_health: Optional[AlertScanHealthSummary] = None
+    alert_scan_acknowledgement: Optional[AlertScanAcknowledgementState] = None
 
 
 class WatchlistGroup(BaseModel):
@@ -501,7 +529,7 @@ class OrchestrationReviewResponse(BaseModel):
     plans: List[OrchestrationPlanItem]
     alert_scan_ledger: Optional[AlertScanLedgerSummary] = None
     alert_scan_health: Optional[AlertScanHealthSummary] = None
-    alert_scan_health: Optional[AlertScanHealthSummary] = None
+    alert_scan_acknowledgement: Optional[AlertScanAcknowledgementState] = None
 
 
 class OrchestrationReviewActionRequest(BaseModel):

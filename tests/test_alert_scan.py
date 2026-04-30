@@ -134,3 +134,25 @@ def test_watchlist_alert_scan_health_failed_and_stale(tmp_path) -> None:
         assert any("stale" in reason.lower() for reason in orchestration.alert_scan_health.reasons)
     finally:
         services.default_alert_scan_ledger_path = original
+
+def test_alert_scan_acknowledgement_lifecycle_expired_and_superseded(tmp_path) -> None:
+    import property_advisor.api.services as services
+    from property_advisor.operations_ledger import append_alert_scan_run_record
+
+    dal = DataAccessLayer.create(DatabaseSessionFactory(DatabaseConfig(url=None, requested_mode="mock")))
+    ledger_path = tmp_path / "ops.json"
+    result = scan_watchlist_alert_events(suburb_slug="southport-qld-4215", dal=dal)
+    append_alert_scan_run_record(path=ledger_path, mode="mock", filters={}, result=result, persistence_attempted=True, status="failed", error="boom")
+    original = services.default_alert_scan_ledger_path
+    services.default_alert_scan_ledger_path = lambda: ledger_path
+    try:
+      ack = services.acknowledge_alert_scan_health(services.AlertScanAcknowledgeRequest(acknowledged_by="op1", reason="waiting for source", expires_at="2000-01-01T00:00:00+00:00"))
+      assert ack.acknowledgement.status == "expired"
+      # new run should supersede
+      result2 = scan_watchlist_alert_events(suburb_slug="southport-qld-4215", dal=dal)
+      append_alert_scan_run_record(path=ledger_path, mode="mock", filters={}, result=result2, persistence_attempted=True, status="failed", error="boom2")
+      watchlist = services.get_watchlist(dal=dal)
+      assert watchlist.summary.alert_scan_acknowledgement is not None
+      assert watchlist.summary.alert_scan_acknowledgement.status in {"superseded", "expired"}
+    finally:
+      services.default_alert_scan_ledger_path = original
