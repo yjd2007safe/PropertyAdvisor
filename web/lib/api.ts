@@ -79,6 +79,17 @@ export type WorkflowSnapshot = {
   investor_message: string;
 };
 
+export type AlertScanAcknowledgementState = {
+  status: "active" | "expired" | "superseded";
+  acknowledged_by: string;
+  reason: string;
+  deferred_until?: string | null;
+  acknowledged_at: string;
+  expires_at?: string | null;
+  stale: boolean;
+  stale_reason?: string | null;
+};
+
 
 export type DataSourceStatus = {
   mode: "mock" | "postgres";
@@ -331,6 +342,7 @@ export type OrchestrationReviewResponse = {
   plans: OrchestrationPlanItem[];
   alert_scan_ledger?: AlertScanLedgerSummary | null;
   alert_scan_health?: AlertScanHealthSummary | null;
+  alert_scan_acknowledgement?: AlertScanAcknowledgementState | null;
 };
 
 export type WatchlistAlert = {
@@ -448,6 +460,7 @@ export type WatchlistResponse = {
     investor_brief: string;
     alert_scan_ledger?: AlertScanLedgerSummary | null;
     alert_scan_health?: AlertScanHealthSummary | null;
+    alert_scan_acknowledgement?: AlertScanAcknowledgementState | null;
   };
   summary_cards: SummaryCard[];
   workflow_links: WorkflowLink[];
@@ -522,3 +535,7 @@ export const postWatchlistAction = (payload: {
   watch_status?: "active" | "review" | "paused" | "archived";
   notes?: string;
 }) => postJson<{ action: "created" | "updated"; item: WatchlistEntry }>("/api/watchlist/actions", payload);
+
+
+export const postAlertScanAcknowledge = (payload: { acknowledged_by: string; reason: string; deferred_until?: string; expires_at?: string }) =>
+  postJson<{ generated_at: string; acknowledgement: AlertScanAcknowledgementState; alert_scan_health: AlertScanHealthSummary }>("/api/alert-scan/acknowledge", payload);

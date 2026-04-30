@@ -121,6 +121,18 @@ export default async function WatchlistPage({ searchParams }: WatchlistPageProps
             </p>
             <p className="lede compact">{watchlist.summary.alert_scan_health.reasons.join(" · ")}</p>
             <p className="lede compact">Regenerate command: <code>{watchlist.summary.alert_scan_health.recommended_command}</code></p>
+            <p className="lede compact">Acknowledgement: {watchlist.summary.alert_scan_acknowledgement ? `${watchlist.summary.alert_scan_acknowledgement.status} by ${watchlist.summary.alert_scan_acknowledgement.acknowledged_by}` : "not recorded"}</p>
+            {watchlist.summary.alert_scan_acknowledgement ? <p className="lede compact">Reason: {watchlist.summary.alert_scan_acknowledgement.reason} · Expires: {watchlist.summary.alert_scan_acknowledgement.expires_at ?? "not set"} · Deferred until: {watchlist.summary.alert_scan_acknowledgement.deferred_until ?? "not set"}</p> : null}
+            {watchlist.summary.alert_scan_health.status !== "healthy" ? (
+              <form className="query-form" method="POST" action="/alert-scan/actions">
+                <input type="hidden" name="redirect_to" value="/watchlist" />
+                <input name="acknowledged_by" placeholder="operator" required />
+                <input name="reason" placeholder="defer reason" required />
+                <input name="deferred_until" placeholder="2026-05-01T12:00:00+00:00" />
+                <input name="expires_at" placeholder="2026-05-02T12:00:00+00:00" />
+                <button type="submit">Acknowledge / defer</button>
+              </form>
+            ) : null}
           </section>
         ) : null}
         {alertEventSummary ? (

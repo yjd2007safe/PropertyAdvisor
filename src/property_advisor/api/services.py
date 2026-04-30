@@ -28,6 +28,9 @@ from property_advisor.api.schemas import (
     AlertScanLedgerRun,
     AlertScanLedgerSummary,
     AlertScanHealthSummary,
+    AlertScanAcknowledgementState,
+    AlertScanAcknowledgeRequest,
+    AlertScanAcknowledgeResponse,
     OrchestrationPlanItem,
     OrchestrationReviewActionRequest,
     OrchestrationReviewActionResponse,
@@ -301,6 +304,73 @@ def _get_alert_scan_ledger_summary(limit: int = 5) -> AlertScanLedgerSummary:
         except Exception:
             continue
     return AlertScanLedgerSummary(latest_run=runs[0] if runs else None, recent_runs=runs)
+
+
+
+def _alert_scan_ack_path() -> Path:
+    return default_alert_scan_ledger_path().with_name("alert_scan_acknowledgements.json")
+
+
+def _load_alert_scan_ack_raw(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text())
+    return payload if isinstance(payload, dict) else {}
+
+
+def _build_alert_scan_ack_state(ledger: AlertScanLedgerSummary) -> AlertScanAcknowledgementState | None:
+    payload = _load_alert_scan_ack_raw(_alert_scan_ack_path())
+    if not payload:
+        return None
+    acknowledged_at = str(payload.get("acknowledged_at") or "").strip()
+    acknowledged_by = str(payload.get("acknowledged_by") or "").strip()
+    reason = str(payload.get("reason") or "").strip()
+    if not (acknowledged_at and acknowledged_by and reason):
+        return None
+    expires_at = str(payload.get("expires_at") or "").strip() or None
+    deferred_until = str(payload.get("deferred_until") or "").strip() or None
+    stale_after_minutes = int(payload.get("stale_after_minutes") or _DEFAULT_ALERT_SCAN_STALE_AFTER_MINUTES)
+    status = "active"
+    stale = False
+    stale_reason = None
+    now = datetime.now(timezone.utc)
+    latest_run_id = ledger.latest_run.run_id if ledger.latest_run else None
+    ack_run_id = str(payload.get("acknowledged_for_run_id") or "").strip() or None
+    if ack_run_id and latest_run_id and ack_run_id != latest_run_id:
+        status = "superseded"
+        stale = True
+        stale_reason = "New alert scan run detected after acknowledgement."
+    exp_ts = _parse_utc_timestamp(expires_at)
+    if exp_ts and now >= exp_ts:
+        status = "expired"
+        stale = True
+        stale_reason = "Acknowledgement expired."
+    return AlertScanAcknowledgementState(status=status, acknowledged_by=acknowledged_by, reason=reason, deferred_until=deferred_until, acknowledged_at=acknowledged_at, expires_at=expires_at, stale_after_minutes=stale_after_minutes, stale=stale, acknowledged_for_run_id=ack_run_id, stale_reason=stale_reason)
+
+
+def acknowledge_alert_scan_health(request: AlertScanAcknowledgeRequest) -> AlertScanAcknowledgeResponse:
+    ledger = _get_alert_scan_ledger_summary(limit=5)
+    health = _classify_alert_scan_health(ledger)
+    if health.status == "healthy":
+        raise ValueError("Alert scan health is healthy; no acknowledgement required.")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "version": 1,
+        "updated_at": now_iso,
+        "acknowledged_at": now_iso,
+        "acknowledged_by": request.acknowledged_by.strip(),
+        "reason": request.reason.strip(),
+        "deferred_until": request.deferred_until,
+        "expires_at": request.expires_at,
+        "acknowledged_for_run_id": ledger.latest_run.run_id if ledger.latest_run else None,
+        "stale_after_minutes": health.stale_after_minutes,
+    }
+    path = _alert_scan_ack_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    updated_ledger = _get_alert_scan_ledger_summary(limit=5)
+    ack_state = _build_alert_scan_ack_state(updated_ledger)
+    return AlertScanAcknowledgeResponse(generated_at=datetime.now(timezone.utc), acknowledgement=ack_state, alert_scan_health=_classify_alert_scan_health(updated_ledger))
 
 def _review_state_path(artifact_path: Path) -> Path:
     return artifact_path / "review_state.json"
@@ -1568,6 +1638,7 @@ def get_watchlist(
         ),
         alert_scan_ledger=ledger,
         alert_scan_health=_classify_alert_scan_health(ledger),
+        alert_scan_acknowledgement=_build_alert_scan_ack_state(ledger),
     )
     return WatchlistResponse(
         generated_at=datetime.now(timezone.utc),
@@ -2680,6 +2751,7 @@ def get_orchestration_review_status(
         ],
         alert_scan_ledger=ledger,
         alert_scan_health=_classify_alert_scan_health(ledger),
+        alert_scan_acknowledgement=_build_alert_scan_ack_state(ledger),
     )
 
 
